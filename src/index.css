@@ -1,0 +1,535 @@
+@import "tailwindcss";
+
+/* Arc-inspired dark theme (default) */
+:root {
+  color-scheme: dark;
+
+  /* Backgrounds - warmer, softer darks */
+  --bg-primary: #161618;
+  --bg-secondary: #1c1c1e;
+  --bg-secondary-rgb: 28, 28, 30;
+  --bg-tertiary: #232326;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-active: rgba(255, 255, 255, 0.1);
+
+  /* Text */
+  --text-primary: #f5f5f7;
+  --text-secondary: rgba(255, 255, 255, 0.7);
+  --text-muted: rgba(255, 255, 255, 0.4);
+
+  /* Borders */
+  --border-color: rgba(255, 255, 255, 0.08);
+  --border-subtle: rgba(255, 255, 255, 0.04);
+
+  /* Accent colors - Arc-style vibrant palette */
+  --accent-color: #6366f1;
+  --accent-hover: #818cf8;
+  --accent-glow: rgba(99, 102, 241, 0.2);
+
+  /* Status */
+  --danger-color: #ef4444;
+  --success-color: #22c55e;
+  --warning-color: #f59e0b;
+
+  /* Space colors */
+  --space-purple: #8b5cf6;
+  --space-blue: #3b82f6;
+  --space-cyan: #06b6d4;
+  --space-green: #22c55e;
+  --space-yellow: #eab308;
+  --space-orange: #f97316;
+  --space-pink: #ec4899;
+  --space-red: #ef4444;
+
+  /* Sidebar */
+  --sidebar-bg: #1c1c1e;
+  --sidebar-bg-rgb: 28, 28, 30;
+  --sidebar-width: 220px;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+}
+
+/* Light theme */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  /* Backgrounds - clean whites and subtle grays */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8f8f8;
+  --bg-secondary-rgb: 248, 248, 248;
+  --bg-tertiary: #f0f0f0;
+  --bg-hover: rgba(0, 0, 0, 0.04);
+  --bg-active: rgba(0, 0, 0, 0.08);
+
+  /* Text */
+  --text-primary: #1a1a1a;
+  --text-secondary: rgba(0, 0, 0, 0.7);
+  --text-muted: rgba(0, 0, 0, 0.45);
+
+  /* Borders */
+  --border-color: rgba(0, 0, 0, 0.12);
+  --border-subtle: rgba(0, 0, 0, 0.06);
+
+  /* Accent colors - slightly deeper for light mode */
+  --accent-color: #5b5fc7;
+  --accent-hover: #4f53b5;
+  --accent-glow: rgba(91, 95, 199, 0.15);
+
+  /* Status */
+  --danger-color: #dc2626;
+  --success-color: #16a34a;
+  --warning-color: #ea580c;
+
+  /* Space colors - slightly adjusted for light backgrounds */
+  --space-purple: #7c3aed;
+  --space-blue: #2563eb;
+  --space-cyan: #0891b2;
+  --space-green: #16a34a;
+  --space-yellow: #ca8a04;
+  --space-orange: #ea580c;
+  --space-pink: #db2777;
+  --space-red: #dc2626;
+
+  /* Sidebar */
+  --sidebar-bg: #f8f8f8;
+  --sidebar-bg-rgb: 248, 248, 248;
+}
+
+/* Light theme scrollbar styling */
+:root[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+:root[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+:root[data-theme="light"] .results-grid-list::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+:root[data-theme="light"] .results-grid-list::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+:root[data-theme="light"] .results-grid-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+/* Theme-aware utility classes for semi-transparent backgrounds/borders */
+/* These replace hardcoded white/X with theme-aware alternatives */
+.theme-bg-subtle {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+:root[data-theme="light"] .theme-bg-subtle {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.theme-bg-medium {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+:root[data-theme="light"] .theme-bg-medium {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.theme-border-subtle {
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
+:root[data-theme="light"] .theme-border-subtle {
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+.theme-border-medium {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+:root[data-theme="light"] .theme-border-medium {
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+/* Hover states */
+.theme-hover-bg:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+:root[data-theme="light"] .theme-hover-bg:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+/* Modal overlay */
+.theme-overlay {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+:root[data-theme="light"] .theme-overlay {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+/* ===== LIGHT MODE OVERRIDES FOR TAILWIND SEMI-TRANSPARENT COLORS ===== */
+/* Convert white/X to black/X in light mode for proper contrast */
+
+/* Background colors */
+:root[data-theme="light"] .bg-white\/5 {
+  background-color: rgba(0, 0, 0, 0.03) !important;
+}
+
+:root[data-theme="light"] .bg-white\/10 {
+  background-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+:root[data-theme="light"] .bg-white\/15 {
+  background-color: rgba(0, 0, 0, 0.09) !important;
+}
+
+:root[data-theme="light"] .bg-white\/20 {
+  background-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+:root[data-theme="light"] .bg-white\/\[0\.02\] {
+  background-color: rgba(0, 0, 0, 0.02) !important;
+}
+
+:root[data-theme="light"] .bg-white\/\[0\.07\] {
+  background-color: rgba(0, 0, 0, 0.05) !important;
+}
+
+/* Hover background colors */
+:root[data-theme="light"] .hover\:bg-white\/5:hover {
+  background-color: rgba(0, 0, 0, 0.04) !important;
+}
+
+:root[data-theme="light"] .hover\:bg-white\/10:hover {
+  background-color: rgba(0, 0, 0, 0.07) !important;
+}
+
+:root[data-theme="light"] .hover\:bg-white\/15:hover {
+  background-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+:root[data-theme="light"] .hover\:bg-white\/20:hover {
+  background-color: rgba(0, 0, 0, 0.14) !important;
+}
+
+:root[data-theme="light"] .hover\:bg-white\/\[0\.07\]:hover {
+  background-color: rgba(0, 0, 0, 0.05) !important;
+}
+
+/* Focus background colors */
+:root[data-theme="light"] .focus\:bg-white\/\[0\.07\]:focus {
+  background-color: rgba(0, 0, 0, 0.05) !important;
+}
+
+/* Border colors */
+:root[data-theme="light"] .border-white\/5 {
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+:root[data-theme="light"] .border-white\/10 {
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+:root[data-theme="light"] .border-white\/20 {
+  border-color: rgba(0, 0, 0, 0.15) !important;
+}
+
+:root[data-theme="light"] .border-white\/30 {
+  border-color: rgba(0, 0, 0, 0.2) !important;
+}
+
+:root[data-theme="light"] .border-white\/50 {
+  border-color: rgba(0, 0, 0, 0.35) !important;
+}
+
+/* Hover border colors */
+:root[data-theme="light"] .hover\:border-white\/20:hover {
+  border-color: rgba(0, 0, 0, 0.15) !important;
+}
+
+:root[data-theme="light"] .hover\:border-white\/50:hover {
+  border-color: rgba(0, 0, 0, 0.35) !important;
+}
+
+/* Focus border colors */
+:root[data-theme="light"] .focus\:border-white\/20:focus {
+  border-color: rgba(0, 0, 0, 0.15) !important;
+}
+
+/* Ring colors */
+:root[data-theme="light"] .ring-white\/30 {
+  --tw-ring-color: rgba(0, 0, 0, 0.2) !important;
+}
+
+/* Divider/separator colors */
+:root[data-theme="light"] .divide-white\/5> :not([hidden])~ :not([hidden]) {
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+:root[data-theme="light"] .divide-white\/10> :not([hidden])~ :not([hidden]) {
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Fixed backgrounds that should invert in light mode */
+:root[data-theme="light"] .bg-zinc-800 {
+  background-color: #f0f0f0 !important;
+}
+
+:root[data-theme="light"] .bg-zinc-900 {
+  background-color: #f8f8f8 !important;
+}
+
+/* Text color overrides for light mode - gray scale colors that work better */
+:root[data-theme="light"] .text-gray-100 {
+  color: #1a1a1a !important;
+}
+
+:root[data-theme="light"] .text-gray-200 {
+  color: #2d2d2d !important;
+}
+
+:root[data-theme="light"] .text-gray-300 {
+  color: #404040 !important;
+}
+
+:root[data-theme="light"] .text-gray-400 {
+  color: #525252 !important;
+}
+
+:root[data-theme="light"] .text-gray-500 {
+  color: #6b6b6b !important;
+}
+
+:root[data-theme="light"] .hover\:text-gray-100:hover {
+  color: #1a1a1a !important;
+}
+
+:root[data-theme="light"] .hover\:text-gray-200:hover {
+  color: #2d2d2d !important;
+}
+
+/* Semantic color adjustments for light mode */
+:root[data-theme="light"] .text-green-400 {
+  color: #16a34a !important;
+}
+
+:root[data-theme="light"] .text-red-400 {
+  color: #dc2626 !important;
+}
+
+:root[data-theme="light"] .text-blue-400 {
+  color: #2563eb !important;
+}
+
+:root[data-theme="light"] .text-purple-400 {
+  color: #7c3aed !important;
+}
+
+:root[data-theme="light"] .text-orange-400 {
+  color: #ea580c !important;
+}
+
+:root[data-theme="light"] .text-amber-400 {
+  color: #d97706 !important;
+}
+
+/* Ensure dark background immediately */
+html,
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling - thin and subtle */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Focus styles */
+:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+/* Button base styles */
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  border: none;
+  color: inherit;
+  transition: all 0.15s ease;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Arc-style animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes marquee {
+  0% {
+    transform: translateX(0);
+  }
+
+  15% {
+    transform: translateX(0);
+  }
+
+  85% {
+    transform: translateX(calc(-100% + var(--marquee-width, 100%)));
+  }
+
+  100% {
+    transform: translateX(calc(-100% + var(--marquee-width, 100%)));
+  }
+}
+
+.animate-marquee-hover:hover .marquee-content {
+  animation: marquee var(--marquee-duration, 5s) linear infinite alternate;
+}
+
+.animate-marquee-hover:hover {
+  mask-image: linear-gradient(to right, transparent, black 8px, black calc(100% - 8px), transparent);
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
+
+.animate-slide-in {
+  animation: slideIn 0.2s ease-out;
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.3s ease-out;
+}
+
+/* Input base styles */
+input,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  /* Padding removed - use Tailwind utilities (e.g., px-3 py-2) on each input */
+}
+
+input:focus,
+textarea:focus {
+  border-color: var(--accent-color);
+  outline: none;
+}
+
+/* Results grid virtual scrolling styles */
+.results-grid-list {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+.results-grid-list::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.results-grid-list::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.results-grid-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.results-grid-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Ensure inner container for virtual list properly handles overflow */
+.results-grid-list>div {
+  position: relative;
+}
+
+/* Helper to hide specific lines in Monaco Editor */
+.hidden-monaco-line {
+  opacity: 0 !important;
+  font-size: 0 !important;
+  line-height: 0 !important;
+  pointer-events: none !important;
+  user-select: none !important;
+}

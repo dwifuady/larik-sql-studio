@@ -1,0 +1,280 @@
+// Create space modal - extracted from SpacesSelector for reusability
+import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { useAppStore } from '../store';
+import type { CreateSpaceInput } from '../types';
+
+// Arc-style space colors
+const SPACE_COLORS = [
+  '#8b5cf6', // purple
+  '#3b82f6', // blue
+  '#06b6d4', // cyan
+  '#22c55e', // green
+  '#eab308', // yellow
+  '#f97316', // orange
+  '#ec4899', // pink
+  '#ef4444', // red
+];
+
+// Connection form state interface
+interface ConnectionFormState {
+  host: string;
+  port: string;
+  database: string;
+  username: string;
+  password: string;
+  trustCert: boolean;
+  encrypt: boolean;
+}
+
+const emptyConnection: ConnectionFormState = {
+  host: '',
+  port: '1433',
+  database: '',
+  username: '',
+  password: '',
+  trustCert: true,
+  encrypt: false,
+};
+
+interface CreateSpaceModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSpaceCreated?: () => void;
+}
+
+export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpaceModalProps) {
+  const {
+    spaces,
+    createSpace,
+    setActiveSpace,
+    testConnection,
+  } = useAppStore();
+
+  const [newName, setNewName] = useState('');
+  const [selectedColor, setSelectedColor] = useState(SPACE_COLORS[0]);
+  const [connection, setConnection] = useState<ConnectionFormState>(emptyConnection);
+  const [isTesting, setIsTesting] = useState(false);
+  const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Focus input when modal opens
+  useEffect(() => {
+    if (isOpen && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isOpen]);
+
+  const handleCreate = async () => {
+    if (!newName.trim()) return;
+    
+    const input: CreateSpaceInput = {
+      name: newName.trim(),
+      color: selectedColor,
+      // Include connection if provided
+      ...(connection.host && connection.database ? {
+        connection_host: connection.host,
+        connection_port: parseInt(connection.port) || 1433,
+        connection_database: connection.database,
+        connection_username: connection.username || undefined,
+        connection_password: connection.password || undefined,
+        connection_trust_cert: connection.trustCert,
+        connection_encrypt: connection.encrypt,
+      } : {}),
+    };
+    
+    const space = await createSpace(input);
+    setNewName('');
+    setConnection(emptyConnection);
+    setSelectedColor(SPACE_COLORS[(spaces.length + 1) % SPACE_COLORS.length]);
+    setTestResult(null);
+    if (space) {
+      await setActiveSpace(space.id);
+      onSpaceCreated?.();
+    }
+    onClose();
+  };
+
+  const handleTestConnection = async () => {
+    if (!connection.host || !connection.database) return;
+    
+    setIsTesting(true);
+    setTestResult(null);
+    
+    const success = await testConnection(
+      connection.host,
+      parseInt(connection.port) || 1433,
+      connection.database,
+      connection.username,
+      connection.password,
+      connection.trustCert,
+      connection.encrypt
+    );
+    
+    setTestResult(success ? 'success' : 'error');
+    setIsTesting(false);
+  };
+
+  const handleClose = () => {
+    setNewName('');
+    setConnection(emptyConnection);
+    setSelectedColor(SPACE_COLORS[0]);
+    setTestResult(null);
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 flex items-center justify-center pointer-events-none outline-none p-4" style={{ zIndex: 9999 }}>
+      <div 
+        className="bg-black/40 absolute inset-0 pointer-events-auto"
+        onClick={handleClose}
+      />
+      <div className="relative pointer-events-auto bg-[var(--bg-secondary)] p-5 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto animate-fade-in" style={{ zIndex: 10000 }}>
+        <h3 className="text-lg font-semibold mb-4">New Space</h3>
+        <input
+          ref={inputRef}
+          type="text"
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && newName.trim()) {
+              handleCreate();
+            } else if (e.key === 'Escape') {
+              handleClose();
+            }
+          }}
+          placeholder="Space name..."
+          className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg mb-4 focus:border-[var(--accent-color)] outline-none"
+        />
+        
+        {/* Color picker */}
+        <div className="mb-4">
+          <label className="text-sm text-[var(--text-secondary)] mb-2 block">Color</label>
+          <div className="flex gap-2 flex-wrap">
+            {SPACE_COLORS.map(color => (
+              <button
+                key={color}
+                onClick={() => setSelectedColor(color)}
+                className={`w-7 h-7 rounded-full transition-all ${
+                  selectedColor === color ? 'ring-2 ring-white ring-offset-2 ring-offset-[var(--bg-secondary)] scale-110' : ''
+                }`}
+                style={{ backgroundColor: color }}
+              />
+            ))}
+          </div>
+        </div>
+        
+        {/* Connection form */}
+        <div className="mb-4 p-3 bg-white/5 rounded-lg">
+          <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+            <svg className="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
+            </svg>
+            Database Connection <span className="text-xs text-[var(--text-secondary)] font-normal">(optional)</span>
+          </h4>
+          
+          <div className="grid grid-cols-3 gap-2 mb-2">
+            <div className="col-span-2">
+              <input
+                type="text"
+                value={connection.host}
+                onChange={(e) => setConnection(c => ({ ...c, host: e.target.value }))}
+                placeholder="Host / Server"
+                className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
+              />
+            </div>
+            <div>
+              <input
+                type="text"
+                value={connection.port}
+                onChange={(e) => setConnection(c => ({ ...c, port: e.target.value }))}
+                placeholder="Port"
+                className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
+              />
+            </div>
+          </div>
+          
+          <input
+            type="text"
+            value={connection.database}
+            onChange={(e) => setConnection(c => ({ ...c, database: e.target.value }))}
+            placeholder="Database"
+            className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm mb-2 focus:border-[var(--accent-color)] outline-none"
+          />
+          
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <input
+              type="text"
+              value={connection.username}
+              onChange={(e) => setConnection(c => ({ ...c, username: e.target.value }))}
+              placeholder="Username"
+              className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
+            />
+            <input
+              type="password"
+              value={connection.password}
+              onChange={(e) => setConnection(c => ({ ...c, password: e.target.value }))}
+              placeholder="Password"
+              className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
+            />
+          </div>
+          
+          <div className="flex gap-4 mb-3 text-xs">
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={connection.trustCert}
+                onChange={(e) => setConnection(c => ({ ...c, trustCert: e.target.checked }))}
+                className="rounded"
+              />
+              Trust Certificate
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={connection.encrypt}
+                onChange={(e) => setConnection(c => ({ ...c, encrypt: e.target.checked }))}
+                className="rounded"
+              />
+              Encrypt
+            </label>
+          </div>
+          
+          {/* Test connection button */}
+          {connection.host && connection.database && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleTestConnection}
+                disabled={isTesting}
+                className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20 disabled:opacity-50"
+              >
+                {isTesting ? 'Testing...' : 'Test Connection'}
+              </button>
+              {testResult === 'success' && <span className="text-xs text-green-400">✓ Connected!</span>}
+              {testResult === 'error' && <span className="text-xs text-red-400">✗ Failed</span>}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={handleClose}
+            className="px-4 py-2 rounded-lg hover:bg-white/5 text-[var(--text-secondary)]"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleCreate}
+            disabled={!newName.trim()}
+            className="px-4 py-2 rounded-lg bg-[var(--accent-color)] hover:bg-[var(--accent-hover)] text-white font-medium disabled:opacity-50"
+          >
+            Create
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}

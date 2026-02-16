@@ -1,0 +1,21 @@
+# https://taskfile.dev
+
+version: '3'
+
+tasks:
+  default:
+    desc: Show all available tasks
+    cmds:
+      - task --list-all
+
+  run:
+    desc: Run the Tauri application in development mode
+    cmds:
+      - npm run tauri dev
+    silent: true
+
+  build:
+    desc: Build the Tauri application
+    cmds:
+      - npm run tauri build
+    silent: true
