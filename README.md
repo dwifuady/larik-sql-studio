@@ -1,8 +1,10 @@
 # Larik SQL Studio
 
-![Larik SQL Studio](./public/larik-icon.png)
+<p align="center">
+  <img src="./public/larik-icon.png" alt="Larik SQL Studio" width="128" />
+</p>
 
-**Larik SQL Studio** is a modern, workspace-centric SQL IDE built for developers who want a fast, beautiful, and efficient database management experience.
+**Larik SQL Studio** is a modern, workspace-centric SQL client built for developers who want a fast, beautiful, and efficient data exploration and querying experience.
 
 Use workspaces to organize your database connections, and tabs to manage your queries. Features an Arc-style sidebar, command palette, and a focus on keyboard-driven workflows.
 
@@ -10,6 +12,29 @@ Use workspaces to organize your database connections, and tabs to manage your qu
 > **Built with AI Assistance**
 > 
 > This project is an experiment in AI-driven development. Approximately 90% of the code was generated with the assistance of LLMs. While we strive for high quality, some code patterns may reflect this origin. We welcome contributions and refactoring from the community!
+
+## 📸 Preview
+
+<p align="center">
+  <img src="./public/screenshots/main-interface.png" alt="Main Interface" width="600" />
+  <br />
+  <em>The workspace-centric main interface.</em>
+</p>
+
+<p align="center">
+  <img src="./public/screenshots/command-palette.png" alt="Command Palette" width="400" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="./public/screenshots/connection-manager.png" alt="Connection Manager" width="400" />
+</p>
+<p align="center">
+  <em>Quickly access actions via the Command Palette (left) and manage your database connections (right).</em>
+</p>
+
+<p align="center">
+  <img src="./public/screenshots/autocomplete.png" alt="Autocomplete & Intellisense" width="600" />
+  <br />
+  <em>Lightning-fast SQL autocomplete.</em>
+</p>
 
 ## ✨ Features
 
