@@ -24,7 +24,7 @@ dist-ssr
 *.sw?
 
 .claude
-
+docs
 Thumbs.db
 coverage
 test-results
