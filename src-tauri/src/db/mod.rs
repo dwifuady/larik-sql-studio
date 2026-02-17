@@ -1,16 +1,47 @@
-// MS-SQL Connection & Query Execution (T015, T016, T017, T024)
-// This module handles database connections, query operations, and schema metadata
+// Database Module (Phase 1 & 2 - Extensible Architecture)
+// Handles database connections, query operations, and schema metadata
+// Now supports extensible database drivers
 
+// Legacy modules (maintained for backward compatibility)
 pub mod connection;
 pub mod query;
 pub mod schema;
 pub mod management;
 
+// New extensible architecture modules
+pub mod traits;
+pub mod registry;
+pub mod drivers;
+
+// ============================================================================
+// Legacy Re-exports (Phase 2 - Keep backward compatibility)
+// ============================================================================
+
 pub use connection::{
     ConnectionConfig, ConnectionConfigUpdate, ConnectionError, ConnectionInfo,
     MssqlConnectionManager, MssqlPool,
 };
-pub use query::{CellValue, ColumnInfo, QueryEngine, QueryInfo, QueryResult, QueryStatus};
+pub use query::{CellValue, ColumnInfo as QueryColumnInfo, QueryEngine, QueryInfo, QueryResult, QueryStatus};
 pub use schema::{
-    ColumnInfo as SchemaColumnInfo, RoutineInfo, SchemaInfo, SchemaMetadataManager, TableInfo,
+    ColumnInfo as SchemaColumnInfo, RoutineInfo, SchemaInfo, SchemaMetadataManager, TableInfo as SchemaTableInfo,
 };
+
+// ============================================================================
+// New Extensible Types (Phase 1)
+// ============================================================================
+
+pub use traits::{
+    DatabaseDriver, DatabaseType, DatabaseConfig, DatabaseError, Connection,
+    ColumnInfo, CellValue, QueryResult as TraitQueryResult, TableInfo,
+};
+pub use registry::DriverRegistry;
+pub use drivers::MssqlDriver;
+
+// ============================================================================
+// Type Aliases for Clarity
+// ============================================================================
+
+// Use the trait-based types for new code
+pub type UnifiedQueryResult = crate::db::traits::QueryResult;
+pub type UnifiedColumnInfo = crate::db::traits::ColumnInfo;
+pub type UnifiedTableInfo = crate::db::traits::TableInfo;
