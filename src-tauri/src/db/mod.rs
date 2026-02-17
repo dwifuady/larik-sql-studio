@@ -35,7 +35,7 @@ pub use traits::{
     ColumnInfo as UnifiedColumnInfo, CellValue as UnifiedCellValue, QueryResult as UnifiedQueryResult, TableInfo as UnifiedTableInfo,
 };
 pub use registry::DriverRegistry;
-pub use drivers::{MssqlDriver, SqliteDriver};
+pub use drivers::{MssqlDriver, SqliteDriver, PostgresDriver};
 
 // ============================================================================
 // Type Aliases for Clarity

@@ -38,3 +38,6 @@ futures = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
 tauri-plugin-dialog = "2.6.0"
 
+# PostgreSQL connection (Phase 3)
+tokio-postgres = "0.7"
+
