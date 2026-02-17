@@ -32,16 +32,11 @@ pub use schema::{
 
 pub use traits::{
     DatabaseDriver, DatabaseType, DatabaseConfig, DatabaseError, Connection,
-    ColumnInfo, CellValue, QueryResult as TraitQueryResult, TableInfo,
+    ColumnInfo as UnifiedColumnInfo, CellValue as UnifiedCellValue, QueryResult as UnifiedQueryResult, TableInfo as UnifiedTableInfo,
 };
 pub use registry::DriverRegistry;
-pub use drivers::MssqlDriver;
+pub use drivers::{MssqlDriver, SqliteDriver};
 
 // ============================================================================
 // Type Aliases for Clarity
 // ============================================================================
-
-// Use the trait-based types for new code
-pub type UnifiedQueryResult = crate::db::traits::QueryResult;
-pub type UnifiedColumnInfo = crate::db::traits::ColumnInfo;
-pub type UnifiedTableInfo = crate::db::traits::TableInfo;

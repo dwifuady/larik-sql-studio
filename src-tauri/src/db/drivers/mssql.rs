@@ -5,11 +5,9 @@ use crate::db::traits::{
     DatabaseDriver, DatabaseType, DatabaseError, DatabaseConfig, Connection,
     QueryResult, TableInfo, ColumnInfo, CellValue,
 };
-use crate::db::connection::{ConnectionConfig as MssqlConnectionConfig, MssqlPool, ConnectionError};
+use crate::db::connection::{ConnectionConfig as MssqlConnectionConfig, MssqlPool};
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use std::collections::HashMap;
-use tiberius::{Query, Row, ColumnType};
+use tiberius::{Row, ColumnType};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 
 // Re-export types from the old connection module for backward compatibility
@@ -74,6 +72,7 @@ impl MssqlDriver {
     }
 
     /// Convert MS-SQL specific config to unified config
+    #[allow(dead_code)]
     fn from_mssql_config(&self, mssql_config: &MssqlConnectionConfig) -> DatabaseConfig {
         DatabaseConfig {
             id: mssql_config.id.clone(),
@@ -167,11 +166,11 @@ impl DatabaseDriver for MssqlDriver {
                                     .enumerate()
                                     .map(|(idx, col)| ColumnInfo {
                                         name: col.name().to_string(),
-                                        data_type: Self::column_type_to_string(col.column_type()),
-                                        max_length: col.max_length(),
-                                        precision: col.precision(),
-                                        scale: col.scale(),
-                                        is_nullable: col.is_nullable(),
+                                        data_type: Self::column_type_to_string(&col.column_type()),
+                                        max_length: None,  // Not easily available from Column
+                                        precision: None,
+                                        scale: None,
+                                        is_nullable: true,  // Default to true
                                         is_primary_key: false,
                                         is_identity: false,
                                         column_default: None,
@@ -290,7 +289,8 @@ impl DatabaseDriver for MssqlDriver {
             ("dbo", table_name)
         };
 
-        let query = r#"
+        // Use simple_query with properly escaped parameters
+        let query = format!(r#"
             SELECT
                 c.name as column_name,
                 t.name as data_type,
@@ -305,15 +305,11 @@ impl DatabaseDriver for MssqlDriver {
             JOIN sys.types t ON c.user_type_id = t.user_type_id
             JOIN sys.tables tbl ON c.object_id = tbl.object_id
             JOIN sys.schemas s ON tbl.schema_id = s.schema_id
-            WHERE s.name = @P1 AND tbl.name = @P2
+            WHERE s.name = '{}' AND tbl.name = '{}'
             ORDER BY c.column_id
-        "#;
+        "#, schema.replace("'", "''"), table.replace("'", "''"));
 
-        let mut query_obj = Query::new(query);
-        query_obj.bind(schema);
-        query_obj.bind(table);
-
-        let stream = connection.query(query_obj, []).await
+        let stream = connection.simple_query(&query).await
             .map_err(|e| DatabaseError::QueryError(e.to_string()))?;
 
         let rows = stream.into_first_result().await

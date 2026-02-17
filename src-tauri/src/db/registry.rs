@@ -23,7 +23,7 @@ impl DriverRegistry {
     pub async fn register(&self, driver: Arc<dyn DatabaseDriver>) {
         let db_type = driver.database_type();
         let mut drivers = self.drivers.write().await;
-        drivers.insert(db_type, driver);
+        drivers.insert(db_type.clone(), driver);
         println!("[Registry] Registered driver for: {:?}", db_type);
     }
 

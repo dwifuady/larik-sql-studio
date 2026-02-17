@@ -2,7 +2,6 @@
 // Defines the core abstraction for supporting multiple database types
 
 use serde::{Deserialize, Serialize};
-use std::error::Error;
 
 /// Supported database types
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
