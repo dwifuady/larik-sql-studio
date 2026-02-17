@@ -16,7 +16,9 @@ const SPACE_COLORS = [
   '#ef4444', // red
 ];
 
-// Connection form state interface for MS-SQL
+import type { CreateSpaceInput, DatabaseType } from '../types';
+
+// Connection form state interface
 interface ConnectionFormState {
   host: string;
   port: string;
@@ -27,7 +29,6 @@ interface ConnectionFormState {
   encrypt: boolean;
 }
 
-// Connection form state interface for PostgreSQL
 interface PostgresConnectionFormState {
   host: string;
   port: string;
@@ -37,7 +38,6 @@ interface PostgresConnectionFormState {
   sslmode: 'prefer' | 'require' | 'verify-ca' | 'verify-full' | 'disable';
 }
 
-// Connection form state interface for MySQL
 interface MysqlConnectionFormState {
   host: string;
   port: string;
@@ -94,7 +94,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
   const [databaseType, setDatabaseType] = useState<DatabaseType | null>(null);
   const [connection, setConnection] = useState<ConnectionFormState | PostgresConnectionFormState | MysqlConnectionFormState>(emptyConnection);
   const [isTesting, setIsTesting] = useState(false);
-  const [testResult, setTestResult] = useState<'success' | 'error' | 'warning' | null>(null);
+  const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Reset connection form when database type changes
@@ -126,7 +126,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
       // Add database_type
       ...(databaseType ? { database_type: databaseType } : {}),
       // Include connection if provided
-      ...('host' in connection && connection.host && connection.database ? {
+      ...(connection.host && connection.database ? {
         connection_host: connection.host,
         connection_port: parseInt(connection.port) || 1433,
         connection_database: connection.database,
@@ -195,7 +195,6 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
 
   const handleClose = () => {
     setNewName('');
-    setDatabaseType(null);
     setConnection(emptyConnection);
     setSelectedColor(SPACE_COLORS[0]);
     setTestResult(null);
@@ -244,67 +243,18 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
             ))}
           </div>
         </div>
-
-        {/* Database Type Selector */}
-        <div className="mb-4">
-          <label className="text-sm text-[var(--text-secondary)] mb-2 block">Database Type</label>
-          <div className="flex gap-2 flex-wrap">
-            <button
-              onClick={() => { setDatabaseType(null); setConnection(emptyConnection); }}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                databaseType === null ? 'bg-[var(--accent-color)] text-white' : 'bg-white/5 border border-white/10 hover:bg-white/10'
-              }`}
-            >
-              None
-            </button>
-            <button
-              onClick={() => { setDatabaseType('sqlite'); setConnection(emptyConnection); }}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                databaseType === 'sqlite' ? 'bg-[var(--accent-color)] text-white' : 'bg-white/5 border border-white/10 hover:bg-white/10'
-              }`}
-            >
-              SQLite
-            </button>
-            <button
-              onClick={() => { setDatabaseType('mssql'); setConnection(emptyConnection); }}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                databaseType === 'mssql' ? 'bg-[var(--accent-color)] text-white' : 'bg-white/5 border border-white/10 hover:bg-white/10'
-              }`}
-            >
-              MS SQL
-            </button>
-            <button
-              onClick={() => { setDatabaseType('postgresql'); setConnection(emptyPostgresConnection); }}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                databaseType === 'postgresql' ? 'bg-[var(--accent-color)] text-white' : 'bg-white/5 border border-white/10 hover:bg-white/10'
-              }`}
-            >
-              PostgreSQL
-            </button>
-            <button
-              onClick={() => { setDatabaseType('mysql'); setConnection(emptyMysqlConnection); }}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                databaseType === 'mysql' ? 'bg-[var(--accent-color)] text-white' : 'bg-white/5 border border-white/10 hover:bg-white/10'
-              }`}
-            >
-              MySQL
-            </button>
-          </div>
-        </div>
-
-        {/* Connection form - only show if database type is not SQLite */}
-        {databaseType !== 'sqlite' && (
-          <div className="mb-4 p-3 bg-white/5 rounded-lg">
-            <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
-              <svg className="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012-2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2 2" />
-              </svg>
-              {databaseType === 'mssql' ? 'MS-SQL' : databaseType === 'postgresql' ? 'PostgreSQL' : 'MySQL'} Connection
-              <span className="text-xs text-[var(--text-secondary)] font-normal">(optional)</span>
-            </h4>
-            
-            {/* Host/Port - MS-SQL, PostgreSQL, MySQL */}
-            <div className="grid grid-cols-2 gap-2 mb-2">
+        
+        {/* Connection form */}
+        <div className="mb-4 p-3 bg-white/5 rounded-lg">
+          <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+            <svg className="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
+            </svg>
+            Database Connection <span className="text-xs text-[var(--text-secondary)] font-normal">(optional)</span>
+          </h4>
+          
+          <div className="grid grid-cols-3 gap-2 mb-2">
+            <div className="col-span-2">
               <input
                 type="text"
                 value={connection.host}
@@ -312,6 +262,8 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
                 placeholder="Host / Server"
                 className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
               />
+            </div>
+            <div>
               <input
                 type="text"
                 value={connection.port}
@@ -320,107 +272,70 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
                 className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
               />
             </div>
-            
-            {/* Database */}
+          </div>
+          
+          <input
+            type="text"
+            value={connection.database}
+            onChange={(e) => setConnection(c => ({ ...c, database: e.target.value }))}
+            placeholder="Database"
+            className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm mb-2 focus:border-[var(--accent-color)] outline-none"
+          />
+          
+          <div className="grid grid-cols-2 gap-2 mb-2">
             <input
               type="text"
-              value={connection.database}
-              onChange={(e) => setConnection(c => ({ ...c, database: e.target.value }))}
-              placeholder={databaseType === 'sqlite' ? 'Database path' : 'Database name'}
-              className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm mb-2 focus:border-[var(--accent-color)] outline-none"
+              value={connection.username}
+              onChange={(e) => setConnection(c => ({ ...c, username: e.target.value }))}
+              placeholder="Username"
+              className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
             />
-            
-            {/* Username/Password - MS-SQL, PostgreSQL, MySQL */}
-            <div className="grid grid-cols-2 gap-2 mb-2">
-              <input
-                type="text"
-                value={connection.username}
-                onChange={(e) => setConnection(c => ({ ...c, username: e.target.value }))}
-                placeholder="Username"
-                className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
-              />
-              <input
-                type="password"
-                value={connection.password}
-                onChange={(e) => setConnection(c => ({ ...c, password: e.target.value }))}
-                placeholder="Password"
-                className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
-              />
-            </div>
-            
-            {/* Database-specific options */}
-            {databaseType === 'mssql' && (
-              <div className="flex gap-4 mb-3 text-xs">
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={connection.trustCert}
-                    onChange={(e) => setConnection(c => ({ ...c, trustCert: e.target.checked }))}
-                    className="rounded"
-                  />
-                  Trust Certificate
-                </label>
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={connection.encrypt}
-                    onChange={(e) => setConnection(c => ({ ...c, encrypt: e.target.checked }))}
-                    className="rounded"
-                  />
-                  Encrypt
-                </label>
-              </div>
-            )}
-            
-            {databaseType === 'postgresql' && (
-              <div className="mb-3">
-                <label className="text-sm text-[var(--text-secondary)] mb-2 block">SSL Mode</label>
-                <select
-                  value={connection.sslmode}
-                  onChange={(e) => setConnection(c => ({ ...c, sslmode: e.target.value }))}
-                  className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
-                >
-                  <option value="prefer">Prefer</option>
-                  <option value="require">Require</option>
-                  <option value="verify-ca">Verify CA</option>
-                  <option value="verify-full">Verify Full</option>
-                  <option value="disable">Disable</option>
-                </select>
-              </div>
-            )}
-            
-            {databaseType === 'mysql' && (
-              <div className="mb-3">
-                <label className="flex items-center gap-1.5 cursor-pointer text-xs">
-                  <input
-                    type="checkbox"
-                    checked={connection.ssl_enabled}
-                    onChange={(e) => setConnection(c => ({ ...c, ssl_enabled: e.target.checked }))}
-                    className="rounded"
-                  />
-                  Enable SSL
-                </label>
-              </div>
-            )}
-            
-            {/* Test connection button */}
-            {connection.host && connection.database && (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleTestConnection}
-                  disabled={isTesting}
-                  className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20 disabled:opacity-50"
-                >
-                  {isTesting ? 'Testing...' : 'Test Connection'}
-                </button>
-                {testResult === 'success' && <span className="text-xs text-green-400">✓ Connected!</span>}
-                {testResult === 'error' && <span className="text-xs text-red-400">✗ Failed</span>}
-                {testResult === 'warning' && <span className="text-xs text-yellow-400">⚠ Not Implemented</span>}
-              </div>
-            )}
+            <input
+              type="password"
+              value={connection.password}
+              onChange={(e) => setConnection(c => ({ ...c, password: e.target.value }))}
+              placeholder="Password"
+              className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
+            />
           </div>
-        )}
-        
+          
+          <div className="flex gap-4 mb-3 text-xs">
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={connection.trustCert}
+                onChange={(e) => setConnection(c => ({ ...c, trustCert: e.target.checked }))}
+                className="rounded"
+              />
+              Trust Certificate
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={connection.encrypt}
+                onChange={(e) => setConnection(c => ({ ...c, encrypt: e.target.checked }))}
+                className="rounded"
+              />
+              Encrypt
+            </label>
+          </div>
+          
+          {/* Test connection button */}
+          {connection.host && connection.database && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleTestConnection}
+                disabled={isTesting}
+                className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20 disabled:opacity-50"
+              >
+                {isTesting ? 'Testing...' : 'Test Connection'}
+              </button>
+              {testResult === 'success' && <span className="text-xs text-green-400">✓ Connected!</span>}
+              {testResult === 'error' && <span className="text-xs text-red-400">✗ Failed</span>}
+            </div>
+          )}
+        </div>
+
         <div className="flex justify-end gap-2">
           <button
             onClick={handleClose}
@@ -433,10 +348,11 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
             disabled={!newName.trim()}
             className="px-4 py-2 rounded-lg bg-[var(--accent-color)] hover:bg-[var(--accent-hover)] text-white font-medium disabled:opacity-50"
           >
-            Create Space
+            Create
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
