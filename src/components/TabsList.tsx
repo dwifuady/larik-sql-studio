@@ -32,7 +32,8 @@ const TabItem = memo(({
   shouldStartRename,
   onContextMenu,
   onRenameStarted,
-  onSetActive
+  onSetActive,
+  spaceColor
 }: {
   tab: Tab;
   isPinned: boolean;
@@ -43,6 +44,7 @@ const TabItem = memo(({
   onContextMenu?: (e: React.MouseEvent, tab: Tab) => void;
   onRenameStarted?: () => void;
   onSetActive: (id: string) => void;
+  spaceColor: string;
 }) => {
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
@@ -90,13 +92,16 @@ const TabItem = memo(({
       aria-label={`${isPinned ? 'Pinned tab' : 'Tab'}: ${tab.title}${tab.database ? ` (${tab.database})` : ''}`}
       aria-current={isActive ? 'page' : undefined}
       className={`
-        group flex items-center gap-2 px-2 py-1.5 mx-1 my-0.5 rounded-lg cursor-pointer
+        group flex items-center gap-2 px-2 py-1.5 mx-1 my-0.5 rounded-lg cursor-pointer relative
         transition-all duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] focus:ring-offset-1
         ${isActive
-          ? 'bg-[var(--bg-active)] shadow-sm'
-          : 'hover:bg-[var(--bg-hover)]'
+          ? 'text-[var(--text-primary)]' // Active: background handled by style
+          : 'hover:bg-black/5 dark:hover:bg-white/5 text-[var(--text-secondary)]'
         }
       `}
+      style={{
+        backgroundColor: isActive ? `color-mix(in srgb, ${spaceColor}, transparent 85%)` : undefined
+      }}
       onClick={() => onSetActive(tab.id)}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
@@ -123,8 +128,19 @@ const TabItem = memo(({
         onContextMenu?.(e, tab);
       }}
     >
+      {/* Active colored strip - visible when active */}
+      {isActive && (
+        <div
+          className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r-full"
+          style={{
+            backgroundColor: spaceColor,
+            boxShadow: `0 0 8px ${spaceColor}66` // Add 40% opacity glow
+          }}
+        />
+      )}
+
       {/* Tab icon */}
-      <div className={`shrink-0 ${isActive ? 'text-[--accent-color]' : 'text-[--text-muted]'}`}>
+      <div className="shrink-0" style={{ color: isActive ? spaceColor : 'var(--text-muted)' }}>
         {tab.tab_type === 'query' ? (
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -212,6 +228,9 @@ const TabItem = memo(({
   // Rename trigger changed = must re-render
   if (prevProps.shouldStartRename !== nextProps.shouldStartRename) return false;
 
+  // Space color changed = must re-render
+  if (prevProps.spaceColor !== nextProps.spaceColor) return false;
+
   // All other changes = skip re-render (handlers are stable)
   return true;
 });
@@ -262,7 +281,8 @@ const DraggableFolder = memo(({
   folder: TabFolder;
   tabs: Tab[];
   isOver: boolean;
-} & Omit<React.ComponentProps<typeof FolderItem>, 'folder' | 'tabs'>) => {
+  spaceColor: string;
+} & Omit<React.ComponentProps<typeof FolderItem>, 'folder' | 'tabs' | 'spaceColor'>) => {
   const { attributes, listeners, setNodeRef: setDragRef } = useDraggable({
     id: `folder-${folder.id}`,
     data: { type: 'folder', folder },
@@ -337,7 +357,11 @@ export function TabsList({ onNewTabClick, hasSpaces = true }: { onNewTabClick?: 
     removeTabFromFolder,
     reorderFolders,
     getPinnedTabsGrouped,
+    spaces
   } = useAppStore();
+
+  const activeSpace = spaces.find(s => s.id === activeSpaceId);
+  const spaceColor = activeSpace?.color || 'var(--accent-color)';
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; tab: Tab } | null>(null);
   const [folderContextMenu, setFolderContextMenu] = useState<{ x: number; y: number; folder: TabFolder } | null>(null);
@@ -642,6 +666,7 @@ export function TabsList({ onNewTabClick, hasSpaces = true }: { onNewTabClick?: 
                 onContextMenu={handleTabContextMenu}
                 onRenameStarted={handleTabRenameStarted}
                 onSetActive={handleSetActive}
+                spaceColor={spaceColor}
               />
             ))}
 
@@ -667,6 +692,7 @@ export function TabsList({ onNewTabClick, hasSpaces = true }: { onNewTabClick?: 
                 onRenameTab={handleRename}
                 onDeleteTab={handleDeleteTab}
                 onSetActiveTab={handleSetActive}
+                spaceColor={spaceColor}
                 onFolderContextMenu={handleFolderContextMenu}
                 onTabContextMenu={handleTabContextMenu}
                 shouldStartRenamingFolder={folderToRename === folder.id}
@@ -704,6 +730,7 @@ export function TabsList({ onNewTabClick, hasSpaces = true }: { onNewTabClick?: 
                     onRename={() => { }}
                     onDelete={() => { }}
                     onSetActive={() => { }}
+                    spaceColor={spaceColor}
                   />
                 </div>
               ) : null;
@@ -727,6 +754,7 @@ export function TabsList({ onNewTabClick, hasSpaces = true }: { onNewTabClick?: 
                     onRenameTab={() => { }}
                     onDeleteTab={() => { }}
                     onSetActiveTab={() => { }}
+                    spaceColor={spaceColor}
                   />
                 </div>
               ) : null;
@@ -752,18 +780,7 @@ export function TabsList({ onNewTabClick, hasSpaces = true }: { onNewTabClick?: 
         }}
       >
         {/* Browser-style New Tab button - disabled when no spaces */}
-        <div className="px-2 py-1">
-          <button
-            onClick={handleCreateTab}
-            disabled={!hasSpaces}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[--text-secondary] hover:bg-white/5 rounded-lg transition-colors group disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-          >
-            <svg className="w-4 h-4 opacity-60 group-hover:opacity-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            <span className="opacity-70 group-hover:opacity-100">New Tab</span>
-          </button>
-        </div>
+
 
         {/* Unpinned tabs with drag-and-drop */}
         <DragDropContext onDragEnd={onDragEnd}>
@@ -797,6 +814,7 @@ export function TabsList({ onNewTabClick, hasSpaces = true }: { onNewTabClick?: 
                             onContextMenu={handleTabContextMenu}
                             onRenameStarted={handleRenameStarted}
                             onSetActive={handleSetActive}
+                            spaceColor={spaceColor}
                           />
                         </div>
                       </div>

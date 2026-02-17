@@ -1,6 +1,8 @@
 // Arc-style main application layout with browser-like design
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAppStore } from '../store';
+import { LayoutList, Database, Archive, Settings } from 'lucide-react';
+import { DatabaseExplorer } from './DatabaseExplorer/DatabaseExplorer';
 import { SpacesSelector } from './SpacesSelector';
 import { TabsList } from './TabsList';
 import { QueryEditor } from './QueryEditor';
@@ -23,12 +25,16 @@ export function AppLayout() {
   const loadSnippets = useAppStore(s => s.loadSnippets);
   const loadAppSettings = useAppStore(s => s.loadAppSettings);
   const loadAutoArchiveSettings = useAppStore(s => s.loadAutoArchiveSettings);
+  const archivedTabsCount = useAppStore(s => s.archivedTabsCount);
+  const setArchiveModalOpen = useAppStore(s => s.setArchiveModalOpen);
 
   const sidebarWidth = useAppStore(s => s.sidebarWidth);
   const setSidebarWidth = useAppStore(s => s.setSidebarWidth);
   const sidebarHidden = useAppStore(s => s.sidebarHidden);
   const sidebarHoveredWhenHidden = useAppStore(s => s.sidebarHoveredWhenHidden);
   const setSidebarHoveredWhenHidden = useAppStore(s => s.setSidebarHoveredWhenHidden);
+  const sidebarView = useAppStore(s => s.sidebarView);
+  const setSidebarView = useAppStore(s => s.setSidebarView);
 
   const activeTabId = useAppStore(s => s.activeTabId);
   const tabs = useAppStore(s => s.tabs);
@@ -542,7 +548,7 @@ export function AppLayout() {
         >
 
           {/* Content */}
-          <div className="relative z-10 flex flex-col h-full">
+          <div className="relative z-10 flex flex-col flex-1 min-h-0">
             {/* URL Bar style database selector at top */}
             <div className="px-3 pt-4 pb-2">
               {spacesLoading && spaces.length === 0 ? (
@@ -679,91 +685,120 @@ export function AppLayout() {
               )}
             </div>
 
-            {/* Space name with connection status */}
-            {spacesLoading && spaces.length === 0 ? (
-              /* Skeleton for space name */
-              <div className="px-3 py-2">
-                <div className="h-5 w-32 rounded bg-[var(--bg-active)] animate-pulse" />
-              </div>
-            ) : activeSpace && (
-              <div className="px-3 py-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex flex-col min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-base font-semibold truncate">{activeSpace.name}</h2>
-                      {hasConnection && (
-                        <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isConnected ? 'bg-green-500' : 'bg-gray-500'}`} />
-                      )}
-                    </div>
-                    {hasConnection && (
-                      <span className="text-[10px] text-[var(--text-muted)] truncate" title={isConnected ? (activeSpace.connection_host || '') : 'Disconnected'}>
-                        {isConnected ? activeSpace.connection_host : 'Disconnected'}
-                      </span>
-                    )}
-                  </div>
-                  {hasConnection && (
+            {/* Space Name & Connection Controls - Compact Header */}
+            {activeSpace && (
+              <div className="px-3 py-2 pb-0 flex items-center justify-between group">
+                <span className="text-xs font-semibold text-[var(--text-primary)] truncate" title={activeSpace.name}>
+                  {activeSpace.name}
+                </span>
+
+                {hasConnection && (
+                  <div className="flex items-center gap-2">
+                    {/* Status Dot */}
+                    <div
+                      className={`w-1.5 h-1.5 rounded-full transition-colors ${isConnected ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 'bg-[var(--text-muted)]'}`}
+                      title={isConnected ? 'Connected' : 'Disconnected'}
+                    />
+
+                    {/* Connect/Disconnect Button - Only visible on hover or if disconnected */}
                     <button
-                      onClick={() => isConnected ? disconnectFromSpace() : connectToSpace()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        isConnected ? disconnectFromSpace() : connectToSpace();
+                      }}
                       disabled={isConnecting}
-                      className={`flex-shrink-0 text-xs px-2 py-1 rounded-md transition-colors ${isConnected
-                        ? 'bg-red-500/10 hover:bg-red-500/20 text-red-400'
-                        : 'bg-green-500/10 hover:bg-green-500/20 text-green-400'
-                        } disabled:opacity-50`}
+                      className={`p-1 rounded hover:bg-[var(--bg-hover)] transition-all ${isConnected
+                        ? 'text-[var(--text-muted)] hover:text-red-400 opacity-0 group-hover:opacity-100'
+                        : 'text-[var(--text-muted)] hover:text-green-400 opacity-100'
+                        }`}
+                      title={isConnected ? 'Disconnect' : 'Connect'}
                     >
-                      {isConnecting ? '...' : (isConnected ? 'Disconnect' : 'Connect')}
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
                     </button>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Separator line */}
-            <div className="mx-3 border-t border-[var(--border-color)]" />
+            {/* Sidebar View Toggle & Actions */}
+            <div className="px-2 py-1.5 flex items-center gap-1.5">
+              <div className="bg-black/5 dark:bg-white/5 p-1 rounded-lg flex gap-1 flex-1">
+                <button
+                  onClick={() => setSidebarView('tabs')}
+                  className={`flex-1 flex items-center justify-center py-1 rounded-md text-[11px] font-medium transition-all duration-200 ${sidebarView === 'tabs'
+                    ? 'bg-white dark:bg-[#2d2d2d] shadow-sm'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                    }`}
+                  style={sidebarView === 'tabs' ? { color: activeSpace?.color || 'var(--accent-color)' } : undefined}
+                >
+                  <LayoutList className="w-3 h-3 mr-1.5" />
+                  Tabs
+                </button>
+                <button
+                  onClick={() => setSidebarView('explorer')}
+                  className={`flex-1 flex items-center justify-center py-1 rounded-md text-[11px] font-medium transition-all duration-200 ${sidebarView === 'explorer'
+                    ? 'bg-white dark:bg-[#2d2d2d] shadow-sm'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                    }`}
+                  style={sidebarView === 'explorer' ? { color: activeSpace?.color || 'var(--accent-color)' } : undefined}
+                >
+                  <Database className="w-3 h-3 mr-1.5" />
+                  Explorer
+                </button>
+              </div>
 
-            {/* Tabs list fills remaining space */}
-            <TabsList onNewTabClick={() => setNewTabSelectorOpen(true)} hasSpaces={spaces.length > 0} />
+              {/* New Tab Button - Inline */}
+              <button
+                onClick={() => setNewTabSelectorOpen(true)}
+                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                title="New Tab (Ctrl+T)"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+              </button>
+            </div>
 
-            {/* Archive section at bottom of sidebar */}
-            <ArchiveSection />
+            {/* Tabs list OR Database Explorer fills remaining space */}
+            {sidebarView === 'tabs' ? (
+              <TabsList onNewTabClick={() => setNewTabSelectorOpen(true)} hasSpaces={spaces.length > 0} />
+            ) : (
+              <div className="flex-1 overflow-hidden min-h-0">
+                <DatabaseExplorer />
+              </div>
+            )}
+
 
           </div>
 
-          {/* Bottom toolbar with theme toggle */}
-          <div className="px-2 py-1.5 border-t border-[var(--border-subtle)] flex items-center justify-between gap-1">
-            {/* Theme toggle button */}
+          {/* Footer Section: Archive | Spaces | Settings */}
+          <div className="px-3 py-2 border-t border-[var(--border-subtle)] flex items-center justify-between shrink-0">
+            {/* Left: Archive */}
             <button
-              onClick={toggleTheme}
-              className="p-1.5 rounded-md hover:bg-[var(--bg-hover)] transition-colors group"
-              title={`Theme: ${theme === 'system' ? 'System' : theme === 'dark' ? 'Dark' : 'Light'} (click to cycle)`}
+              onClick={() => setArchiveModalOpen(true)}
+              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors relative"
+              title="Archive"
             >
-              {theme === 'dark' ? (
-                <svg className="w-3.5 h-3.5 text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                </svg>
-              ) : theme === 'light' ? (
-                <svg className="w-3.5 h-3.5 text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-                </svg>
-              ) : (
-                <svg className="w-3.5 h-3.5 text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
+              <Archive className="w-4 h-4" />
+              {archivedTabsCount > 0 && (
+                <span className="absolute top-2 right-2 w-1.5 h-1.5 bg-[var(--accent-color)] rounded-full" />
               )}
             </button>
 
-            {/* Command palette hint */}
+            {/* Center: Spaces Selector */}
+            <SpacesSelector />
+
+            {/* Right: Settings (Command Palette) */}
             <button
               onClick={() => setCommandPaletteOpen(true)}
-              className="flex items-center gap-1 text-[9px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors whitespace-nowrap"
+              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+              title="Settings & Commands (Ctrl+Shift+P)"
             >
-              <kbd className="px-0.5 py-0.25 rounded text-[8px] bg-[var(--bg-tertiary)] text-[var(--text-muted)]">Ctrl</kbd>
-              <kbd className="px-0.5 py-0.25 rounded text-[8px] bg-[var(--bg-tertiary)] text-[var(--text-muted)]">⇧</kbd>
-              <kbd className="px-0.5 py-0.25 rounded text-[8px] bg-[var(--bg-tertiary)] text-[var(--text-muted)]">P</kbd>
+              <Settings className="w-4 h-4" />
             </button>
           </div>
-
-          {/* Space dots at bottom */}
-          <SpacesSelector />
         </aside>
 
         {/* Resize handle - thin and subtle (only show when sidebar is visible and not hidden) */}

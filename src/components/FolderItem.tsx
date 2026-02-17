@@ -13,6 +13,7 @@ const FolderTabItem = memo(({
   shouldStartRename,
   onContextMenu,
   onRenameStarted,
+  spaceColor,
 }: {
   tab: Tab;
   isActive: boolean;
@@ -22,6 +23,7 @@ const FolderTabItem = memo(({
   shouldStartRename?: boolean;
   onContextMenu?: (e: React.MouseEvent, tab: Tab) => void;
   onRenameStarted?: () => void;
+  spaceColor: string;
 }) => {
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
@@ -76,15 +78,18 @@ const FolderTabItem = memo(({
       ref={setNodeRef}
       aria-label={`Tab: ${tab.title}${tab.database ? ` (${tab.database})` : ''}`}
       aria-current={isActive ? 'page' : undefined}
-      style={style}
+      style={{
+        ...style,
+        backgroundColor: isActive ? `color-mix(in srgb, ${spaceColor}, transparent 85%)` : undefined
+      }}
       {...attributes}
       {...listeners}
       className={`
-        group flex items-center gap-2 px-2 py-1.5 ml-6 mr-1 my-0.5 rounded-lg cursor-pointer
+        group flex items-center gap-2 px-2 py-1.5 ml-6 mr-1 my-0.5 rounded-lg cursor-pointer relative
         transition-all duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] focus:ring-offset-1
         ${isActive
-          ? 'bg-[var(--bg-active)] shadow-sm'
-          : 'hover:bg-[var(--bg-hover)]'
+          ? 'text-[var(--text-primary)]'
+          : 'hover:bg-black/5 dark:hover:bg-white/5 text-[var(--text-secondary)]'
         }
       `}
       onClick={() => onSetActive(tab.id)}
@@ -112,7 +117,16 @@ const FolderTabItem = memo(({
         onContextMenu?.(e, tab);
       }}
     >
-      <div className={`shrink-0 ${isActive ? 'text-[--accent-color]' : 'text-[--text-muted]'}`}>
+      {isActive && (
+        <div
+          className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r-full"
+          style={{
+            backgroundColor: spaceColor,
+            boxShadow: `0 0 8px ${spaceColor}66`
+          }}
+        />
+      )}
+      <div className="shrink-0" style={{ color: isActive ? spaceColor : 'var(--text-muted)' }}>
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>
@@ -166,6 +180,7 @@ interface FolderItemProps {
   dragHandleRef?: (element: HTMLElement | null) => void;
   dragHandleAttributes?: Record<string, any>;
   dragHandleListeners?: Record<string, any>;
+  spaceColor: string;
 }
 
 export const FolderItem = memo(({
@@ -186,6 +201,7 @@ export const FolderItem = memo(({
   dragHandleRef,
   dragHandleAttributes,
   dragHandleListeners,
+  spaceColor,
 }: FolderItemProps) => {
   const [isRenamingFolder, setIsRenamingFolder] = useState(false);
   const [renameFolderValue, setRenameFolderValue] = useState('');
@@ -239,7 +255,7 @@ export const FolderItem = memo(({
         tabIndex={0}
         aria-label={`Folder: ${folder.name}, ${tabs.length} tab${tabs.length !== 1 ? 's' : ''}`}
         aria-expanded={folder.is_expanded}
-        className="group flex items-center gap-2 px-2 py-1.5 mx-1 rounded-lg cursor-pointer hover:bg-[var(--bg-hover)] transition-all duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] focus:ring-offset-1"
+        className="group flex items-center gap-2 px-2 py-1.5 mx-1 rounded-lg cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-all duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] focus:ring-offset-1"
         onClick={handleToggleExpanded}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -335,6 +351,7 @@ export const FolderItem = memo(({
               shouldStartRename={tabToRename === tab.id}
               onContextMenu={onTabContextMenu}
               onRenameStarted={onTabRenameStarted}
+              spaceColor={spaceColor}
             />
           ))}
         </div>

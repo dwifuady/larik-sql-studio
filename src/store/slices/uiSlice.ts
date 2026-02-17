@@ -7,6 +7,7 @@ export interface UISlice {
     sidebarWidth: number;
     sidebarHidden: boolean;
     sidebarHoveredWhenHidden: boolean;
+    sidebarView: 'tabs' | 'explorer'; // New state
     isSaving: boolean;
     createSpaceModalOpen: boolean;
     newTabSelectorOpen: boolean;
@@ -19,10 +20,13 @@ export interface UISlice {
     validationEnabled: boolean;
     validationShowWarnings: boolean;
     validationShowInfo: boolean;
+    enableStickyNotes: boolean; // Add missing prop
+    maxResultRows: number; // Add missing prop
 
     setSidebarWidth: (width: number) => void;
     setSidebarHidden: (hidden: boolean) => void;
     setSidebarHoveredWhenHidden: (hovered: boolean) => void;
+    setSidebarView: (view: 'tabs' | 'explorer') => void; // New action
     toggleSidebarHidden: () => void;
     setCreateSpaceModalOpen: (open: boolean) => void;
     setNewTabSelectorOpen: (open: boolean) => void;
@@ -50,6 +54,7 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
     sidebarWidth: 220,
     sidebarHidden: false,
     sidebarHoveredWhenHidden: false,
+    sidebarView: 'tabs', // Default to tabs
     isSaving: false,
     createSpaceModalOpen: false,
     newTabSelectorOpen: false,
@@ -62,10 +67,13 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
     validationEnabled: true,
     validationShowWarnings: true,
     validationShowInfo: true,
+    enableStickyNotes: true,
+    maxResultRows: 1000,
 
     setSidebarWidth: (width) => set({ sidebarWidth: width }),
     setSidebarHidden: (hidden) => set({ sidebarHidden: hidden }),
     setSidebarHoveredWhenHidden: (hovered) => set({ sidebarHoveredWhenHidden: hovered }),
+    setSidebarView: (view) => set({ sidebarView: view }),
     toggleSidebarHidden: () => set((state) => ({ sidebarHidden: !state.sidebarHidden })),
 
     setCreateSpaceModalOpen: (open) => set({ createSpaceModalOpen: open }),
@@ -118,8 +126,14 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
         set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
     },
 
-    toggleValidation: () => set((state) => ({ validationEnabled: !state.validationEnabled })),
-    setValidationEnabled: (enabled) => set({ validationEnabled: enabled }),
+    toggleValidation: () => {
+        set((state) => ({ validationEnabled: !state.validationEnabled }));
+        get().saveAppSettings();
+    },
+    setValidationEnabled: (enabled) => {
+        set({ validationEnabled: enabled });
+        get().saveAppSettings();
+    },
     setValidationShowWarnings: (show) => set({ validationShowWarnings: show }),
     setValidationShowInfo: (show) => set({ validationShowInfo: show }),
 
@@ -139,11 +153,16 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
     saveAppSettings: async () => {
         const {
             validationEnabled,
-            activeSpaceId,
-            activeTabId,
             enableStickyNotes,
             maxResultRows
         } = get();
+
+        // We also need activeSpaceId and activeTabId from the store, but they are in other slices.
+        // Since we have access to the full AppState via get(), we can access them.
+        // However, TS might complain if we don't cast or use the combined type.
+        // But `get()` here returns `AppState` because of `StateCreator<AppState...`.
+        const activeSpaceId = get().activeSpaceId;
+        const activeTabId = get().activeTabId;
 
         try {
             await api.updateAppSettings(
