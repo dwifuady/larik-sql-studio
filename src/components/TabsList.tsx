@@ -337,7 +337,7 @@ const UngroupedDropZone = memo(({ isOver, children }: { isOver: boolean; childre
   );
 });
 
-export function TabsList({ onNewTabClick, hasSpaces = true }: { onNewTabClick?: () => void; hasSpaces?: boolean }) {
+export function TabsList({ onNewTabClick }: { onNewTabClick?: () => void }) {
   const {
     tabs,
     activeTabId,

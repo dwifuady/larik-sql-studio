@@ -14,7 +14,6 @@ import { TitleBar } from './TitleBar';
 import { DatabaseSelector } from './DatabaseSelector';
 import { ToastContainer } from './Toast';
 import { ArchiveModal } from './ArchiveModal';
-import { ArchiveSection } from './ArchiveSection';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { spaceHasConnection } from '../types';
 import * as api from '../api';
@@ -73,7 +72,6 @@ export function AppLayout() {
   const setCreateSpaceModalOpen = useAppStore(s => s.setCreateSpaceModalOpen);
 
   const theme = useAppStore(s => s.theme);
-  const toggleTheme = useAppStore(s => s.toggleTheme);
   const initTheme = useAppStore(s => s.initTheme);
 
   // Shallow compare for addToast to avoid re-renders? 
@@ -672,7 +670,7 @@ export function AppLayout() {
 
               {/* Tabs list OR Database Explorer fills remaining space */}
               {sidebarView === 'tabs' ? (
-                <TabsList onNewTabClick={() => setNewTabSelectorOpen(true)} hasSpaces={spaces.length > 0} />
+                <TabsList onNewTabClick={() => setNewTabSelectorOpen(true)} />
               ) : (
                 <div className="flex-1 overflow-hidden min-h-0">
                   <DatabaseExplorer />
