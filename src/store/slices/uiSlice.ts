@@ -21,7 +21,8 @@ export interface UISlice {
     validationShowWarnings: boolean;
     validationShowInfo: boolean;
     enableStickyNotes: boolean; // Add missing prop
-    maxResultRows: number; // Add missing prop
+    maxResultRows: number;
+    appInfo: { name: string; version: string };
 
     setSidebarWidth: (width: number) => void;
     setSidebarHidden: (hidden: boolean) => void;
@@ -34,6 +35,7 @@ export interface UISlice {
     setShortcutsDialogOpen: (open: boolean) => void;
     setSnippetsDialogOpen: (open: boolean) => void;
     setSettingsDialogOpen: (open: boolean) => void;
+    setAppInfo: (info: { name: string; version: string }) => void;
     setTheme: (theme: 'dark' | 'light' | 'system') => void;
     toggleTheme: () => void;
     initTheme: () => void;
@@ -69,6 +71,7 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
     validationShowInfo: true,
     enableStickyNotes: true,
     maxResultRows: 1000,
+    appInfo: { name: '', version: '' },
 
     setSidebarWidth: (width) => set({ sidebarWidth: width }),
     setSidebarHidden: (hidden) => set({ sidebarHidden: hidden }),
@@ -82,6 +85,7 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
     setShortcutsDialogOpen: (open) => set({ shortcutsDialogOpen: open }),
     setSnippetsDialogOpen: (open) => set({ snippetsDialogOpen: open }),
     setSettingsDialogOpen: (open) => set({ settingsDialogOpen: open }),
+    setAppInfo: (info) => set({ appInfo: info }),
 
     setTheme: (theme) => {
         set({ theme });

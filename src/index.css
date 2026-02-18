@@ -466,6 +466,38 @@ button:disabled {
   mask-image: linear-gradient(to right, transparent, black 8px, black calc(100% - 8px), transparent);
 }
 
+@keyframes slideInRightFull {
+  from {
+    opacity: 0.5;
+    transform: translateX(30px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInLeftFull {
+  from {
+    opacity: 0.5;
+    transform: translateX(-30px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-space-slide-in-right {
+  animation: slideInRightFull 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.animate-space-slide-in-left {
+  animation: slideInLeftFull 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 .animate-fade-in {
   animation: fadeIn 0.2s ease-out;
 }
