@@ -106,12 +106,6 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
             return null;
         }
 
-        // Check validation if enabled?  
-        // Logic for executeQuery in original store was:
-        // 1. Set executing state
-        // 2. Call api.executeQuery
-        // 3. Update tabQueryResults
-
         set((state) => ({
             tabExecuting: { ...state.tabExecuting, [tabId]: true }
         }));
@@ -129,11 +123,56 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
                 selectedText
             );
 
-            set((state) => ({
-                tabQueryResults: { ...state.tabQueryResults, [tabId]: results },
-                activeResultIndex: { ...state.activeResultIndex, [tabId]: 0 }, // Reset to first result
-                tabExecuting: { ...state.tabExecuting, [tabId]: false }
-            }));
+            set((state) => {
+                const currentResults = state.tabQueryResults[tabId] || [];
+                // If we have no results, default to 0. If we have results, use the active index.
+                const activeIndex = currentResults.length > 0 ? (state.activeResultIndex[tabId] ?? 0) : 0;
+
+                // Clone current results
+                let newResults = [...currentResults];
+
+                // If currently empty, just set results.
+                // Otherwise replace the active result with new results.
+                if (currentResults.length === 0) {
+                    newResults = results;
+                } else {
+                    // Remove the active result and insert the new one(s)
+                    newResults.splice(activeIndex, 1, ...results);
+                }
+
+                // If we replaced 1 item with N items, subsquent items need to be shifted by N-1
+                const shiftAmount = results.length - 1;
+
+                // Helper to shift metadata keys
+                const shiftMap = <T>(map: Record<number, T> | undefined): Record<number, T> => {
+                    if (!map) return {};
+                    const newMap: Record<number, T> = {};
+                    Object.entries(map).forEach(([k, v]) => {
+                        const idx = parseInt(k, 10);
+                        if (idx < activeIndex) {
+                            // Before active index: keep as is
+                            newMap[idx] = v;
+                        } else if (idx > activeIndex) {
+                            // After active index: shift
+                            newMap[idx + shiftAmount] = v;
+                        }
+                        // matched idx is dropped (reset for new result)
+                    });
+                    return newMap;
+                };
+
+                const newCustomNames = shiftMap(state.resultCustomNames[tabId]);
+                const newColumnOrders = shiftMap(state.resultColumnOrder[tabId]);
+
+                return {
+                    tabQueryResults: { ...state.tabQueryResults, [tabId]: newResults },
+                    // Keep focus on the same position (start of the new results)
+                    activeResultIndex: { ...state.activeResultIndex, [tabId]: activeIndex },
+                    resultCustomNames: { ...state.resultCustomNames, [tabId]: newCustomNames },
+                    resultColumnOrder: { ...state.resultColumnOrder, [tabId]: newColumnOrders },
+                    tabExecuting: { ...state.tabExecuting, [tabId]: false }
+                };
+            });
 
             return results;
         } catch (error) {

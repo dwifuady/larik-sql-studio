@@ -155,4 +155,119 @@ describe('queriesSlice', () => {
         expect(orders[1]).toEqual([0, 1]);
         expect(orders[2]).toEqual([0, 1]);
     });
+    it('should replace only the active result when executing a query', async () => {
+        const spaceId = 'space-1';
+        const tabId = 'tab-1';
+
+        // Initial state with 3 results
+        const initialResults = [
+            { query_id: 'q1', rows: [['old1']] },
+            { query_id: 'q2', rows: [['old2']] },
+            { query_id: 'q3', rows: [['old3']] }
+        ] as any[];
+
+        useTestStore.setState({
+            activeSpaceId: spaceId,
+            spaces: [{ id: spaceId, connection_database: 'master' } as any],
+            tabs: [{ id: tabId, space_id: spaceId, title: 'Query' } as any],
+            activeTabId: tabId,
+            tabQueryResults: { [tabId]: initialResults },
+            activeResultIndex: { [tabId]: 1 }, // Active is the middle one (index 1)
+            resultCustomNames: {
+                [tabId]: {
+                    0: 'Result 1',
+                    1: 'Result 2',
+                    2: 'Result 3'
+                }
+            }
+        });
+
+        const newResult = [{
+            query_id: 'new_q',
+            rows: [['new']]
+        }];
+
+        (api.executeQuery as any).mockResolvedValue(newResult);
+
+        await useTestStore.getState().executeQuery(tabId, 'SELECT new');
+
+        const updatedResults = useTestStore.getState().tabQueryResults[tabId];
+
+        // Should still have 3 results
+        expect(updatedResults).toHaveLength(3);
+
+        // Index 0 and 2 should be unchanged
+        expect(updatedResults[0].query_id).toBe('q1');
+        expect(updatedResults[2].query_id).toBe('q3');
+
+        // Index 1 should be the new result
+        expect(updatedResults[1].query_id).toBe('new_q');
+        expect(updatedResults[1].rows).toEqual([['new']]);
+
+        // Active index should remain 1
+        expect(useTestStore.getState().activeResultIndex[tabId]).toBe(1);
+    });
+
+    it('should insert multiple results at active index and shift subsequent results', async () => {
+        const spaceId = 'space-1';
+        const tabId = 'tab-1';
+
+        // Initial state with 3 results
+        const initialResults = [
+            { query_id: 'q1', rows: [['old1']] },
+            { query_id: 'q2', rows: [['old2']] },
+            { query_id: 'q3', rows: [['old3']] }
+        ] as any[];
+
+        useTestStore.setState({
+            activeSpaceId: spaceId,
+            spaces: [{ id: spaceId, connection_database: 'master' } as any],
+            tabs: [{ id: tabId, space_id: spaceId, title: 'Query' } as any],
+            activeTabId: tabId,
+            tabQueryResults: { [tabId]: initialResults },
+            activeResultIndex: { [tabId]: 1 }, // Active is index 1
+            resultCustomNames: {
+                [tabId]: {
+                    0: 'Name 0',
+                    1: 'Name 1',
+                    2: 'Name 2'
+                }
+            }
+        });
+
+        // execution returns 2 results
+        const newResults = [
+            { query_id: 'new_q1', rows: [['new1']] },
+            { query_id: 'new_q2', rows: [['new2']] }
+        ];
+
+        (api.executeQuery as any).mockResolvedValue(newResults);
+
+        await useTestStore.getState().executeQuery(tabId, 'SELECT multiple');
+
+        const updatedResults = useTestStore.getState().tabQueryResults[tabId];
+
+        // Should have 3 - 1 + 2 = 4 results
+        expect(updatedResults).toHaveLength(4);
+
+        // Index 0: unchanged
+        expect(updatedResults[0].query_id).toBe('q1');
+
+        // Index 1, 2: new results
+        expect(updatedResults[1].query_id).toBe('new_q1');
+        expect(updatedResults[2].query_id).toBe('new_q2');
+
+        // Index 3: shifted old index 2
+        expect(updatedResults[3].query_id).toBe('q3');
+
+        // Check metadata shifting
+        const names = useTestStore.getState().resultCustomNames[tabId];
+        expect(names[0]).toBe('Name 0'); // Unchanged
+        // Name 1 was at index 1, replaced by new result, so it's gone/reset for the new result at index 1
+        // Name 2 was at index 2, should be shifted to index 3
+        expect(names[3]).toBe('Name 2');
+
+        // Active index remains 1 (start of new results)
+        expect(useTestStore.getState().activeResultIndex[tabId]).toBe(1);
+    });
 });
