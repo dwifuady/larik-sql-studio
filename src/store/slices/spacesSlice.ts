@@ -10,7 +10,7 @@ export interface SpacesSlice {
     spaceConnectionStatus: ConnectionInfo | null;
     isConnecting: boolean;
     connectionError: string | null;
-    spaceDatabases: string[];
+    spaceDatabases: { name: string; hasAccess: boolean }[];
     databasesLoading: boolean;
 
     loadSpaces: () => Promise<void>;
@@ -243,7 +243,7 @@ export const createSpacesSlice: StateCreator<AppState, [], [], SpacesSlice> = (s
 
         set({ databasesLoading: true });
         try {
-            const dbs = await api.getSpaceDatabases(spaceId);
+            const dbs = await api.getSpaceDatabasesWithAccess(spaceId);
             set({ spaceDatabases: dbs, databasesLoading: false });
         } catch (error) {
             console.error('Failed to load databases:', error);

@@ -1337,7 +1337,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
     // Check for USE [database] statement and auto-switch database
     const usedDatabase = extractUseDatabaseStatement(queryToTrack);
-    if (usedDatabase && spaceDatabases.includes(usedDatabase)) {
+    if (usedDatabase && spaceDatabases.some(db => db.name === usedDatabase)) {
       // Update tab's database before executing
       await updateTabDatabase(tab.id, usedDatabase);
       // Reload schema for the new database
@@ -1449,7 +1449,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
     // Check for USE [database] statement and auto-switch database
     const usedDatabase = extractUseDatabaseStatement(queryToTrack);
-    if (usedDatabase && spaceDatabases.includes(usedDatabase)) {
+    if (usedDatabase && spaceDatabases.some(db => db.name === usedDatabase)) {
       // Update tab's database before executing
       await updateTabDatabase(tab.id, usedDatabase);
       // Reload schema for the new database
@@ -1628,7 +1628,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         }
 
         // Add schema-based completions (use current block text for context-aware suggestions)
-        const schemaCompletions = createSchemaCompletions(monaco, schemaInfo, context, tableAliases, completionRange, currentBlockText, spaceDatabases);
+        const schemaCompletions = createSchemaCompletions(monaco, schemaInfo, context, tableAliases, completionRange, currentBlockText, spaceDatabases.map(db => db.name));
         suggestions.push(...schemaCompletions);
 
         return { suggestions };

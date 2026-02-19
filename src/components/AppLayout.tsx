@@ -228,7 +228,7 @@ export function AppLayout() {
 
   // Filter databases based on search query
   const filteredDatabases = spaceDatabases.filter(db =>
-    db.toLowerCase().includes(dbSearchQuery.toLowerCase())
+    db.name.toLowerCase().includes(dbSearchQuery.toLowerCase())
   );
 
   // Check if default DB matches search
@@ -259,7 +259,10 @@ export function AppLayout() {
             handleCreateNewTab(activeSpace?.connection_database || null);
           } else {
             const dbIndex = showDefaultDb ? selectedDbIndex - 1 : selectedDbIndex;
-            handleCreateNewTab(filteredDatabases[dbIndex]);
+            const selectedDb = filteredDatabases[dbIndex];
+            if (selectedDb && selectedDb.hasAccess) {
+              handleCreateNewTab(selectedDb.name);
+            }
           }
         } else {
           handleCreateNewTab(null);
@@ -870,18 +873,31 @@ export function AppLayout() {
                     {filteredDatabases.map((db, index) => (
                       <button
                         type="button"
-                        key={db}
-                        onClick={() => handleCreateNewTab(db)}
-                        onMouseEnter={() => setSelectedDbIndex(showDefaultDb ? index + 1 : index)}
-                        className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors border-0 ${selectedDbIndex === (showDefaultDb ? index + 1 : index)
-                          ? 'bg-[var(--bg-active)] text-[var(--text-primary)]'
-                          : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+                        key={db.name}
+                        onClick={() => db.hasAccess && handleCreateNewTab(db.name)}
+                        onMouseEnter={() => db.hasAccess && setSelectedDbIndex(showDefaultDb ? index + 1 : index)}
+                        disabled={!db.hasAccess}
+                        title={!db.hasAccess ? 'You do not have access to this database' : undefined}
+                        className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors border-0 ${!db.hasAccess
+                          ? 'opacity-40 cursor-not-allowed text-[var(--text-muted)]'
+                          : selectedDbIndex === (showDefaultDb ? index + 1 : index)
+                            ? 'bg-[var(--bg-active)] text-[var(--text-primary)]'
+                            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
                           }`}
                       >
-                        <svg className="w-3.5 h-3.5 flex-shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
-                        </svg>
-                        <span className="truncate">{db}</span>
+                        {db.hasAccess ? (
+                          <svg className="w-3.5 h-3.5 flex-shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+                          </svg>
+                        ) : (
+                          <svg className="w-3.5 h-3.5 flex-shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                          </svg>
+                        )}
+                        <span className="truncate">{db.name}</span>
+                        {!db.hasAccess && (
+                          <span className="ml-auto text-[10px] text-[var(--text-muted)] shrink-0">No access</span>
+                        )}
                       </button>
                     ))}
 

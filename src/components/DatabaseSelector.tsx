@@ -120,14 +120,30 @@ export function DatabaseSelector({ isCompact = false }: DatabaseSelectorProps) {
                             <div className="my-1 mx-2 border-t border-[var(--border-color)] opacity-50" />
                             {spaceDatabases.map((db) => (
                                 <button
-                                    key={db}
-                                    onClick={() => handleSelectDatabase(db)}
-                                    className={`w-full px-3 py-1.5 text-left text-xs flex items-center gap-2 transition-colors ${activeTab?.database === db
-                                        ? 'bg-[var(--bg-active)] text-[var(--text-primary)]'
-                                        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
+                                    key={db.name}
+                                    onClick={() => db.hasAccess ? handleSelectDatabase(db.name) : undefined}
+                                    disabled={!db.hasAccess}
+                                    title={!db.hasAccess ? 'You do not have access to this database' : undefined}
+                                    className={`w-full px-3 py-1.5 text-left text-xs flex items-center gap-2 transition-colors ${!db.hasAccess
+                                            ? 'opacity-40 cursor-not-allowed text-[var(--text-muted)]'
+                                            : activeTab?.database === db.name
+                                                ? 'bg-[var(--bg-active)] text-[var(--text-primary)]'
+                                                : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
                                         }`}
                                 >
-                                    <span className="truncate">{db}</span>
+                                    {db.hasAccess ? (
+                                        <svg className="w-3 h-3 flex-shrink-0 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+                                        </svg>
+                                    ) : (
+                                        <svg className="w-3 h-3 flex-shrink-0 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                        </svg>
+                                    )}
+                                    <span className="truncate">{db.name}</span>
+                                    {!db.hasAccess && (
+                                        <span className="ml-auto text-[9px] text-[var(--text-muted)] shrink-0">No access</span>
+                                    )}
                                 </button>
                             ))}
                         </div>

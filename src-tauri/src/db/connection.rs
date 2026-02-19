@@ -354,7 +354,7 @@ impl MssqlConnectionManager {
         }
     }
 
-    /// Get list of databases from a connection
+    /// Get list of accessible databases from a connection (only databases the user has access to)
     pub async fn get_databases(&self, connection_id: &str) -> Result<Vec<String>, ConnectionError> {
         let pool = self.connect(connection_id).await?;
         let mut conn = pool.get().await?;
@@ -369,6 +369,43 @@ impl MssqlConnectionManager {
             .collect();
         
         Ok(databases)
+    }
+
+    /// Get list of all online databases with an access flag (name, has_access).
+    /// Uses two separate queries and merges in Rust to avoid tiberius type ambiguity
+    /// with HAS_DBACCESS() returning typed I32 vs text depending on the protocol path.
+    pub async fn get_databases_with_access(&self, connection_id: &str) -> Result<Vec<(String, bool)>, ConnectionError> {
+        let pool = self.connect(connection_id).await?;
+        let mut conn = pool.get().await?;
+
+        // Query 1: all online databases (name only, &str is unambiguous)
+        let all_query = "SELECT name FROM sys.databases WHERE state_desc = 'ONLINE' ORDER BY name";
+        let stream = conn.simple_query(all_query).await?;
+        let all_rows = stream.into_first_result().await?;
+        let all_dbs: Vec<String> = all_rows
+            .iter()
+            .filter_map(|row| row.get::<&str, _>(0).map(|s| s.to_string()))
+            .collect();
+
+        // Query 2: only accessible databases — reuse the exact proven query
+        let access_query = "SELECT name FROM sys.databases WHERE state_desc = 'ONLINE' AND HAS_DBACCESS(name) = 1 ORDER BY name";
+        let stream2 = conn.simple_query(access_query).await?;
+        let access_rows = stream2.into_first_result().await?;
+        let accessible: std::collections::HashSet<String> = access_rows
+            .iter()
+            .filter_map(|row| row.get::<&str, _>(0).map(|s| s.to_string()))
+            .collect();
+
+        // Merge: mark each database as accessible or not
+        let result = all_dbs
+            .into_iter()
+            .map(|name| {
+                let has_access = accessible.contains(&name);
+                (name, has_access)
+            })
+            .collect();
+
+        Ok(result)
     }
 
     /// Get a connection config by ID
