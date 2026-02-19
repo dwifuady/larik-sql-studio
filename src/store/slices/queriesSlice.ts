@@ -112,18 +112,54 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
             tabExecuting: { ...state.tabExecuting, [tabId]: true }
         }));
 
+        const executeWithRetry = async (retryCount = 0): Promise<QueryResult[] | null> => {
+            try {
+                const activeTab = get().tabs.find(t => t.id === tabId);
+                const activeSpace = get().spaces.find(s => s.id === spaceId);
+
+                const database = activeTab?.database || activeSpace?.connection_database;
+
+                const results = await api.executeQuery(
+                    spaceId,
+                    query,
+                    database,
+                    selectedText
+                );
+
+                return results;
+            } catch (error: any) {
+                const errorMessage = String(error?.message || error || '');
+                const isConnectionError =
+                    errorMessage.includes('Transport level error') ||
+                    errorMessage.includes('Connection reset') ||
+                    errorMessage.includes('broken pipe') ||
+                    errorMessage.includes('Communication link failure') ||
+                    errorMessage.includes('TCP Provider') ||
+                    errorMessage.includes('Force Disconnect');
+
+                if (isConnectionError && retryCount < 1) {
+                    // Attempt to reconnect
+                    console.log('Connection lost, attempting to reconnect...', errorMessage);
+                    get().addToast({ type: 'info', message: 'Connection lost. Reconnecting...' });
+
+                    try {
+                        const connected = await api.connectToSpace(spaceId);
+                        if (connected) {
+                            // Retry the query
+                            return executeWithRetry(retryCount + 1);
+                        }
+                    } catch (reconnectError) {
+                        console.error('Reconnection failed:', reconnectError);
+                    }
+                }
+                throw error;
+            }
+        };
+
         try {
-            const activeTab = get().tabs.find(t => t.id === tabId);
-            const activeSpace = get().spaces.find(s => s.id === spaceId);
+            const results = await executeWithRetry();
 
-            const database = activeTab?.database || activeSpace?.connection_database;
-
-            const results = await api.executeQuery(
-                spaceId,
-                query,
-                database,
-                selectedText
-            );
+            if (!results) return null;
 
             set((state) => {
                 const currentResults = state.tabQueryResults[tabId] || [];
@@ -208,17 +244,49 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
             tabExecuting: { ...state.tabExecuting, [tabId]: true }
         }));
 
-        try {
-            const activeTab = get().tabs.find(t => t.id === tabId);
-            const activeSpace = get().spaces.find(s => s.id === spaceId);
-            const database = activeTab?.database || activeSpace?.connection_database;
+        const executeWithRetry = async (retryCount = 0): Promise<QueryResult[] | null> => {
+            try {
+                const activeTab = get().tabs.find(t => t.id === tabId);
+                const activeSpace = get().spaces.find(s => s.id === spaceId);
+                const database = activeTab?.database || activeSpace?.connection_database;
 
-            const newResults = await api.executeQuery(
-                spaceId,
-                query,
-                database,
-                selectedText
-            );
+                const newResults = await api.executeQuery(
+                    spaceId,
+                    query,
+                    database,
+                    selectedText
+                );
+                return newResults;
+            } catch (error: any) {
+                const errorMessage = String(error?.message || error || '');
+                const isConnectionError =
+                    errorMessage.includes('Transport level error') ||
+                    errorMessage.includes('Connection reset') ||
+                    errorMessage.includes('broken pipe') ||
+                    errorMessage.includes('Communication link failure') ||
+                    errorMessage.includes('TCP Provider') ||
+                    errorMessage.includes('Force Disconnect');
+
+                if (isConnectionError && retryCount < 1) {
+                    console.log('Connection lost (append), attempting to reconnect...', errorMessage);
+                    get().addToast({ type: 'info', message: 'Connection lost. Reconnecting...' });
+
+                    try {
+                        const connected = await api.connectToSpace(spaceId);
+                        if (connected) {
+                            return executeWithRetry(retryCount + 1);
+                        }
+                    } catch (reconnectError) {
+                        console.error('Reconnection failed:', reconnectError);
+                    }
+                }
+                throw error;
+            }
+        };
+
+        try {
+            const newResults = await executeWithRetry();
+            if (!newResults) return null;
 
             set((state) => {
                 const currentResults = state.tabQueryResults[tabId] || [];
@@ -248,6 +316,12 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
             set((state) => ({
                 tabExecuting: { ...state.tabExecuting, [tabId]: false }
             }));
+
+            get().addToast({
+                type: 'error',
+                message: error instanceof Error ? error.message : 'Query failed'
+            });
+
             return null;
         }
     },
