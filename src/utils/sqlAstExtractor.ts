@@ -967,10 +967,16 @@ export function getCompletionContext(
   // Keyword-based context detection
   const COLUMN_CONTEXT_KEYWORDS = ['SELECT', 'WHERE', 'ON', 'AND', 'OR', 'SET', 'ORDER BY', 'GROUP BY', 'HAVING', 'BY', '='];
   const ROUTINE_CONTEXT_KEYWORDS = ['EXEC', 'EXECUTE', 'CALL'];
-  const DATABASE_CONTEXT_KEYWORDS = ['USE'];
 
-  if (DATABASE_CONTEXT_KEYWORDS.includes(lastWord)) {
-    return { type: 'database', lastKeyword: lastWord };
+
+  const isDatabaseContext = /\bUSE\s+\[?\w*$/i.test(textBeforeCursor);
+  if (isDatabaseContext) {
+    const match = textBeforeCursor.match(/\bUSE\s+([\w\[]*)$/i);
+    return {
+      type: 'database',
+      lastKeyword: 'USE',
+      partialWord: match ? match[1] : ''
+    };
   }
 
   if (ROUTINE_CONTEXT_KEYWORDS.includes(lastWord)) {

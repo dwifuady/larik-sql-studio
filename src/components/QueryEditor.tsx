@@ -752,12 +752,12 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     if (context.type === 'database') {
       databases.forEach(dbName => {
         suggestions.push({
-          label: dbName,
+          label: `[${dbName}]`,
           kind: monaco.languages.CompletionItemKind.Module,
           detail: 'Database',
           documentation: `Switch to database: ${dbName}`,
           insertText: `[${dbName}]`,
-          sortText: `0_${dbName}`,
+          sortText: `000_${dbName}`,
           range,
         });
       });
@@ -1576,10 +1576,10 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
     // Register new completion provider with updated schema
     completionProviderRef.current = monaco.languages.registerCompletionItemProvider('sql', {
-      triggerCharacters: ['.', ' '],
+      triggerCharacters: ['.', ' ', '['],
       provideCompletionItems: (model, position) => {
         const word = model.getWordUntilPosition(position);
-        const range: IRange = {
+        let completionRange: IRange = {
           startLineNumber: position.lineNumber,
           endLineNumber: position.lineNumber,
           startColumn: word.startColumn,
@@ -1596,6 +1596,13 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
         const fullText = model.getValue();
         const context = getCompletionContext(textBeforeCursor, fullText);
+
+        if (textBeforeCursor.endsWith('[')) {
+          completionRange = {
+            ...completionRange,
+            startColumn: position.column - 1
+          };
+        }
 
         // Get current SQL block to parse aliases only from the current statement
         const currentBlock = findCurrentSqlBlock(fullText, position.lineNumber - 1, position.column - 1);
@@ -1615,13 +1622,13 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
               kind: monaco.languages.CompletionItemKind.Keyword,
               insertText: keyword,
               sortText: `9_${keyword}`,
-              range,
+              range: completionRange,
             });
           });
         }
 
         // Add schema-based completions (use current block text for context-aware suggestions)
-        const schemaCompletions = createSchemaCompletions(monaco, schemaInfo, context, tableAliases, range, currentBlockText, spaceDatabases);
+        const schemaCompletions = createSchemaCompletions(monaco, schemaInfo, context, tableAliases, completionRange, currentBlockText, spaceDatabases);
         suggestions.push(...schemaCompletions);
 
         return { suggestions };
