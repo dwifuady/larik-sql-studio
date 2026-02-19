@@ -72,9 +72,10 @@ describe('queriesSlice', () => {
 
         expect(api.executeQuery).toHaveBeenCalledWith(spaceId, 'SELECT 1', 'master', undefined);
         expect(useTestStore.getState().tabQueryResults[tabId]).toEqual(expect.arrayContaining([
-            expect.objectContaining({ rows: [[1]] })
+            expect.objectContaining({ rows: [[1]], displayId: 1 })
         ]));
         expect(useTestStore.getState().tabExecuting[tabId]).toBe(false);
+        expect(useTestStore.getState().tabResultCounters[tabId]).toBe(1);
     });
 
     it('should handle query execution error', async () => {
@@ -104,9 +105,9 @@ describe('queriesSlice', () => {
     it('should reorder results and their associated metadata', () => {
         const tabId = 'tab-1';
         const results = [
-            { query_id: '1', rows: [[1]] },
-            { query_id: '2', rows: [[2]] },
-            { query_id: '3', rows: [[3]] }
+            { query_id: '1', rows: [[1]], displayId: 1 },
+            { query_id: '2', rows: [[2]], displayId: 2 },
+            { query_id: '3', rows: [[3]], displayId: 3 }
         ] as any[];
 
         useTestStore.setState({
@@ -138,13 +139,18 @@ describe('queriesSlice', () => {
         expect(newResults[2].query_id).toBe('1');
 
         // Check custom names
-        // Index 0 should now be "Result 2"
-        // Index 1 should now be "Result 3"
-        // Index 2 should now be "Result 1"
         const names = useTestStore.getState().resultCustomNames[tabId];
         expect(names[0]).toBe('Result 2');
         expect(names[1]).toBe('Result 3');
         expect(names[2]).toBe('Result 1');
+
+        // Check displayIds are preserved after reordering
+        // Old Index 0 (displayId: 1) -> New Index 2
+        // Old Index 1 (displayId: 2) -> New Index 0
+        // Old Index 2 (displayId: 3) -> New Index 1
+        expect(newResults[0].displayId).toBe(2);
+        expect(newResults[1].displayId).toBe(3);
+        expect(newResults[2].displayId).toBe(1);
 
         // Check column order
         // Index 0 should now be [1, 0] (from old index 1)

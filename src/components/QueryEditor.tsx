@@ -2201,7 +2201,8 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
                       >
                         {queryResults.map((result, index) => {
                           const customName = getResultCustomName(tab.id, index);
-                          const displayName = customName || `Result ${index + 1}`;
+                          const defaultName = result.displayId ? `Result ${result.displayId}` : `Result ${index + 1}`;
+                          const displayName = customName || defaultName;
                           const isEditing = editingResultIndex === index;
 
                           return (
@@ -2256,7 +2257,8 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
                                       onClick={() => setActiveResultIndex(tab.id, index)}
                                       onDoubleClick={() => {
                                         setEditingResultIndex(index);
-                                        setEditingResultName(customName || `Result ${index + 1}`);
+                                        const defaultName = result.displayId ? `Result ${result.displayId}` : `Result ${index + 1}`;
+                                        setEditingResultName(customName || defaultName);
                                       }}
                                       className="flex items-center gap-1.5 cursor-pointer"
                                     >
