@@ -63,7 +63,7 @@ describe('tabsSlice', () => {
 
         const result = await useTestStore.getState().createTab('New Tab');
 
-        expect(api.createTab).toHaveBeenCalledWith(spaceId, 'New Tab', 'query', null);
+        expect(api.createTab).toHaveBeenCalledWith(spaceId, 'New Tab', 'query', null, null, null);
         expect(result).toEqual(newTab);
         expect(useTestStore.getState().tabs).toContainEqual(newTab);
         expect(useTestStore.getState().activeTabId).toBe('tab-1');

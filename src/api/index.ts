@@ -86,6 +86,11 @@ export async function getSpaceDatabases(spaceId: string): Promise<string[]> {
   return invoke<string[]>('get_space_databases', { spaceId });
 }
 
+/** Get list of all online databases with access flag */
+export async function getSpaceDatabasesWithAccess(spaceId: string): Promise<{ name: string; hasAccess: boolean }[]> {
+  return invoke<{ name: string; hasAccess: boolean }[]>('get_space_databases_with_access', { spaceId });
+}
+
 // ============================================================================
 // Tab API
 // ============================================================================

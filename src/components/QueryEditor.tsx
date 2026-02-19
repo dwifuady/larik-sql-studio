@@ -127,7 +127,7 @@ function getRecentTables(): Set<string> {
  * Returns a map of alias -> full table name
  * Now uses AST parsing for better accuracy with CTEs, subqueries, etc.
  */
-function parseTableAliases(sql: string): Map<string, { schema: string; table: string }> {
+function parseTableAliases(sql: string): Map<string, { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } }> {
   return parseTableAliasesAST(sql);
 }
 
@@ -740,7 +740,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     monaco: typeof import('monaco-editor'),
     schemaData: SchemaInfo | null,
     context: ReturnType<typeof getCompletionContext>,
-    tableAliases: Map<string, { schema: string; table: string }>,
+    tableAliases: Map<string, { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } }>,
     range: IRange,
     fullText: string,
     databases: string[]
@@ -752,12 +752,12 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     if (context.type === 'database') {
       databases.forEach(dbName => {
         suggestions.push({
-          label: dbName,
+          label: `[${dbName}]`,
           kind: monaco.languages.CompletionItemKind.Module,
           detail: 'Database',
           documentation: `Switch to database: ${dbName}`,
           insertText: `[${dbName}]`,
-          sortText: `0_${dbName}`,
+          sortText: `000_${dbName}`,
           range,
         });
       });
@@ -818,10 +818,49 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       return suggestions;
     }
 
-    // Alias column completion (e.g., "u." should show columns from users table)
+    // Alias column completion (e.g., "u." should show columns from users table OR CTE)
     if (context.type === 'alias_column' && context.alias) {
       const aliasInfo = tableAliases.get(context.alias);
       if (aliasInfo) {
+        // Case 1: CTE with explicit columns
+        if (aliasInfo.schema === 'cte' && aliasInfo.columns && aliasInfo.columns.length > 0) {
+          aliasInfo.columns.forEach(colName => {
+            suggestions.push({
+              label: colName,
+              kind: monaco.languages.CompletionItemKind.Field,
+              detail: 'CTE Column',
+              documentation: `Column from Common Table Expression '${aliasInfo.table}'`,
+              insertText: colName,
+              sortText: `0_${colName}`,
+              range,
+            });
+          });
+          return suggestions;
+        }
+
+        // Case 2: CTE inheriting from source table (e.g., SELECT * FROM Users)
+        if (aliasInfo.schema === 'cte' && aliasInfo.sourceTable) {
+          const sourceTable = schemaData.tables.find(t =>
+            t.table_name.toLowerCase() === aliasInfo.sourceTable!.table.toLowerCase() &&
+            t.schema_name.toLowerCase() === aliasInfo.sourceTable!.schema.toLowerCase()
+          );
+          if (sourceTable) {
+            sourceTable.columns.forEach(col => {
+              suggestions.push({
+                label: col.name,
+                kind: monaco.languages.CompletionItemKind.Field,
+                detail: getDisplayDataType(col),
+                documentation: { value: buildColumnDocumentation(col, sourceTable.table_name), isTrusted: true },
+                insertText: col.name,
+                sortText: `0_${col.ordinal_position.toString().padStart(3, '0')}`,
+                range,
+              });
+            });
+            return suggestions;
+          }
+        }
+
+        // Case 3: Regular table alias
         const table = schemaData.tables.find(t =>
           t.table_name.toLowerCase() === aliasInfo.table.toLowerCase() &&
           t.schema_name.toLowerCase() === aliasInfo.schema.toLowerCase()
@@ -859,6 +898,47 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
           });
         });
         return suggestions;
+      }
+
+      // Also check if matches a CTE name directly (without alias)
+      // This allows: WITH cte AS (...) SELECT cte.col FROM cte
+      const directCte = tableAliases.get(context.alias);
+      if (directCte && directCte.schema === 'cte') {
+        if (directCte.columns && directCte.columns.length > 0) {
+          directCte.columns.forEach(colName => {
+            suggestions.push({
+              label: colName,
+              kind: monaco.languages.CompletionItemKind.Field,
+              detail: 'CTE Column',
+              documentation: `Column from Common Table Expression '${directCte.table}'`,
+              insertText: colName,
+              sortText: `0_${colName}`,
+              range,
+            });
+          });
+          return suggestions;
+        }
+
+        if (directCte.sourceTable) {
+          const sourceTable = schemaData.tables.find(t =>
+            t.table_name.toLowerCase() === directCte.sourceTable!.table.toLowerCase() &&
+            t.schema_name.toLowerCase() === directCte.sourceTable!.schema.toLowerCase()
+          );
+          if (sourceTable) {
+            sourceTable.columns.forEach(col => {
+              suggestions.push({
+                label: col.name,
+                kind: monaco.languages.CompletionItemKind.Field,
+                detail: getDisplayDataType(col),
+                documentation: { value: buildColumnDocumentation(col, sourceTable.table_name), isTrusted: true },
+                insertText: col.name,
+                sortText: `0_${col.ordinal_position.toString().padStart(3, '0')}`,
+                range,
+              });
+            });
+            return suggestions;
+          }
+        }
       }
 
       // Check if it's a schema prefix (e.g., "dbo.")
@@ -971,13 +1051,22 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
         // For CTE or table aliases, suggest them
         const isCTE = tableInfo.schema === 'cte';
+
+        let detail = isCTE ? `CTE: ${tableInfo.table}` : `Alias: ${tableInfo.schema}.${tableInfo.table}`;
+        let doc = isCTE
+          ? `Common Table Expression (WITH clause) named '${tableInfo.table}'`
+          : `Alias '${alias}' references table ${tableInfo.schema}.${tableInfo.table}`;
+
+        // Enhance documentation with column info if available
+        if (isCTE && tableInfo.columns && tableInfo.columns.length > 0) {
+          doc += `\n\n**Columns:**\n${tableInfo.columns.map(c => `- ${c}`).join('\n')}`;
+        }
+
         suggestions.push({
           label: alias,
           kind: isCTE ? monaco.languages.CompletionItemKind.Reference : monaco.languages.CompletionItemKind.Variable,
-          detail: isCTE ? `CTE: ${tableInfo.table}` : `Alias: ${tableInfo.schema}.${tableInfo.table}`,
-          documentation: isCTE
-            ? `Common Table Expression (WITH clause) named '${tableInfo.table}'`
-            : `Alias '${alias}' references table ${tableInfo.schema}.${tableInfo.table}`,
+          detail: detail,
+          documentation: { value: doc, isTrusted: true },
           insertText: alias,
           sortText: `00_${alias}`, // High priority - existing aliases at top
           range,
@@ -1066,20 +1155,65 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       // Get all columns from tables that have been mentioned in the query
       const mentionedTables = new Set<string>();
       tableAliases.forEach(info => mentionedTables.add(`${info.schema}.${info.table}`.toLowerCase()));
+      // Also add table names - handle cases where direct CTE name maps to a key in map
+      // but tableAliases structure is key -> info. 
 
       // Also add tables with aliases for prefix suggestions (e.g., suggest "[a].ColumnName")
       const aliasEntries = Array.from(tableAliases.entries());
 
-      schemaData.tables.forEach(table => {
-        const tableKey = `${table.schema_name}.${table.table_name}`.toLowerCase();
-        const isRelevant = mentionedTables.has(tableKey);
+      // Process CTE column suggestions
+      aliasEntries.forEach(([_, info]) => {
+        if (info.schema === 'cte') {
+          // Suggest columns if available
+          if (info.columns && info.columns.length > 0) {
+            info.columns.forEach(colName => {
+              suggestions.push({
+                label: colName,
+                kind: monaco.languages.CompletionItemKind.Field,
+                detail: `CTE Column • ${info.table}`,
+                documentation: { value: `Column from CTE **${info.table}**`, isTrusted: true },
+                insertText: colName,
+                sortText: `0_${info.table}_${colName}`,
+                range,
+              });
+            });
+          }
+          // Or from source table
+          else if (info.sourceTable) {
+            const sourceTable = schemaData.tables.find(t =>
+              t.table_name.toLowerCase() === info.sourceTable!.table.toLowerCase() &&
+              t.schema_name.toLowerCase() === info.sourceTable!.schema.toLowerCase()
+            );
 
-        // Find if this table has an alias
+            if (sourceTable) {
+              sourceTable.columns.forEach(col => {
+                suggestions.push({
+                  label: col.name,
+                  kind: monaco.languages.CompletionItemKind.Field,
+                  detail: `${getDisplayDataType(col)} • CTE ${info.table}`,
+                  documentation: { value: buildColumnDocumentation(col, sourceTable.table_name), isTrusted: true },
+                  insertText: col.name,
+                  sortText: `0_${info.table}_${col.name}`, // High priority
+                  range,
+                });
+              });
+            }
+          }
+        }
+      });
+
+      schemaData.tables.forEach(table => {
+        // Check if table is relevant (used in query)
+        // Note: mentionedTables contains schema.table strings from aliases map
+        // But tableAliases might contain CTEs which don't map to tables directly
+
+        // Check if this table is referenced by any alias
         const aliasEntry = aliasEntries.find(([_, info]) =>
           info.schema.toLowerCase() === table.schema_name.toLowerCase() &&
           info.table.toLowerCase() === table.table_name.toLowerCase()
         );
         const alias = aliasEntry ? aliasEntry[0] : null;
+        const isRelevant = !!aliasEntry;
 
         if (isRelevant || mentionedTables.size === 0) {
           table.columns.forEach(col => {
@@ -1337,7 +1471,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
     // Check for USE [database] statement and auto-switch database
     const usedDatabase = extractUseDatabaseStatement(queryToTrack);
-    if (usedDatabase && spaceDatabases.includes(usedDatabase)) {
+    if (usedDatabase && spaceDatabases.some(db => db.name === usedDatabase)) {
       // Update tab's database before executing
       await updateTabDatabase(tab.id, usedDatabase);
       // Reload schema for the new database
@@ -1449,7 +1583,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
     // Check for USE [database] statement and auto-switch database
     const usedDatabase = extractUseDatabaseStatement(queryToTrack);
-    if (usedDatabase && spaceDatabases.includes(usedDatabase)) {
+    if (usedDatabase && spaceDatabases.some(db => db.name === usedDatabase)) {
       // Update tab's database before executing
       await updateTabDatabase(tab.id, usedDatabase);
       // Reload schema for the new database
@@ -1576,10 +1710,10 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
     // Register new completion provider with updated schema
     completionProviderRef.current = monaco.languages.registerCompletionItemProvider('sql', {
-      triggerCharacters: ['.', ' '],
+      triggerCharacters: ['.', ' ', '['],
       provideCompletionItems: (model, position) => {
         const word = model.getWordUntilPosition(position);
-        const range: IRange = {
+        let completionRange: IRange = {
           startLineNumber: position.lineNumber,
           endLineNumber: position.lineNumber,
           startColumn: word.startColumn,
@@ -1596,6 +1730,13 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
         const fullText = model.getValue();
         const context = getCompletionContext(textBeforeCursor, fullText);
+
+        if (textBeforeCursor.endsWith('[')) {
+          completionRange = {
+            ...completionRange,
+            startColumn: position.column - 1
+          };
+        }
 
         // Get current SQL block to parse aliases only from the current statement
         const currentBlock = findCurrentSqlBlock(fullText, position.lineNumber - 1, position.column - 1);
@@ -1615,13 +1756,13 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
               kind: monaco.languages.CompletionItemKind.Keyword,
               insertText: keyword,
               sortText: `9_${keyword}`,
-              range,
+              range: completionRange,
             });
           });
         }
 
         // Add schema-based completions (use current block text for context-aware suggestions)
-        const schemaCompletions = createSchemaCompletions(monaco, schemaInfo, context, tableAliases, range, currentBlockText, spaceDatabases);
+        const schemaCompletions = createSchemaCompletions(monaco, schemaInfo, context, tableAliases, completionRange, currentBlockText, spaceDatabases.map(db => db.name));
         suggestions.push(...schemaCompletions);
 
         return { suggestions };
@@ -2060,7 +2201,8 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
                       >
                         {queryResults.map((result, index) => {
                           const customName = getResultCustomName(tab.id, index);
-                          const displayName = customName || `Result ${index + 1}`;
+                          const defaultName = result.displayId ? `Result ${result.displayId}` : `Result ${index + 1}`;
+                          const displayName = customName || defaultName;
                           const isEditing = editingResultIndex === index;
 
                           return (
@@ -2115,7 +2257,8 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
                                       onClick={() => setActiveResultIndex(tab.id, index)}
                                       onDoubleClick={() => {
                                         setEditingResultIndex(index);
-                                        setEditingResultName(customName || `Result ${index + 1}`);
+                                        const defaultName = result.displayId ? `Result ${result.displayId}` : `Result ${index + 1}`;
+                                        setEditingResultName(customName || defaultName);
                                       }}
                                       className="flex items-center gap-1.5 cursor-pointer"
                                     >

@@ -524,6 +524,31 @@ pub async fn get_space_databases(
         .map_err(|e| e.to_string())
 }
 
+/// Get list of all online databases with access info (name + has_access flag)
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseInfo {
+    pub name: String,
+    pub has_access: bool,
+}
+
+#[command]
+pub async fn get_space_databases_with_access(
+    state: State<'_, AppState>,
+    space_id: String,
+) -> Result<Vec<DatabaseInfo>, String> {
+    // Ensure connected
+    if !state.mssql_manager.is_healthy(&space_id).await {
+        let _connected = connect_to_space(state.clone(), space_id.clone()).await?;
+    }
+
+    let results = state.mssql_manager.get_databases_with_access(&space_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(results.into_iter().map(|(name, has_access)| DatabaseInfo { name, has_access }).collect())
+}
+
 /// Legacy: Create a new database connection (kept for flexibility)
 #[command]
 pub async fn create_connection(

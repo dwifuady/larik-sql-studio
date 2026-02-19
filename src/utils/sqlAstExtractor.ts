@@ -417,18 +417,21 @@ function extractAliasesFromExpression(expr: any, aliases: Set<string>): void {
  * @example
  * parseTableAliases('SELECT * FROM dbo.Users u JOIN Orders o ON u.Id = o.UserId')
  * // Returns: Map { 'u' => { schema: 'dbo', table: 'Users' }, 'o' => { schema: 'dbo', table: 'Orders' } }
- *
- * parseTableAliases('WITH cte AS (...) SELECT * FROM cte c')
- * // Returns: Map { 'c' => { schema: 'cte', table: 'cte' }, 'cte' => { schema: 'cte', table: 'cte' } }
  */
-export function parseTableAliases(sql: string): Map<string, { schema: string; table: string }> {
-  const aliases = new Map<string, { schema: string; table: string }>();
+export function parseTableAliases(sql: string): Map<string, { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } }> {
+  const aliases = new Map<string, { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } }>();
 
   if (!sql || !sql.trim()) {
     return aliases;
   }
 
-  const ast = parseSQL(sql);
+  let ast: any = null;
+  try {
+    const parser = new Parser();
+    ast = parser.astify(sql, { database: 'TransactSQL' });
+  } catch (err: any) {
+    // ast remains null, triggering the fallback
+  }
 
   if (!ast) {
     // Fallback: use regex (original implementation)
@@ -457,6 +460,132 @@ export function parseTableAliases(sql: string): Map<string, { schema: string; ta
       }
     }
 
+    // Pattern 3: CTE definitions - ;WITH [cte_name] AS, or , [cte_name] AS
+    // Matches:
+    // - ;WITH CteName AS (...)
+    // - ;WITH CteName (col1, col2) AS (...)
+    // We capture:
+    // 1. CTE Name (simple case)
+    // 2. Explicit Columns (optional)
+    // 3. CTE Definition
+
+    // Regex explanation:
+    // (?:;|^|\s)WITH\s+   : Start with WITH
+    // (?:\[?(\w+)\]?)     : Capture Name
+    // \s*                 : Optional space
+    // (?:\(([^)]+)\))?    : Optional Explicit Columns group -> captures content inside ()
+    // \s+AS\s*            : AS keyword
+    // \(([\s\S]*?)\)      : Capture Definition Body
+
+    // We actually need a loop that finds START of CTEs because definitions can contain nested parens
+    // So we look for "WITH Name [cols] AS (" or ", Name [cols] AS ("
+
+    const cteStartPattern = /(?:;|^|\s)WITH\s+(?:\[?(\w+)\]?)\s*(?:\(([^)]+)\))?\s+AS\s*\(|,\s*(?:\[?(\w+)\]?)\s*(?:\(([^)]+)\))?\s+AS\s*\(/gi;
+
+    // Simpler pattern to just find names if the complex one fails or for robustness
+    const simpleCtePattern = /(?:;|^|\s)WITH\s+(?:\[?(\w+)\]?)\s+AS|,\s*(?:\[?(\w+)\]?)\s+AS/gi;
+
+    // Reset regex index just in case
+    cteStartPattern.lastIndex = 0;
+
+    let match;
+    while ((match = cteStartPattern.exec(sql)) !== null) {
+      // match indices:
+      // 1: Name (WITH)
+      // 2: Columns (WITH)
+      // 3: Name (comma)
+      // 4: Columns (comma)
+      const cteName = match[1] || match[3];
+      if (!cteName || skipWords.has(cteName.toUpperCase())) continue;
+
+      const explicitColumnsStr = match[2] || match[4];
+
+      const startIndex = match.index + match[0].length;
+      let openParens = 1;
+      let endIndex = startIndex;
+
+      // Find matching closing parenthesis for the definition body
+      for (let i = startIndex; i < sql.length; i++) {
+        if (sql[i] === '(') openParens++;
+        else if (sql[i] === ')') openParens--;
+
+        if (openParens === 0) {
+          endIndex = i;
+          break;
+        }
+      }
+
+      const cteDefinition = sql.substring(startIndex, endIndex);
+
+      const cteInfo: { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } } = {
+        schema: 'cte',
+        table: cteName
+      };
+
+      // 1. If we have explicit columns from the "CTE (col1, col2) AS" syntax, use them!
+      if (explicitColumnsStr) {
+        // simple split by comma, clean whitespace and brackets
+        cteInfo.columns = explicitColumnsStr.split(',').map(c => c.trim().replace(/^\[|\]$/g, ''));
+      }
+
+      // 2. Try to parse the inner definition (it should be a valid SELECT)
+      // We do this to find source table for * OR if explicit columns weren't provided
+      try {
+        const parser = new Parser();
+        const ast = parser.astify(cteDefinition, { database: 'TransactSQL' });
+        const stmt = Array.isArray(ast) ? ast[0] : ast;
+
+        // Use the existing extraction logic but for this standalone statement
+        // checking for columns and source table
+        if (stmt && stmt.type === 'select') {
+          // Only extract columns from SELECT list if we didn't get them from explicit declaration
+          if (!cteInfo.columns) {
+            const columns: string[] = [];
+            if (stmt.columns && Array.isArray(stmt.columns)) {
+              stmt.columns.forEach((col: any) => {
+                if (col.as) columns.push(col.as);
+                else if (col.expr && col.expr.type === 'column_ref' && col.expr.column) columns.push(col.expr.column);
+              });
+            }
+            if (columns.length > 0) cteInfo.columns = columns;
+          }
+
+          // Extract source table for *
+          if (stmt.from && Array.isArray(stmt.from) && stmt.from.length === 1) {
+            const from = stmt.from[0] as any;
+            if (from.table && typeof from.table === 'string') {
+              // Check if * is present in the SELECT list (either explicit * or implied by missing columns?)
+              // Actually, if we have explicit columns (e.g. CTE(A, B)), we probably don't need source table info for * expansion
+              // UNLESS the user wants to see original types etc.
+              // But usually `CTE(A, B) AS (SELECT * ...)` means A maps to col1, B maps to col2.
+              // For now, let's keep sourceTable logic mainly for `CTE AS (SELECT * ...)` case where we don't know column names.
+
+              const hasWildcard = stmt.columns?.some((c: any) => c.expr && c.expr.type === 'column_ref' && c.expr.column === '*');
+              if (hasWildcard) {
+                cteInfo.sourceTable = {
+                  schema: from.db || from.schema || 'dbo',
+                  table: from.table
+                };
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // Ignore parsing errors for definition
+      }
+
+      aliases.set(cteName.toLowerCase(), cteInfo);
+    }
+
+    // If we missed any because of complex parsing, fallback to simple name extraction
+    // (Only add if not already present)
+    for (const match of sql.matchAll(simpleCtePattern)) {
+      const cteName = match[1] || match[2];
+      if (cteName && !skipWords.has(cteName.toUpperCase()) && !aliases.has(cteName.toLowerCase())) {
+        aliases.set(cteName.toLowerCase(), { schema: 'cte', table: cteName });
+      }
+    }
+
     return aliases;
   }
 
@@ -475,7 +604,7 @@ export function parseTableAliases(sql: string): Map<string, { schema: string; ta
  */
 function extractAliasMapFromStatement(
   stmt: any,
-  aliases: Map<string, { schema: string; table: string }>
+  aliases: Map<string, { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } }>
 ): void {
   if (!stmt || typeof stmt !== 'object') {
     return;
@@ -489,7 +618,68 @@ function extractAliasMapFromStatement(
         const cteName = typeof cte.name === 'string' ? cte.name : (cte.name.value || cte.name);
         if (typeof cteName === 'string') {
           // CTE name can be used as both table and alias
-          aliases.set(cteName.toLowerCase(), { schema: 'cte', table: cteName });
+          const rawCteName = cteName;
+          const cteKey = cteName.toLowerCase();
+
+          const cteInfo: { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } } = {
+            schema: 'cte',
+            table: rawCteName
+          };
+
+          // Try to extract columns from CTE definition
+          // Note: node-sql-parser structure for items in WITH clause puts the SELECT AST in `stmt.ast` or just `stmt`
+          // based on the parser version/options. We check both.
+          const cteSelect = cte.stmt && cte.stmt.ast ? cte.stmt.ast : cte.stmt;
+
+          if (cteSelect && cteSelect.type === 'select') {
+            const columns: string[] = [];
+
+            // 1. Check for explicit column list in CTE definition: WITH c(col1, col2) AS (...)
+            // node-sql-parser puts this in `cte.columns` (top level of the CTE object), not inside the stmt
+            if (cte.columns && Array.isArray(cte.columns)) {
+              cte.columns.forEach((col: any) => {
+                // Check if it's a string or object with type
+                if (typeof col === 'string') columns.push(col);
+                else if (col.value) columns.push(col.value);
+                else if (col.type === 'default' && col.value) columns.push(col.value);
+              });
+            }
+
+            // If no explicit columns in WITH definition, extract from SELECT list
+            if (columns.length === 0 && cteSelect.columns && Array.isArray(cteSelect.columns)) {
+              cteSelect.columns.forEach((col: any) => {
+                // If it has an alias (AS alias), use that
+                if (col.as) {
+                  columns.push(col.as);
+                }
+                // If it's a simple column reference, use the column name
+                else if (col.expr && col.expr.type === 'column_ref' && col.expr.column) {
+                  columns.push(col.expr.column);
+                }
+              });
+            }
+
+            if (columns.length > 0) {
+              cteInfo.columns = columns;
+            }
+
+            // 2. Check for "SELECT * FROM Table" to inherit source table info
+            if (cteSelect.from && Array.isArray(cteSelect.from) && cteSelect.from.length === 1) {
+              const from = cteSelect.from[0];
+              if (from.table && typeof from.table === 'string') {
+                // Check if SELECT list contains *
+                const hasWildcard = cteSelect.columns?.some((c: any) => c.expr && c.expr.type === 'column_ref' && c.expr.column === '*');
+                if (hasWildcard) {
+                  cteInfo.sourceTable = {
+                    schema: from.db || from.schema || 'dbo',
+                    table: from.table
+                  };
+                }
+              }
+            }
+          }
+
+          aliases.set(cteKey, cteInfo);
         }
       }
       // Also extract aliases from CTE definition
@@ -533,7 +723,7 @@ function extractAliasMapFromStatement(
  */
 function extractAliasMapFromTableRef(
   tableRef: any,
-  aliases: Map<string, { schema: string; table: string }>
+  aliases: Map<string, { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } }>
 ): void {
   if (!tableRef || typeof tableRef !== 'object') {
     return;
@@ -580,7 +770,7 @@ function extractAliasMapFromTableRef(
  */
 function extractAliasMapFromExpression(
   expr: any,
-  aliases: Map<string, { schema: string; table: string }>
+  aliases: Map<string, { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } }>
 ): void {
   if (!expr || typeof expr !== 'object') {
     return;
@@ -967,10 +1157,16 @@ export function getCompletionContext(
   // Keyword-based context detection
   const COLUMN_CONTEXT_KEYWORDS = ['SELECT', 'WHERE', 'ON', 'AND', 'OR', 'SET', 'ORDER BY', 'GROUP BY', 'HAVING', 'BY', '='];
   const ROUTINE_CONTEXT_KEYWORDS = ['EXEC', 'EXECUTE', 'CALL'];
-  const DATABASE_CONTEXT_KEYWORDS = ['USE'];
 
-  if (DATABASE_CONTEXT_KEYWORDS.includes(lastWord)) {
-    return { type: 'database', lastKeyword: lastWord };
+
+  const isDatabaseContext = /\bUSE\s+\[?\w*$/i.test(textBeforeCursor);
+  if (isDatabaseContext) {
+    const match = textBeforeCursor.match(/\bUSE\s+([\w\[]*)$/i);
+    return {
+      type: 'database',
+      lastKeyword: 'USE',
+      partialWord: match ? match[1] : ''
+    };
   }
 
   if (ROUTINE_CONTEXT_KEYWORDS.includes(lastWord)) {

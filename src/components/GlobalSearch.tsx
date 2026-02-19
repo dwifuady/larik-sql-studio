@@ -247,7 +247,7 @@ export function GlobalSearch() {
 
                 <div className="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none">
                     <span className="text-[9px] px-1 py-0.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]/50 text-[var(--text-muted)]">
-                        ⌘F
+                        Ctrl+Shift+F
                     </span>
                 </div>
             </div>

@@ -10,6 +10,7 @@ export interface QueriesSlice {
     resultCustomNames: Record<string, Record<number, string>>;
     resultColumnOrder: Record<string, Record<number, number[]>>;
     resultsHidden: Record<string, boolean>;
+    tabResultCounters: Record<string, number>;
 
     // Performance Settings
     enableStickyNotes: boolean;
@@ -81,6 +82,7 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
     resultCustomNames: {},
     resultColumnOrder: {},
     resultsHidden: {},
+    tabResultCounters: {},
     enableStickyNotes: true,
     maxResultRows: 5000,
 
@@ -106,12 +108,6 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
             return null;
         }
 
-        // Check validation if enabled?  
-        // Logic for executeQuery in original store was:
-        // 1. Set executing state
-        // 2. Call api.executeQuery
-        // 3. Update tabQueryResults
-
         set((state) => ({
             tabExecuting: { ...state.tabExecuting, [tabId]: true }
         }));
@@ -129,11 +125,64 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
                 selectedText
             );
 
-            set((state) => ({
-                tabQueryResults: { ...state.tabQueryResults, [tabId]: results },
-                activeResultIndex: { ...state.activeResultIndex, [tabId]: 0 }, // Reset to first result
-                tabExecuting: { ...state.tabExecuting, [tabId]: false }
-            }));
+            set((state) => {
+                const currentResults = state.tabQueryResults[tabId] || [];
+                // If we have no results, default to 0. If we have results, use the active index.
+                const activeIndex = currentResults.length > 0 ? (state.activeResultIndex[tabId] ?? 0) : 0;
+
+                // Clone current results
+                let newResults = [...currentResults];
+
+                // If currently empty, just set results.
+                // Otherwise replace the active result with new results.
+                if (currentResults.length === 0) {
+                    newResults = results;
+                } else {
+                    // Remove the active result and insert the new one(s)
+                    newResults.splice(activeIndex, 1, ...results);
+                }
+
+                // If we replaced 1 item with N items, subsquent items need to be shifted by N-1
+                const shiftAmount = results.length - 1;
+
+                // Helper to shift metadata keys
+                const shiftMap = <T>(map: Record<number, T> | undefined): Record<number, T> => {
+                    if (!map) return {};
+                    const newMap: Record<number, T> = {};
+                    Object.entries(map).forEach(([k, v]) => {
+                        const idx = parseInt(k, 10);
+                        if (idx < activeIndex) {
+                            // Before active index: keep as is
+                            newMap[idx] = v;
+                        } else if (idx > activeIndex) {
+                            // After active index: shift
+                            newMap[idx + shiftAmount] = v;
+                        }
+                        // matched idx is dropped (reset for new result)
+                    });
+                    return newMap;
+                };
+
+                const newCustomNames = shiftMap(state.resultCustomNames[tabId]);
+                const newColumnOrders = shiftMap(state.resultColumnOrder[tabId]);
+
+                // Assign displayId to new results
+                const currentCounter = state.tabResultCounters[tabId] || 0;
+                results.forEach((r, i) => {
+                    r.displayId = currentCounter + i + 1;
+                });
+                const newCounter = currentCounter + results.length;
+
+                return {
+                    tabQueryResults: { ...state.tabQueryResults, [tabId]: newResults },
+                    // Keep focus on the same position (start of the new results)
+                    activeResultIndex: { ...state.activeResultIndex, [tabId]: activeIndex },
+                    resultCustomNames: { ...state.resultCustomNames, [tabId]: newCustomNames },
+                    resultColumnOrder: { ...state.resultColumnOrder, [tabId]: newColumnOrders },
+                    tabResultCounters: { ...state.tabResultCounters, [tabId]: newCounter },
+                    tabExecuting: { ...state.tabExecuting, [tabId]: false }
+                };
+            });
 
             return results;
         } catch (error) {
@@ -173,6 +222,14 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
 
             set((state) => {
                 const currentResults = state.tabQueryResults[tabId] || [];
+                const currentCounter = state.tabResultCounters[tabId] || 0;
+
+                // Assign displayId to new results
+                newResults.forEach((r, i) => {
+                    r.displayId = currentCounter + i + 1;
+                });
+                const newCounter = currentCounter + newResults.length;
+
                 // Append new results
                 const combinedResults = [...currentResults, ...newResults];
                 // Set active index to the start of new results
@@ -181,10 +238,10 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
                 return {
                     tabQueryResults: { ...state.tabQueryResults, [tabId]: combinedResults },
                     activeResultIndex: { ...state.activeResultIndex, [tabId]: newActiveIndex },
+                    tabResultCounters: { ...state.tabResultCounters, [tabId]: newCounter },
                     tabExecuting: { ...state.tabExecuting, [tabId]: false }
                 };
             });
-
             return newResults;
         } catch (error) {
             console.error('Query append execution failed:', error);
@@ -241,9 +298,11 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
         set((state) => {
             const { [tabId]: _, ...restResults } = state.tabQueryResults;
             const { [tabId]: __, ...restIndices } = state.activeResultIndex;
+            const { [tabId]: ___, ...restCounters } = state.tabResultCounters;
             return {
                 tabQueryResults: restResults,
-                activeResultIndex: restIndices
+                activeResultIndex: restIndices,
+                tabResultCounters: restCounters
             };
         });
     },
@@ -262,7 +321,10 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
 
             return {
                 tabQueryResults: { ...state.tabQueryResults, [tabId]: newResults },
-                activeResultIndex: { ...state.activeResultIndex, [tabId]: newActiveIndex }
+                activeResultIndex: { ...state.activeResultIndex, [tabId]: newActiveIndex },
+                ...(newResults.length === 0 ? {
+                    tabResultCounters: { ...state.tabResultCounters, [tabId]: 0 }
+                } : {})
             };
         });
     },

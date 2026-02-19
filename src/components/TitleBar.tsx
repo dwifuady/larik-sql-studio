@@ -2,14 +2,17 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { GlobalSearch } from './GlobalSearch';
 import { useState, useEffect } from 'react';
+import { PanelLeft } from 'lucide-react';
+import { DatabaseSelector } from './DatabaseSelector';
 
 interface TitleBarProps {
   spaceColor?: string;
   sidebarWidth?: number;
   sidebarHidden?: boolean;
+  onToggleSidebar?: () => void;
 }
 
-export function TitleBar({ spaceColor = '#6366f1', sidebarWidth = 280, sidebarHidden = false }: TitleBarProps) {
+export function TitleBar({ spaceColor = '#6366f1', sidebarWidth = 280, sidebarHidden = false, onToggleSidebar }: TitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false);
   const appWindow = getCurrentWindow();
 
@@ -49,33 +52,30 @@ export function TitleBar({ spaceColor = '#6366f1', sidebarWidth = 280, sidebarHi
 
   return (
     <div className="flex items-center h-8 select-none relative" style={{ background: `${spaceColor}40` }}>
-      {/* Left section - Above sidebar (transparent to show sidebar gradient) */}
+      {/* Left section - Above sidebar or floating toggle when hidden */}
       <div
-        className="relative h-full flex items-center overflow-hidden"
+        className="relative h-full flex items-center transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
         style={{
-          width: `${currentSidebarWidth}px`,
-          // background handled by parent
+          width: sidebarHidden ? 'auto' : `${currentSidebarWidth}px`,
+          paddingLeft: sidebarHidden ? '8px' : '0',
+          gap: '8px'
         }}
       >
-        {/* App title (draggable) - Only show when sidebar is visible */}
-        {!sidebarHidden && (
-          <div data-tauri-drag-region className="flex items-center gap-2 px-3 h-full relative z-10 whitespace-nowrap">
-            <svg
-              className="w-3.5 h-3.5 text-[var(--text-muted)] flex-shrink-0"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"
-              />
-            </svg>
-            <span className="text-xs font-medium text-[var(--text-secondary)]">
-              Larik SQL Studio
-            </span>
+        {/* Sidebar Toggle Button */}
+        <div className={`flex items-center h-full relative z-10 ${!sidebarHidden ? 'px-2' : ''}`}>
+          <button
+            onClick={onToggleSidebar}
+            className="p-1.5 rounded-md hover:bg-black/10 dark:hover:bg-white/10 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-all group flex items-center gap-2"
+            title="Toggle Sidebar (Ctrl+Shift+S)"
+          >
+            <PanelLeft className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Database Selector when hidden */}
+        {sidebarHidden && (
+          <div className="flex items-center h-full animate-in fade-in slide-in-from-left-2 duration-300">
+            <DatabaseSelector isCompact={true} />
           </div>
         )}
       </div>

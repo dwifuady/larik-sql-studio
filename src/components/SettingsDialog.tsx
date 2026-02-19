@@ -243,8 +243,12 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
                 </div>
 
                 {/* Footer */}
+                <div className="px-6 py-4 border-t border-white/10 bg-white/[0.02] flex items-center justify-center">
+                    <p className="text-[10px] font-medium text-[var(--text-muted)] uppercase tracking-widest opacity-50">
+                        {useAppStore.getState().appInfo.name} v{useAppStore.getState().appInfo.version}
+                    </p>
+                </div>
             </div>
         </div>
-
     );
 }

@@ -101,6 +101,7 @@ pub fn run() {
             commands::disconnect_from_space,
             commands::get_space_connection_status,
             commands::get_space_databases,
+            commands::get_space_databases_with_access,
             // Legacy Connection commands (T018) - kept for flexibility
             commands::create_connection,
             commands::test_connection,

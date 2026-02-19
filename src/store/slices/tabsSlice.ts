@@ -9,7 +9,7 @@ export interface TabsSlice {
     tabsLoading: boolean;
 
     loadTabs: (spaceId: string) => Promise<void>;
-    createTab: (title: string, tabType?: string, content?: string | null) => Promise<Tab | null>;
+    createTab: (title: string, tabType?: string, content?: string | null, database?: string | null) => Promise<Tab | null>;
     updateTab: (id: string, updates: { title?: string; content?: string; metadata?: string }) => Promise<void>;
     deleteTab: (id: string) => Promise<void>;
     setActiveTab: (id: string | null) => void;
@@ -63,7 +63,7 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
         }
     },
 
-    createTab: async (title, tabType = 'query', content = null) => {
+    createTab: async (title, tabType = 'query', content = null, database = null) => {
         const spaceId = get().activeSpaceId;
         if (!spaceId) {
             console.error('Cannot create tab: no active space');
@@ -71,7 +71,7 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
         }
 
         try {
-            const tab = await api.createTab(spaceId, title, tabType, content);
+            const tab = await api.createTab(spaceId, title, tabType, content, null, database);
             set((state) => ({ tabs: [tab, ...state.tabs], activeTabId: tab.id }));
             return tab;
         } catch (error) {

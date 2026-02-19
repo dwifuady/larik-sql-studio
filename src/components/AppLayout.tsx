@@ -1,6 +1,8 @@
 // Arc-style main application layout with browser-like design
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAppStore } from '../store';
+import { LayoutList, Database, Archive, Zap } from 'lucide-react';
+import { DatabaseExplorer } from './DatabaseExplorer/DatabaseExplorer';
 import { SpacesSelector } from './SpacesSelector';
 import { TabsList } from './TabsList';
 import { QueryEditor } from './QueryEditor';
@@ -9,13 +11,14 @@ import { ShortcutsDialog } from './ShortcutsDialog';
 import { SnippetsDialog } from './SnippetsDialog';
 import { SettingsDialog } from './SettingsDialog';
 import { TitleBar } from './TitleBar';
+import { DatabaseSelector } from './DatabaseSelector';
 import { ToastContainer } from './Toast';
 import { ArchiveModal } from './ArchiveModal';
-import { ArchiveSection } from './ArchiveSection';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { spaceHasConnection } from '../types';
 import * as api from '../api';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { getName, getVersion } from '@tauri-apps/api/app';
 
 export function AppLayout() {
   // Atomic selectors to prevent re-renders
@@ -23,12 +26,17 @@ export function AppLayout() {
   const loadSnippets = useAppStore(s => s.loadSnippets);
   const loadAppSettings = useAppStore(s => s.loadAppSettings);
   const loadAutoArchiveSettings = useAppStore(s => s.loadAutoArchiveSettings);
+  const archivedTabsCount = useAppStore(s => s.archivedTabsCount);
+  const setArchiveModalOpen = useAppStore(s => s.setArchiveModalOpen);
 
   const sidebarWidth = useAppStore(s => s.sidebarWidth);
   const setSidebarWidth = useAppStore(s => s.setSidebarWidth);
   const sidebarHidden = useAppStore(s => s.sidebarHidden);
   const sidebarHoveredWhenHidden = useAppStore(s => s.sidebarHoveredWhenHidden);
   const setSidebarHoveredWhenHidden = useAppStore(s => s.setSidebarHoveredWhenHidden);
+  const sidebarView = useAppStore(s => s.sidebarView);
+  const setSidebarView = useAppStore(s => s.setSidebarView);
+  const toggleSidebarHidden = useAppStore(s => s.toggleSidebarHidden);
 
   const activeTabId = useAppStore(s => s.activeTabId);
   const tabs = useAppStore(s => s.tabs);
@@ -42,7 +50,6 @@ export function AppLayout() {
   const disconnectFromSpace = useAppStore(s => s.disconnectFromSpace);
 
   const spaceDatabases = useAppStore(s => s.spaceDatabases);
-  const databasesLoading = useAppStore(s => s.databasesLoading);
 
   const createTab = useAppStore(s => s.createTab);
   const updateTabDatabase = useAppStore(s => s.updateTabDatabase);
@@ -65,7 +72,6 @@ export function AppLayout() {
   const setCreateSpaceModalOpen = useAppStore(s => s.setCreateSpaceModalOpen);
 
   const theme = useAppStore(s => s.theme);
-  const toggleTheme = useAppStore(s => s.toggleTheme);
   const initTheme = useAppStore(s => s.initTheme);
 
   // Shallow compare for addToast to avoid re-renders? 
@@ -87,6 +93,8 @@ export function AppLayout() {
   const dbSearchInputRef = useRef<HTMLInputElement>(null);
   const fileDropProcessingRef = useRef(false);
   const lastDropTimestampRef = useRef(0);
+  const prevSpaceIdRef = useRef<string | null>(null);
+  const [animationDirection, setAnimationDirection] = useState<'left' | 'right' | null>(null);
 
   // Get active space for theming and info
   const activeSpace = spaces.find(s => s.id === activeSpaceId);
@@ -115,6 +123,17 @@ export function AppLayout() {
     }).catch(err => {
       console.error('[AppLayout] Failed to load:', err);
     });
+
+    // Load app name and version (Tauri v2)
+    const loadAppInfo = async () => {
+      try {
+        const [name, version] = await Promise.all([getName(), getVersion()]);
+        useAppStore.getState().setAppInfo({ name, version });
+      } catch (err) {
+        console.error('[AppLayout] Failed to load app info:', err);
+      }
+    };
+    loadAppInfo();
   }, []); // Empty dependency array - only run once on mount
 
   // Defer snippets loading to idle time (not needed for initial render)
@@ -166,6 +185,19 @@ export function AppLayout() {
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, [theme]);
 
+  // Handle space switching animation direction
+  useEffect(() => {
+    if (activeSpaceId && prevSpaceIdRef.current && activeSpaceId !== prevSpaceIdRef.current) {
+      const oldIndex = spaces.findIndex(s => s.id === prevSpaceIdRef.current);
+      const newIndex = spaces.findIndex(s => s.id === activeSpaceId);
+
+      if (oldIndex !== -1 && newIndex !== -1) {
+        setAnimationDirection(newIndex > oldIndex ? 'right' : 'left');
+      }
+    }
+    prevSpaceIdRef.current = activeSpaceId;
+  }, [activeSpaceId, spaces]);
+
   // Note: Global keyboard shortcuts (Ctrl+Shift+P, Ctrl+T, etc.) are now handled by useKeyboardShortcuts hook (T041)
 
   // Close dropdown when clicking outside
@@ -196,7 +228,7 @@ export function AppLayout() {
 
   // Filter databases based on search query
   const filteredDatabases = spaceDatabases.filter(db =>
-    db.toLowerCase().includes(dbSearchQuery.toLowerCase())
+    db.name.toLowerCase().includes(dbSearchQuery.toLowerCase())
   );
 
   // Check if default DB matches search
@@ -227,7 +259,10 @@ export function AppLayout() {
             handleCreateNewTab(activeSpace?.connection_database || null);
           } else {
             const dbIndex = showDefaultDb ? selectedDbIndex - 1 : selectedDbIndex;
-            handleCreateNewTab(filteredDatabases[dbIndex]);
+            const selectedDb = filteredDatabases[dbIndex];
+            if (selectedDb && selectedDb.hasAccess) {
+              handleCreateNewTab(selectedDb.name);
+            }
           }
         } else {
           handleCreateNewTab(null);
@@ -260,16 +295,6 @@ export function AppLayout() {
   useEffect(() => {
     setSelectedDbIndex(0);
   }, [dbSearchQuery]);
-
-  // Close new tab selector when clicking outside (original effect)
-
-  // Handle database selection
-  const handleSelectDatabase = (db: string | null) => {
-    if (activeTab) {
-      updateTabDatabase(activeTab.id, db);
-    }
-    setIsDbDropdownOpen(false);
-  };
 
   // Handle new tab creation with database selection
   const handleCreateNewTab = async (db: string | null) => {
@@ -500,9 +525,14 @@ export function AppLayout() {
 
 
 
-      {/* Custom title bar (T047) */}
-      <div className="relative z-10">
-        <TitleBar spaceColor={spaceColor} sidebarWidth={sidebarWidth} sidebarHidden={sidebarHidden} />
+      {/* Custom title bar (T047) - Higher z-index to ensure dropdowns are visible over main content */}
+      <div className="relative z-[60]">
+        <TitleBar
+          spaceColor={spaceColor}
+          sidebarWidth={sidebarWidth}
+          sidebarHidden={sidebarHidden}
+          onToggleSidebar={toggleSidebarHidden}
+        />
       </div>
 
       {/* Main content area with sidebar */}
@@ -522,12 +552,13 @@ export function AppLayout() {
         {/* Sidebar with browser-like layout - overlay when hidden */}
         <aside
           ref={sidebarRef}
-          className={`flex flex-col overflow-hidden transition-all duration-200 ease-out backdrop-blur ${isShowingSidebarHover ? 'rounded-2xl m-2 mt-2' : ''}`}
+          className={`flex flex-col overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] backdrop-blur ${isShowingSidebarHover ? 'rounded-2xl m-2 mt-2' : ''}`}
           style={{
             width: isShowingSidebarHover ? sidebarWidth - 16 : (sidebarHidden ? sidebarWidth : currentSidebarWidth),
             minWidth: isShowingSidebarHover ? sidebarWidth - 16 : (sidebarHidden ? sidebarWidth : currentSidebarWidth),
             height: isShowingSidebarHover ? 'calc(100% - 16px)' : '100%',
             opacity: sidebarOpacity,
+            transform: sidebarHidden && !isShowingSidebarHover ? 'translateX(-100%)' : 'translateX(0)',
             background: isShowingSidebarHover
               ? `linear-gradient(${spaceColor}40, ${spaceColor}40), var(--bg-primary)` // Soft tint (25%) over opaque background
               : `${spaceColor}40`, // 40 = ~25% opacity
@@ -542,238 +573,153 @@ export function AppLayout() {
         >
 
           {/* Content */}
-          <div className="relative z-10 flex flex-col h-full">
+          <div className="relative z-10 flex flex-col flex-1 min-h-0">
             {/* URL Bar style database selector at top */}
-            <div className="px-3 pt-4 pb-2">
+            <div className="px-2 pt-2 pb-1">
               {spacesLoading && spaces.length === 0 ? (
                 /* Skeleton for database bar */
-                <div className="flex items-center gap-2 px-3 py-2.5 bg-[var(--bg-hover)] border border-[var(--border-color)] rounded-xl">
+                <div className="flex items-center gap-2 px-2 py-1 bg-[var(--bg-hover)] border border-[var(--border-color)] rounded-lg">
                   <div className="w-4 h-4 rounded bg-[var(--bg-active)] animate-pulse" />
                   <div className="flex-1 h-4 rounded bg-[var(--bg-active)] animate-pulse" />
                 </div>
               ) : (
-                <div
-                  className="text-xs flex items-center gap-2 px-3 py-2.5 bg-[var(--bg-hover)] border border-[var(--border-color)] rounded-xl hover:bg-[var(--bg-active)] hover:border-[var(--border-color)] transition-all group"
-                  style={{
-                    boxShadow: isConnected ? `0 0 0 1px ${spaceColor}10` : 'none'
-                  }}
-                >
-                  <svg
-                    className="w-4 h-4 flex-shrink-0 transition-colors"
-                    style={{ color: isConnected ? spaceColor : 'var(--text-muted)' }}
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
-                  </svg>
-                  {isConnected && spaceDatabases.length > 0 ? (
-                    <div ref={dropdownRef} className="flex-1 relative min-w-0">
-                      {/* Custom dropdown trigger */}
+                <DatabaseSelector />
+              )}
+            </div>
+
+            {/* Animated middle section */}
+            <div
+              key={activeSpaceId}
+              className={`flex-1 flex flex-col min-h-0 ${animationDirection === 'right' ? 'animate-space-slide-in-right' :
+                animationDirection === 'left' ? 'animate-space-slide-in-left' : ''
+                }`}
+              onAnimationEnd={() => setAnimationDirection(null)}
+            >
+              {/* Space Name & Connection Controls - Compact Header */}
+              {activeSpace && (
+                <div className="px-3 py-2 pb-0 flex items-center justify-between group">
+                  <span className="text-xs font-semibold text-[var(--text-primary)] truncate" title={activeSpace.name}>
+                    {activeSpace.name}
+                  </span>
+
+                  {hasConnection && (
+                    <div className="flex items-center gap-2">
+                      {/* Status Dot */}
+                      <div
+                        className={`w-1.5 h-1.5 rounded-full transition-colors ${isConnected ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 'bg-[var(--text-muted)]'}`}
+                        title={isConnected ? 'Connected' : 'Disconnected'}
+                      />
+
+                      {/* Connect/Disconnect Button - Only visible on hover or if disconnected */}
                       <button
-                        onClick={() => !databasesLoading && setIsDbDropdownOpen(!isDbDropdownOpen)}
-                        disabled={databasesLoading}
-                        className="w-full flex items-center justify-between gap-2 text-left disabled:opacity-50"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          isConnected ? disconnectFromSpace() : connectToSpace();
+                        }}
+                        disabled={isConnecting}
+                        className={`p-1 rounded hover:bg-[var(--bg-hover)] transition-all ${isConnected
+                          ? 'text-[var(--text-muted)] hover:text-red-400 opacity-0 group-hover:opacity-100'
+                          : 'text-[var(--text-muted)] hover:text-green-400 opacity-100'
+                          }`}
+                        title={isConnected ? 'Disconnect' : 'Connect'}
                       >
-                        <span className="text-xs font-medium text-[var(--text-primary)] flex-1 overflow-hidden relative group/marquee max-w-full">
-                          <span
-                            key={activeTab?.database || activeSpace?.connection_database}
-                            ref={(el) => {
-                              if (el && el.parentElement) {
-                                const parent = el.parentElement;
-                                // Need a tiny delay for layout to settle
-                                setTimeout(() => {
-                                  const parentWidth = parent.offsetWidth;
-                                  const scrollWidth = el.scrollWidth;
-                                  if (scrollWidth > parentWidth) {
-                                    parent.style.setProperty('--marquee-width', `${parentWidth}px`);
-                                    const duration = Math.max(3, scrollWidth / 30);
-                                    parent.style.setProperty('--marquee-duration', `${duration}s`);
-                                    parent.classList.add('animate-marquee-hover');
-                                  } else {
-                                    parent.classList.remove('animate-marquee-hover');
-                                  }
-                                }, 50);
-                              }
-                            }}
-                            className="marquee-content inline-block whitespace-nowrap"
-                          >
-                            {activeTab?.database || activeSpace?.connection_database || 'Default DB'}
-                          </span>
-                        </span>
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
                       </button>
-
-                      {/* Dropdown menu */}
-                      {isDbDropdownOpen && (
-                        <div
-                          className="absolute top-full mt-2 z-50 py-1 rounded-lg border border-[var(--border-color)] shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 bg-[var(--bg-secondary)]"
-                          style={{
-                            backdropFilter: 'blur(20px)',
-                            left: '-35px',
-                            right: '-35px',
-                            maxHeight: '280px',
-                            overflowY: 'auto',
-                          }}
-                        >
-                          {/* Default database option */}
-                          <button
-                            onClick={() => handleSelectDatabase(null)}
-                            className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors ${!activeTab?.database
-                              ? 'bg-[var(--bg-active)] text-[var(--text-primary)]'
-                              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
-                              }`}
-                          >
-                            <svg className="w-3.5 h-3.5 flex-shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                            </svg>
-                            <span className="truncate">{activeSpace?.connection_database || 'Default DB'}</span>
-                            {!activeTab?.database && (
-                              <svg className="w-4 h-4 ml-auto flex-shrink-0 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                              </svg>
-                            )}
-                          </button>
-
-                          {/* Separator */}
-                          <div className="my-1 mx-2 border-t border-[var(--border-color)]" />
-
-                          {/* Database list */}
-                          {spaceDatabases.map((db) => (
-                            <button
-                              key={db}
-                              onClick={() => handleSelectDatabase(db)}
-                              className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors ${activeTab?.database === db
-                                ? 'bg-[var(--bg-active)] text-[var(--text-primary)]'
-                                : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
-                                }`}
-                            >
-                              <svg className="w-3.5 h-3.5 flex-shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
-                              </svg>
-                              <span className="truncate">{db}</span>
-                              {activeTab?.database === db && (
-                                <svg className="w-4 h-4 ml-auto flex-shrink-0 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                </svg>
-                              )}
-                            </button>
-                          ))}
-                        </div>
-                      )}
                     </div>
-                  ) : (
-                    <span className="flex-1 text-sm text-[var(--text-muted)] truncate">
-                      {hasConnection ? (isConnected ? activeSpace?.connection_database : 'Not connected') : 'No database'}
-                    </span>
                   )}
-                  <svg
-                    className={`w-4 h-4 flex-shrink-0 pointer-events-none transition-all ${isConnected && spaceDatabases.length > 0 ? 'opacity-60 group-hover:opacity-100' : 'opacity-40'
-                      } ${isDbDropdownOpen ? 'rotate-180' : ''}`}
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
+                </div>
+              )}
+
+              {/* Sidebar View Toggle & Actions */}
+              <div className="px-2 py-1.5 flex items-center gap-1.5">
+                <div className="bg-black/5 dark:bg-white/5 p-1 rounded-lg flex gap-1 flex-1">
+                  <button
+                    onClick={() => setSidebarView('tabs')}
+                    className={`flex-1 flex items-center justify-center py-1 rounded-md text-[11px] font-medium transition-all duration-200 ${sidebarView === 'tabs'
+                      ? 'bg-white dark:bg-[#2d2d2d] shadow-sm'
+                      : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                      }`}
+                    style={sidebarView === 'tabs' ? { color: activeSpace?.color || 'var(--accent-color)' } : undefined}
                   >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    <LayoutList className="w-3 h-3 mr-1.5" />
+                    Tabs
+                  </button>
+                  <button
+                    onClick={() => setSidebarView('explorer')}
+                    className={`flex-1 flex items-center justify-center py-1 rounded-md text-[11px] font-medium transition-all duration-200 ${sidebarView === 'explorer'
+                      ? 'bg-white dark:bg-[#2d2d2d] shadow-sm'
+                      : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                      }`}
+                    style={sidebarView === 'explorer' ? { color: activeSpace?.color || 'var(--accent-color)' } : undefined}
+                  >
+                    <Database className="w-3 h-3 mr-1.5" />
+                    Explorer
+                  </button>
+                </div>
+
+                {/* New Tab Button - Inline */}
+                <button
+                  onClick={() => setNewTabSelectorOpen(true)}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                  title="New Tab (Ctrl+T)"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                   </svg>
+                </button>
+              </div>
+
+              {/* Tabs list OR Database Explorer fills remaining space */}
+              {sidebarView === 'tabs' ? (
+                <TabsList onNewTabClick={() => setNewTabSelectorOpen(true)} />
+              ) : (
+                <div className="flex-1 overflow-hidden min-h-0">
+                  <DatabaseExplorer />
                 </div>
               )}
             </div>
 
-            {/* Space name with connection status */}
-            {spacesLoading && spaces.length === 0 ? (
-              /* Skeleton for space name */
-              <div className="px-3 py-2">
-                <div className="h-5 w-32 rounded bg-[var(--bg-active)] animate-pulse" />
-              </div>
-            ) : activeSpace && (
-              <div className="px-3 py-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex flex-col min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-base font-semibold truncate">{activeSpace.name}</h2>
-                      {hasConnection && (
-                        <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isConnected ? 'bg-green-500' : 'bg-gray-500'}`} />
-                      )}
-                    </div>
-                    {hasConnection && (
-                      <span className="text-[10px] text-[var(--text-muted)] truncate" title={isConnected ? (activeSpace.connection_host || '') : 'Disconnected'}>
-                        {isConnected ? activeSpace.connection_host : 'Disconnected'}
-                      </span>
-                    )}
-                  </div>
-                  {hasConnection && (
-                    <button
-                      onClick={() => isConnected ? disconnectFromSpace() : connectToSpace()}
-                      disabled={isConnecting}
-                      className={`flex-shrink-0 text-xs px-2 py-1 rounded-md transition-colors ${isConnected
-                        ? 'bg-red-500/10 hover:bg-red-500/20 text-red-400'
-                        : 'bg-green-500/10 hover:bg-green-500/20 text-green-400'
-                        } disabled:opacity-50`}
-                    >
-                      {isConnecting ? '...' : (isConnected ? 'Disconnect' : 'Connect')}
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
+            {/* Footer Section: Archive | Spaces | Settings */}
+            <div className="px-3 py-2 border-t border-[var(--border-subtle)] flex items-center justify-between shrink-0">
+              {/* Left: Archive */}
+              <button
+                onClick={() => setArchiveModalOpen(true)}
+                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors relative"
+                title="Archive"
+              >
+                <Archive className="w-4 h-4" />
+                {archivedTabsCount > 0 && (
+                  <span className="absolute top-2 right-2 w-1.5 h-1.5 bg-[var(--accent-color)] rounded-full" />
+                )}
+              </button>
 
-            {/* Separator line */}
-            <div className="mx-3 border-t border-[var(--border-color)]" />
+              {/* Center: Spaces Selector */}
+              <SpacesSelector />
 
-            {/* Tabs list fills remaining space */}
-            <TabsList onNewTabClick={() => setNewTabSelectorOpen(true)} hasSpaces={spaces.length > 0} />
-
-            {/* Archive section at bottom of sidebar */}
-            <ArchiveSection />
-
+              {/* Right: Settings (Command Palette) */}
+              <button
+                onClick={() => setCommandPaletteOpen(true)}
+                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                title="Command Palette (Ctrl+Shift+P)"
+              >
+                <Zap className="w-4 h-4" />
+              </button>
+            </div>
           </div>
-
-          {/* Bottom toolbar with theme toggle */}
-          <div className="px-2 py-1.5 border-t border-[var(--border-subtle)] flex items-center justify-between gap-1">
-            {/* Theme toggle button */}
-            <button
-              onClick={toggleTheme}
-              className="p-1.5 rounded-md hover:bg-[var(--bg-hover)] transition-colors group"
-              title={`Theme: ${theme === 'system' ? 'System' : theme === 'dark' ? 'Dark' : 'Light'} (click to cycle)`}
-            >
-              {theme === 'dark' ? (
-                <svg className="w-3.5 h-3.5 text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                </svg>
-              ) : theme === 'light' ? (
-                <svg className="w-3.5 h-3.5 text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-                </svg>
-              ) : (
-                <svg className="w-3.5 h-3.5 text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-              )}
-            </button>
-
-            {/* Command palette hint */}
-            <button
-              onClick={() => setCommandPaletteOpen(true)}
-              className="flex items-center gap-1 text-[9px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors whitespace-nowrap"
-            >
-              <kbd className="px-0.5 py-0.25 rounded text-[8px] bg-[var(--bg-tertiary)] text-[var(--text-muted)]">Ctrl</kbd>
-              <kbd className="px-0.5 py-0.25 rounded text-[8px] bg-[var(--bg-tertiary)] text-[var(--text-muted)]">⇧</kbd>
-              <kbd className="px-0.5 py-0.25 rounded text-[8px] bg-[var(--bg-tertiary)] text-[var(--text-muted)]">P</kbd>
-            </button>
-          </div>
-
-          {/* Space dots at bottom */}
-          <SpacesSelector />
         </aside>
 
         {/* Resize handle - thin and subtle (only show when sidebar is visible and not hidden) */}
-        {!sidebarHidden && (
-          <div
-            className={`w-px cursor-col-resize transition-colors flex-shrink-0 ${isResizing ? 'bg-[var(--accent-color)]' : 'bg-[var(--border-color)] hover:bg-[var(--text-muted)]'
-              }`}
-            onMouseDown={startResize}
-          />
-        )}
+        {
+          !sidebarHidden && (
+            <div
+              className={`w-px cursor-col-resize transition-colors flex-shrink-0 ${isResizing ? 'bg-[var(--accent-color)]' : 'bg-[var(--border-color)] hover:bg-[var(--text-muted)]'
+                }`}
+              onMouseDown={startResize}
+            />
+          )
+        }
 
         {/* Main content area */}
         <main className="flex-1 flex flex-col min-w-0 relative z-10 transition-colors duration-200">
@@ -842,180 +788,195 @@ export function AppLayout() {
         {exportDialog}
 
         {/* New Tab Database Selector Modal - at root level for proper centering */}
-        {newTabSelectorOpen && (
-          <div
-            ref={newTabDropdownRef}
-            tabIndex={-1}
-            className="fixed inset-0 flex items-center justify-center pointer-events-none outline-none"
-            style={{ zIndex: 50 }}
-          >
+        {
+          newTabSelectorOpen && (
             <div
-              className="bg-black/40 absolute inset-0 pointer-events-auto"
-              onClick={() => setNewTabSelectorOpen(false)}
-            />
-            <div
-              className="relative pointer-events-auto w-96 py-1 rounded-lg border border-[var(--border-color)] shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 bg-[var(--bg-secondary)]"
-              style={{
-                backdropFilter: 'blur(20px)',
-                maxHeight: '380px',
-                overflowY: 'auto',
-                zIndex: 51,
-              }}
+              ref={newTabDropdownRef}
+              tabIndex={-1}
+              className="fixed inset-0 flex items-center justify-center pointer-events-none outline-none"
+              style={{ zIndex: 50 }}
             >
-              <div className="px-3 py-2 text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
-                Select database for new tab
-              </div>
+              <div
+                className="bg-black/40 absolute inset-0 pointer-events-auto"
+                onClick={() => setNewTabSelectorOpen(false)}
+              />
+              <div
+                className="relative pointer-events-auto w-96 py-1 rounded-lg border border-[var(--border-color)] shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 bg-[var(--bg-secondary)]"
+                style={{
+                  backdropFilter: 'blur(20px)',
+                  maxHeight: '380px',
+                  overflowY: 'auto',
+                  zIndex: 51,
+                }}
+              >
+                <div className="px-3 py-2 text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+                  Select database for new tab
+                </div>
 
-              {/* Search input */}
-              {isConnected && spaceDatabases.length > 0 && (
-                <div className="px-3 pb-2">
-                  <div className="relative">
-                    <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                    </svg>
-                    <input
-                      ref={dbSearchInputRef}
-                      type="text"
-                      value={dbSearchQuery}
-                      onChange={(e) => setDbSearchQuery(e.target.value)}
-                      placeholder="Search databases..."
-                      className="w-full pl-9 pr-8 py-1.5 text-sm bg-[var(--bg-hover)] border border-[var(--border-color)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-color)] focus:bg-[var(--bg-active)]"
-                    />
-                    {dbSearchQuery && (
+                {/* Search input */}
+                {isConnected && spaceDatabases.length > 0 && (
+                  <div className="px-3 pb-2">
+                    <div className="relative">
+                      <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                      <input
+                        ref={dbSearchInputRef}
+                        type="text"
+                        value={dbSearchQuery}
+                        onChange={(e) => setDbSearchQuery(e.target.value)}
+                        placeholder="Search databases..."
+                        className="w-full pl-9 pr-8 py-1.5 text-sm bg-[var(--bg-hover)] border border-[var(--border-color)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-color)] focus:bg-[var(--bg-active)]"
+                      />
+                      {dbSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setDbSearchQuery('')}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {isConnected && spaceDatabases.length > 0 ? (
+                  <>
+                    {/* Default database option - only show if matches search */}
+                    {showDefaultDb && (
                       <button
                         type="button"
-                        onClick={() => setDbSearchQuery('')}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+                        onClick={() => handleCreateNewTab(activeSpace?.connection_database || null)}
+                        onMouseEnter={() => setSelectedDbIndex(0)}
+                        className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors border-0 ${selectedDbIndex === 0
+                          ? 'bg-[var(--bg-active)] text-[var(--text-primary)]'
+                          : 'bg-[var(--bg-hover)] text-[var(--text-primary)] hover:bg-[var(--bg-active)]'
+                          }`}
                       >
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        <svg className="w-3.5 h-3.5 flex-shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                        </svg>
+                        <span className="truncate">{activeSpace?.connection_database || 'Default DB'}</span>
+                        <svg className="w-4 h-4 ml-auto flex-shrink-0 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
                       </button>
                     )}
-                  </div>
-                </div>
-              )}
 
-              {isConnected && spaceDatabases.length > 0 ? (
-                <>
-                  {/* Default database option - only show if matches search */}
-                  {showDefaultDb && (
-                    <button
-                      type="button"
-                      onClick={() => handleCreateNewTab(activeSpace?.connection_database || null)}
-                      onMouseEnter={() => setSelectedDbIndex(0)}
-                      className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors border-0 ${selectedDbIndex === 0
-                        ? 'bg-[var(--bg-active)] text-[var(--text-primary)]'
-                        : 'bg-[var(--bg-hover)] text-[var(--text-primary)] hover:bg-[var(--bg-active)]'
-                        }`}
-                    >
-                      <svg className="w-3.5 h-3.5 flex-shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                    {/* Separator */}
+                    {showDefaultDb && filteredDatabases.length > 0 && <div className="my-1 mx-2 border-t border-[var(--border-color)]" />}
+
+                    {/* Filtered database list */}
+                    {filteredDatabases.map((db, index) => (
+                      <button
+                        type="button"
+                        key={db.name}
+                        onClick={() => db.hasAccess && handleCreateNewTab(db.name)}
+                        onMouseEnter={() => db.hasAccess && setSelectedDbIndex(showDefaultDb ? index + 1 : index)}
+                        disabled={!db.hasAccess}
+                        title={!db.hasAccess ? 'You do not have access to this database' : undefined}
+                        className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors border-0 ${!db.hasAccess
+                          ? 'opacity-40 cursor-not-allowed text-[var(--text-muted)]'
+                          : selectedDbIndex === (showDefaultDb ? index + 1 : index)
+                            ? 'bg-[var(--bg-active)] text-[var(--text-primary)]'
+                            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+                          }`}
+                      >
+                        {db.hasAccess ? (
+                          <svg className="w-3.5 h-3.5 flex-shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+                          </svg>
+                        ) : (
+                          <svg className="w-3.5 h-3.5 flex-shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                          </svg>
+                        )}
+                        <span className="truncate">{db.name}</span>
+                        {!db.hasAccess && (
+                          <span className="ml-auto text-[10px] text-[var(--text-muted)] shrink-0">No access</span>
+                        )}
+                      </button>
+                    ))}
+
+                    {/* No results message */}
+                    {!showDefaultDb && filteredDatabases.length === 0 && dbSearchQuery && (
+                      <div className="px-3 py-4 text-center text-sm text-[var(--text-muted)]">
+                        No databases matching "{dbSearchQuery}"
+                      </div>
+                    )}
+                  </>
+                ) : hasConnection && !isConnected ? (
+                  /* Show connect option when server is not connected */
+                  <div className="px-3 py-2">
+                    <div className="flex items-center gap-2 mb-3 text-[var(--text-muted)]">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                       </svg>
-                      <span className="truncate">{activeSpace?.connection_database || 'Default DB'}</span>
-                      <svg className="w-4 h-4 ml-auto flex-shrink-0 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    </button>
-                  )}
-
-                  {/* Separator */}
-                  {showDefaultDb && filteredDatabases.length > 0 && <div className="my-1 mx-2 border-t border-[var(--border-color)]" />}
-
-                  {/* Filtered database list */}
-                  {filteredDatabases.map((db, index) => (
-                    <button
-                      type="button"
-                      key={db}
-                      onClick={() => handleCreateNewTab(db)}
-                      onMouseEnter={() => setSelectedDbIndex(showDefaultDb ? index + 1 : index)}
-                      className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors border-0 ${selectedDbIndex === (showDefaultDb ? index + 1 : index)
-                        ? 'bg-[var(--bg-active)] text-[var(--text-primary)]'
-                        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
-                        }`}
-                    >
-                      <svg className="w-3.5 h-3.5 flex-shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
-                      </svg>
-                      <span className="truncate">{db}</span>
-                    </button>
-                  ))}
-
-                  {/* No results message */}
-                  {!showDefaultDb && filteredDatabases.length === 0 && dbSearchQuery && (
-                    <div className="px-3 py-4 text-center text-sm text-[var(--text-muted)]">
-                      No databases matching "{dbSearchQuery}"
+                      <span className="text-sm">Server not connected</span>
                     </div>
-                  )}
-                </>
-              ) : hasConnection && !isConnected ? (
-                /* Show connect option when server is not connected */
-                <div className="px-3 py-2">
-                  <div className="flex items-center gap-2 mb-3 text-[var(--text-muted)]">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                    </svg>
-                    <span className="text-sm">Server not connected</span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await connectToSpace();
+                      }}
+                      disabled={isConnecting}
+                      className="w-full px-3 py-2.5 text-sm flex items-center justify-center gap-2 transition-colors border-0 rounded-lg bg-green-500/20 hover:bg-green-500/30 text-green-400 disabled:opacity-50"
+                    >
+                      {isConnecting ? (
+                        <>
+                          <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          <span>Connecting...</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                          <span>Connect to {activeSpace?.connection_host || 'server'}</span>
+                        </>
+                      )}
+                    </button>
+                    <div className="mt-3 border-t border-[var(--border-color)] pt-3">
+                      <button
+                        type="button"
+                        onClick={() => handleCreateNewTab(null)}
+                        className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors border-0 text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+                      >
+                        <svg className="w-3.5 h-3.5 flex-shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                        </svg>
+                        <span className="truncate">Create tab without connection</span>
+                      </button>
+                    </div>
                   </div>
+                ) : (
                   <button
                     type="button"
-                    onClick={async () => {
-                      await connectToSpace();
-                    }}
-                    disabled={isConnecting}
-                    className="w-full px-3 py-2.5 text-sm flex items-center justify-center gap-2 transition-colors border-0 rounded-lg bg-green-500/20 hover:bg-green-500/30 text-green-400 disabled:opacity-50"
+                    onClick={() => handleCreateNewTab(null)}
+                    className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors border-0 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
                   >
-                    {isConnecting ? (
-                      <>
-                        <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                        </svg>
-                        <span>Connecting...</span>
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                        </svg>
-                        <span>Connect to {activeSpace?.connection_host || 'server'}</span>
-                      </>
-                    )}
+                    <svg className="w-3.5 h-3.5 flex-shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                    </svg>
+                    <span className="truncate">Create with default database</span>
                   </button>
-                  <div className="mt-3 border-t border-[var(--border-color)] pt-3">
-                    <button
-                      type="button"
-                      onClick={() => handleCreateNewTab(null)}
-                      className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors border-0 text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
-                    >
-                      <svg className="w-3.5 h-3.5 flex-shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                      </svg>
-                      <span className="truncate">Create tab without connection</span>
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => handleCreateNewTab(null)}
-                  className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors border-0 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                >
-                  <svg className="w-3.5 h-3.5 flex-shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                  </svg>
-                  <span className="truncate">Create with default database</span>
-                </button>
-              )}
+                )}
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )
+        }
+      </div >
 
       {/* Toast notifications */}
-      <ToastContainer />
+      < ToastContainer />
 
       {/* Archive modal */}
-      <ArchiveModal />
-    </div>
+      < ArchiveModal />
+    </div >
   );
 }
