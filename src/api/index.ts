@@ -15,6 +15,7 @@ export async function createSpace(input: CreateSpaceInput): Promise<Space> {
     name: input.name,
     color: input.color,
     icon: input.icon,
+    databaseType: input.database_type,
     connectionHost: input.connection_host,
     connectionPort: input.connection_port,
     connectionDatabase: input.connection_database,
@@ -22,6 +23,8 @@ export async function createSpace(input: CreateSpaceInput): Promise<Space> {
     connectionPassword: input.connection_password,
     connectionTrustCert: input.connection_trust_cert,
     connectionEncrypt: input.connection_encrypt,
+    postgresSslmode: input.postgres_sslmode,
+    mysqlSslEnabled: input.mysql_ssl_enabled,
   });
 }
 
@@ -230,7 +233,9 @@ export async function testConnection(
   username: string,
   password: string,
   trustCertificate?: boolean,
-  encrypt?: boolean
+  encrypt?: boolean,
+  databaseType?: string,
+  sslMode?: string
 ): Promise<boolean> {
   return invoke<boolean>('test_connection', {
     host,
@@ -240,6 +245,8 @@ export async function testConnection(
     password,
     trustCertificate,
     encrypt,
+    databaseType,
+    sslMode,
   });
 }
 

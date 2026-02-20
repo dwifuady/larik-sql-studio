@@ -4,14 +4,17 @@
 
 // Legacy modules (maintained for backward compatibility)
 pub mod connection;
+pub mod management;
 pub mod query;
 pub mod schema;
-pub mod management;
 
 // New extensible architecture modules
-pub mod traits;
-pub mod registry;
 pub mod drivers;
+pub mod managers;
+pub mod postgres_manager;
+pub mod registry;
+pub mod sqlite_manager;
+pub mod traits;
 
 // ============================================================================
 // Legacy Re-exports (Phase 2 - Keep backward compatibility)
@@ -21,21 +24,25 @@ pub use connection::{
     ConnectionConfig, ConnectionConfigUpdate, ConnectionError, ConnectionInfo,
     MssqlConnectionManager, MssqlPool,
 };
-pub use query::{CellValue, ColumnInfo as QueryColumnInfo, QueryEngine, QueryInfo, QueryResult, QueryStatus};
+pub use query::{QueryEngine, QueryInfo, QueryStatus};
 pub use schema::{
-    ColumnInfo as SchemaColumnInfo, RoutineInfo, SchemaInfo, SchemaMetadataManager, TableInfo as SchemaTableInfo,
+    ColumnInfo as SchemaColumnInfo, RoutineInfo, SchemaInfo, SchemaMetadataManager,
+    TableInfo as SchemaTableInfo,
 };
 
 // ============================================================================
 // New Extensible Types (Phase 1)
 // ============================================================================
 
-pub use traits::{
-    DatabaseDriver, DatabaseType, DatabaseConfig, DatabaseError, Connection,
-    ColumnInfo as UnifiedColumnInfo, CellValue as UnifiedCellValue, QueryResult as UnifiedQueryResult, TableInfo as UnifiedTableInfo,
-};
+pub use drivers::{MssqlDriver, PostgresDriver, SqliteDriver};
+pub use managers::UnifiedConnectionManager;
+pub use postgres_manager::{PostgresConfig, PostgresConnectionManager};
 pub use registry::DriverRegistry;
-pub use drivers::{MssqlDriver, SqliteDriver, PostgresDriver};
+pub use sqlite_manager::{SqliteConfig, SqliteConnectionManager};
+pub use traits::{
+    CellValue, ColumnInfo, Connection, DatabaseConfig, DatabaseDriver, DatabaseError, DatabaseType,
+    QueryResult, TableInfo,
+};
 
 // ============================================================================
 // Type Aliases for Clarity

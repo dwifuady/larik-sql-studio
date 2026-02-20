@@ -39,5 +39,6 @@ chrono = { version = "0.4", features = ["serde"] }
 tauri-plugin-dialog = "2.6.0"
 
 # PostgreSQL connection (Phase 3)
-tokio-postgres = "0.7"
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
+bb8-postgres = "0.8"
 

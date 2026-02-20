@@ -1,7 +1,10 @@
 // Schema Metadata Fetching (T024)
-// Queries SQL Server system catalogs for database schema information
+// Queries database system catalogs for schema information
+// Supports extensible database types via UnifiedConnectionManager
 
-use crate::db::connection::{ConnectionError, MssqlConnectionManager};
+use crate::db::connection::{ConnectionError}; // MssqlConnectionManager removed
+use crate::db::managers::UnifiedConnectionManager;
+use crate::db::traits::{DatabaseType};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -68,11 +71,11 @@ pub struct SchemaInfo {
 pub struct SchemaMetadataManager {
     /// Map of "connection_id:database_name" -> SchemaInfo
     cache: RwLock<HashMap<String, SchemaInfo>>,
-    connection_manager: Arc<MssqlConnectionManager>,
+    connection_manager: Arc<UnifiedConnectionManager>,
 }
 
 impl SchemaMetadataManager {
-    pub fn new(connection_manager: Arc<MssqlConnectionManager>) -> Self {
+    pub fn new(connection_manager: Arc<UnifiedConnectionManager>) -> Self {
         Self {
             cache: RwLock::new(HashMap::new()),
             connection_manager,
@@ -108,29 +111,22 @@ impl SchemaMetadataManager {
         database: &str,
         schema_filter: Option<&str>,
     ) -> Result<SchemaInfo, ConnectionError> {
-        // Get connection pool
-        let pool = self.connection_manager.connect(connection_id).await?;
-        let mut conn = pool.get().await?;
+        let db_type = self.connection_manager.get_connection_type(connection_id).await
+            .ok_or_else(|| ConnectionError::NotFound(connection_id.to_string()))?;
 
-        // Switch to the target database
-        let use_db_query = format!("USE [{}]", database);
-        conn.simple_query(&use_db_query).await?;
-
-        // Fetch schemas
-        let schemas = self.fetch_schemas(&mut conn).await?;
-
-        // Fetch tables and views
-        let tables = self.fetch_tables_and_views(&mut conn, schema_filter).await?;
-
-        // Fetch routines (stored procedures and functions)
-        let routines = self.fetch_routines(&mut conn, schema_filter).await?;
-
-        let schema_info = SchemaInfo {
-            database_name: database.to_string(),
-            schemas,
-            tables,
-            routines,
-            fetched_at: chrono::Utc::now().to_rfc3339(),
+        let schema_info = match db_type {
+            DatabaseType::Mssql => self.fetch_schema_mssql(connection_id, database, schema_filter).await?,
+            DatabaseType::Sqlite => self.fetch_schema_sqlite(connection_id, database).await?,
+            _ => {
+                // Return empty schema for unimplemented types for now
+                SchemaInfo {
+                    database_name: database.to_string(),
+                    schemas: vec![],
+                    tables: vec![],
+                    routines: vec![],
+                    fetched_at: chrono::Utc::now().to_rfc3339(),
+                }
+            }
         };
 
         // Cache the result
@@ -142,8 +138,98 @@ impl SchemaMetadataManager {
         Ok(schema_info)
     }
 
-    /// Fetch all schema names in the database
-    async fn fetch_schemas(
+    // SQLite Implementation
+    async fn fetch_schema_sqlite(
+        &self,
+        connection_id: &str,
+        database: &str,
+    ) -> Result<SchemaInfo, ConnectionError> {
+        use crate::db::traits::DatabaseDriver;
+        use crate::db::drivers::sqlite::SqliteDriver;
+
+        // Get config so we can open a connection
+        let db_config = self.connection_manager.sqlite()
+            .get_database_config(connection_id).await
+            .ok_or_else(|| ConnectionError::NotFound(connection_id.to_string()))?;
+
+        let driver = SqliteDriver::new();
+        let conn = driver.connect(&db_config).await
+            .map_err(|e| ConnectionError::ConnectionFailed(e.to_string()))?;
+
+        // Fetch tables/views via existing driver method
+        let raw_tables = driver.get_tables(conn.as_ref()).await
+            .map_err(|e| ConnectionError::QueryError(e.to_string()))?;
+
+        // Fetch columns for each table
+        let mut tables: Vec<TableInfo> = Vec::new();
+        for raw_table in raw_tables {
+            let raw_cols = driver.get_columns(conn.as_ref(), &raw_table.table_name).await
+                .map_err(|e| ConnectionError::QueryError(e.to_string()))?;
+
+            let cols: Vec<ColumnInfo> = raw_cols.into_iter().map(|c| ColumnInfo {
+                name: c.name,
+                data_type: c.data_type,
+                max_length: c.max_length,
+                precision: c.precision,
+                scale: c.scale,
+                is_nullable: c.is_nullable,
+                is_primary_key: c.is_primary_key,
+                is_identity: c.is_identity,
+                column_default: c.column_default,
+                ordinal_position: c.ordinal_position,
+            }).collect();
+
+            tables.push(TableInfo {
+                schema_name: raw_table.schema_name,
+                table_name: raw_table.table_name,
+                table_type: raw_table.table_type,
+                columns: cols,
+            });
+        }
+
+        Ok(SchemaInfo {
+            database_name: database.to_string(),
+            schemas: vec!["main".to_string()],
+            tables,
+            routines: vec![],
+            fetched_at: chrono::Utc::now().to_rfc3339(),
+        })
+    }
+
+    // MSSQL Implementation
+    async fn fetch_schema_mssql(
+        &self,
+        connection_id: &str,
+        database: &str,
+        schema_filter: Option<&str>,
+    ) -> Result<SchemaInfo, ConnectionError> {
+        // Get MSSQL connection pool
+        let pool = self.connection_manager.mssql().connect(connection_id).await?;
+        let mut conn = pool.get().await.map_err(|e| ConnectionError::PoolError(e.to_string()))?;
+
+        // Switch to the target database
+        let use_db_query = format!("USE [{}]", database);
+        conn.simple_query(&use_db_query).await.map_err(|e| ConnectionError::QueryError(e.to_string()))?;
+
+        // Fetch schemas
+        let schemas = self.fetch_schemas_mssql(&mut conn).await?;
+
+        // Fetch tables and views
+        let tables = self.fetch_tables_and_views_mssql(&mut conn, schema_filter).await?;
+
+        // Fetch routines (stored procedures and functions)
+        let routines = self.fetch_routines_mssql(&mut conn, schema_filter).await?;
+
+        Ok(SchemaInfo {
+            database_name: database.to_string(),
+            schemas,
+            tables,
+            routines,
+            fetched_at: chrono::Utc::now().to_rfc3339(),
+        })
+    }
+
+    async fn fetch_schemas_mssql(
         &self,
         conn: &mut bb8::PooledConnection<'_, bb8_tiberius::ConnectionManager>,
     ) -> Result<Vec<String>, ConnectionError> {
@@ -154,8 +240,8 @@ impl SchemaMetadataManager {
             ORDER BY schema_name
         "#;
 
-        let stream = conn.simple_query(query).await?;
-        let rows = stream.into_first_result().await?;
+        let stream = conn.simple_query(query).await.map_err(|e| ConnectionError::QueryError(e.to_string()))?;
+        let rows = stream.into_first_result().await.map_err(|e| ConnectionError::QueryError(e.to_string()))?;
 
         let schemas: Vec<String> = rows
             .iter()
@@ -165,8 +251,7 @@ impl SchemaMetadataManager {
         Ok(schemas)
     }
 
-    /// Fetch tables and views with their columns
-    async fn fetch_tables_and_views(
+    async fn fetch_tables_and_views_mssql(
         &self,
         conn: &mut bb8::PooledConnection<'_, bb8_tiberius::ConnectionManager>,
         schema_filter: Option<&str>,
@@ -190,8 +275,8 @@ impl SchemaMetadataManager {
             schema_condition
         );
 
-        let stream = conn.simple_query(&tables_query).await?;
-        let table_rows = stream.into_first_result().await?;
+        let stream = conn.simple_query(&tables_query).await.map_err(|e| ConnectionError::QueryError(e.to_string()))?;
+        let table_rows = stream.into_first_result().await.map_err(|e| ConnectionError::QueryError(e.to_string()))?;
 
         // Collect table info
         let mut tables: Vec<TableInfo> = table_rows
@@ -247,8 +332,8 @@ impl SchemaMetadataManager {
                 .unwrap_or_default()
         );
 
-        let stream = conn.simple_query(&columns_query).await?;
-        let column_rows = stream.into_first_result().await?;
+        let stream = conn.simple_query(&columns_query).await.map_err(|e| ConnectionError::QueryError(e.to_string()))?;
+        let column_rows = stream.into_first_result().await.map_err(|e| ConnectionError::QueryError(e.to_string()))?;
 
         // Group columns by table
         let mut columns_by_table: HashMap<(String, String), Vec<ColumnInfo>> = HashMap::new();
@@ -271,11 +356,9 @@ impl SchemaMetadataManager {
                 None => "unknown".to_string(),
             };
             let max_length = row.get::<i32, _>(4);
-            // NUMERIC_PRECISION can be tinyint (u8) or smallint (i16)
             let precision = row.try_get::<u8, _>(5)
                 .ok().flatten().map(|v| v as i32)
                 .or_else(|| row.try_get::<i16, _>(5).ok().flatten().map(|v| v as i32));
-            // NUMERIC_SCALE can be tinyint (u8) or int
             let scale = row.try_get::<u8, _>(6)
                 .ok().flatten().map(|v| v as i32)
                 .or_else(|| row.try_get::<i32, _>(6).ok().flatten());
@@ -314,8 +397,7 @@ impl SchemaMetadataManager {
         Ok(tables)
     }
 
-    /// Fetch stored procedures and functions with their parameters
-    async fn fetch_routines(
+    async fn fetch_routines_mssql(
         &self,
         conn: &mut bb8::PooledConnection<'_, bb8_tiberius::ConnectionManager>,
         schema_filter: Option<&str>,
@@ -324,7 +406,6 @@ impl SchemaMetadataManager {
             .map(|s| format!("AND ROUTINE_SCHEMA = '{}'", s))
             .unwrap_or_default();
 
-        // First, fetch all routines
         let routines_query = format!(
             r#"
             SELECT 
@@ -340,8 +421,8 @@ impl SchemaMetadataManager {
             schema_condition
         );
 
-        let stream = conn.simple_query(&routines_query).await?;
-        let routine_rows = stream.into_first_result().await?;
+        let stream = conn.simple_query(&routines_query).await.map_err(|e| ConnectionError::QueryError(e.to_string()))?;
+        let routine_rows = stream.into_first_result().await.map_err(|e| ConnectionError::QueryError(e.to_string()))?;
 
         let mut routines: Vec<RoutineInfo> = routine_rows
             .iter()
@@ -383,8 +464,8 @@ impl SchemaMetadataManager {
                 .unwrap_or_default()
         );
 
-        let stream = conn.simple_query(&params_query).await?;
-        let param_rows = stream.into_first_result().await?;
+        let stream = conn.simple_query(&params_query).await.map_err(|e| ConnectionError::QueryError(e.to_string()))?;
+        let param_rows = stream.into_first_result().await.map_err(|e| ConnectionError::QueryError(e.to_string()))?;
 
         // Group parameters by routine
         let mut params_by_routine: HashMap<(String, String), Vec<ParameterInfo>> = HashMap::new();
@@ -460,13 +541,28 @@ impl SchemaMetadataManager {
             }
         }
 
-        // Fetch from database
-        let pool = self.connection_manager.connect(connection_id).await?;
-        let mut conn = pool.get().await?;
+        let db_type = self.connection_manager.get_connection_type(connection_id).await
+             .ok_or_else(|| ConnectionError::NotFound(connection_id.to_string()))?;
+
+        match db_type {
+            DatabaseType::Mssql => self.get_table_columns_mssql(connection_id, database, schema_name, table_name).await,
+            _ => Ok(vec![]),
+        }
+    }
+
+    async fn get_table_columns_mssql(
+        &self,
+        connection_id: &str,
+        database: &str,
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<Vec<ColumnInfo>, ConnectionError> {
+        let pool = self.connection_manager.mssql().connect(connection_id).await?;
+        let mut conn = pool.get().await.map_err(|e| ConnectionError::PoolError(e.to_string()))?;
 
         // Switch to the target database
         let use_db_query = format!("USE [{}]", database);
-        conn.simple_query(&use_db_query).await?;
+        conn.simple_query(&use_db_query).await.map_err(|e| ConnectionError::QueryError(e.to_string()))?;
 
         let query = format!(
             r#"
@@ -498,8 +594,8 @@ impl SchemaMetadataManager {
             schema_name, table_name, schema_name, table_name, schema_name, table_name
         );
 
-        let stream = conn.simple_query(&query).await?;
-        let rows = stream.into_first_result().await?;
+        let stream = conn.simple_query(&query).await.map_err(|e| ConnectionError::QueryError(e.to_string()))?;
+        let rows = stream.into_first_result().await.map_err(|e| ConnectionError::QueryError(e.to_string()))?;
 
         let columns: Vec<ColumnInfo> = rows
             .iter()
@@ -507,11 +603,9 @@ impl SchemaMetadataManager {
                 let name = row.get::<&str, _>(0)?.to_string();
                 let data_type = row.get::<&str, _>(1)?.to_string();
                 let max_length = row.get::<i32, _>(2);
-                // NUMERIC_PRECISION can be tinyint (u8) or smallint (i16)
                 let precision = row.try_get::<u8, _>(3)
                     .ok().flatten().map(|v| v as i32)
                     .or_else(|| row.try_get::<i16, _>(3).ok().flatten().map(|v| v as i32));
-                // NUMERIC_SCALE can be tinyint (u8) or int
                 let scale = row.try_get::<u8, _>(4)
                     .ok().flatten().map(|v| v as i32)
                     .or_else(|| row.try_get::<i32, _>(4).ok().flatten());

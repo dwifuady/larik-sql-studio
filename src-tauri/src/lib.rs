@@ -7,7 +7,7 @@ pub mod export;
 pub mod storage;
 
 use commands::AppState;
-use db::{MssqlConnectionManager, QueryEngine, SchemaMetadataManager};
+use db::{UnifiedConnectionManager, QueryEngine, SchemaMetadataManager};
 use storage::{DatabaseManager, get_default_db_path};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
@@ -36,18 +36,18 @@ pub fn run() {
     // Initialize default settings for archive/history
     db_manager.init_default_settings().expect("Failed to initialize default settings");
 
-    // Initialize MS-SQL connection manager (T015, T016)
-    let mssql_manager = Arc::new(MssqlConnectionManager::new());
+    // Initialize Unified connection manager (T015, T016)
+    let connection_manager = Arc::new(UnifiedConnectionManager::new());
 
     // Initialize query engine (T017)
-    let query_engine = Arc::new(QueryEngine::new(Arc::clone(&mssql_manager)));
+    let query_engine = Arc::new(QueryEngine::new(Arc::clone(&connection_manager)));
 
     // Initialize schema metadata manager (T024)
-    let schema_manager = Arc::new(SchemaMetadataManager::new(Arc::clone(&mssql_manager)));
+    let schema_manager = Arc::new(SchemaMetadataManager::new(Arc::clone(&connection_manager)));
 
     let app_state = AppState {
         db: Mutex::new(db_manager),
-        mssql_manager,
+        connection_manager,
         query_engine,
         schema_manager,
         export_cancel_flags: RwLock::new(HashMap::new()),
