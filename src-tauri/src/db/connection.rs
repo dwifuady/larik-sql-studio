@@ -122,12 +122,21 @@ pub enum ConnectionError {
     #[error("Query execution error: {0}")]
     QueryError(String),
     
+    #[error("Password expired. Please change your password using another tool properly.")]
+    PasswordExpired,
+    
     #[error("Timeout error")]
     Timeout,
 }
 
 impl From<tiberius::error::Error> for ConnectionError {
     fn from(err: tiberius::error::Error) -> Self {
+        // Check for password expired error (usually 18488)
+        if let tiberius::error::Error::Server(e) = &err {
+            if e.code() == 18488 {
+                return ConnectionError::PasswordExpired;
+            }
+        }
         ConnectionError::ConnectionFailed(err.to_string())
     }
 }
@@ -179,7 +188,7 @@ impl MssqlConnectionManager {
         
         let _client = tiberius::Client::connect(tiberius_config, tcp.compat_write())
             .await
-            .map_err(|e| ConnectionError::ConnectionFailed(format!("Authentication failed: {}", e)))?;
+            .map_err(ConnectionError::from)?;
         
         Ok(true)
     }
@@ -246,7 +255,7 @@ impl MssqlConnectionManager {
         
         let client = tiberius::Client::connect(tiberius_config, tcp.compat_write())
             .await
-            .map_err(|e| ConnectionError::ConnectionFailed(format!("Authentication failed: {}", e)))?;
+            .map_err(ConnectionError::from)?;
         
         Ok(client)
     }

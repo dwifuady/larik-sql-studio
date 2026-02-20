@@ -55,7 +55,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
   const [selectedColor, setSelectedColor] = useState(SPACE_COLORS[0]);
   const [connection, setConnection] = useState<ConnectionFormState>(emptyConnection);
   const [isTesting, setIsTesting] = useState(false);
-  const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
+  const [testResult, setTestResult] = useState<'success' | string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Focus input when modal opens
@@ -67,7 +67,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
-    
+
     const input: CreateSpaceInput = {
       name: newName.trim(),
       color: selectedColor,
@@ -82,7 +82,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
         connection_encrypt: connection.encrypt,
       } : {}),
     };
-    
+
     const space = await createSpace(input);
     setNewName('');
     setConnection(emptyConnection);
@@ -97,21 +97,30 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
 
   const handleTestConnection = async () => {
     if (!connection.host || !connection.database) return;
-    
+
     setIsTesting(true);
     setTestResult(null);
-    
-    const success = await testConnection(
-      connection.host,
-      parseInt(connection.port) || 1433,
-      connection.database,
-      connection.username,
-      connection.password,
-      connection.trustCert,
-      connection.encrypt
-    );
-    
-    setTestResult(success ? 'success' : 'error');
+
+    try {
+      const success = await testConnection(
+        connection.host,
+        parseInt(connection.port) || 1433,
+        connection.database,
+        connection.username,
+        connection.password,
+        connection.trustCert,
+        connection.encrypt
+      );
+
+      setTestResult(success ? 'success' : 'Failed to connect');
+    } catch (e: any) {
+      const errorMsg = e.message || String(e);
+      if (errorMsg.includes("Password expired")) {
+        setTestResult("Password expired. Please change it using another tool.");
+      } else {
+        setTestResult('Failed to connect: ' + errorMsg);
+      }
+    }
     setIsTesting(false);
   };
 
@@ -127,7 +136,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
 
   return createPortal(
     <div className="fixed inset-0 flex items-center justify-center pointer-events-none outline-none p-4" style={{ zIndex: 9999 }}>
-      <div 
+      <div
         className="bg-black/40 absolute inset-0 pointer-events-auto"
         onClick={handleClose}
       />
@@ -148,7 +157,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
           placeholder="Space name..."
           className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg mb-4 focus:border-[var(--accent-color)] outline-none"
         />
-        
+
         {/* Color picker */}
         <div className="mb-4">
           <label className="text-sm text-[var(--text-secondary)] mb-2 block">Color</label>
@@ -157,15 +166,14 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
               <button
                 key={color}
                 onClick={() => setSelectedColor(color)}
-                className={`w-7 h-7 rounded-full transition-all ${
-                  selectedColor === color ? 'ring-2 ring-white ring-offset-2 ring-offset-[var(--bg-secondary)] scale-110' : ''
-                }`}
+                className={`w-7 h-7 rounded-full transition-all ${selectedColor === color ? 'ring-2 ring-white ring-offset-2 ring-offset-[var(--bg-secondary)] scale-110' : ''
+                  }`}
                 style={{ backgroundColor: color }}
               />
             ))}
           </div>
         </div>
-        
+
         {/* Connection form */}
         <div className="mb-4 p-3 bg-white/5 rounded-lg">
           <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
@@ -174,7 +182,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
             </svg>
             Database Connection <span className="text-xs text-[var(--text-secondary)] font-normal">(optional)</span>
           </h4>
-          
+
           <div className="grid grid-cols-3 gap-2 mb-2">
             <div className="col-span-2">
               <input
@@ -195,7 +203,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
               />
             </div>
           </div>
-          
+
           <input
             type="text"
             value={connection.database}
@@ -203,7 +211,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
             placeholder="Database"
             className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm mb-2 focus:border-[var(--accent-color)] outline-none"
           />
-          
+
           <div className="grid grid-cols-2 gap-2 mb-2">
             <input
               type="text"
@@ -220,7 +228,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
               className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
             />
           </div>
-          
+
           <div className="flex gap-4 mb-3 text-xs">
             <label className="flex items-center gap-1.5 cursor-pointer">
               <input
@@ -241,7 +249,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
               Encrypt
             </label>
           </div>
-          
+
           {/* Test connection button */}
           {connection.host && connection.database && (
             <div className="flex items-center gap-2">
@@ -253,7 +261,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
                 {isTesting ? 'Testing...' : 'Test Connection'}
               </button>
               {testResult === 'success' && <span className="text-xs text-green-400">✓ Connected!</span>}
-              {testResult === 'error' && <span className="text-xs text-red-400">✗ Failed</span>}
+              {testResult && testResult !== 'success' && <span className="text-xs text-red-400">✗ {testResult}</span>}
             </div>
           )}
         </div>

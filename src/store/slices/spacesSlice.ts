@@ -197,6 +197,15 @@ export const createSpacesSlice: StateCreator<AppState, [], [], SpacesSlice> = (s
                 isConnecting: false,
                 connectionError: error instanceof Error ? error.message : String(error)
             });
+
+            // Check for password expired error
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            if (errorMessage.includes("Password expired")) {
+                set({
+                    connectionError: "Your password has expired. Please change it using SQL Server Management Studio or another tool, then try again."
+                });
+            }
+
             return false;
         }
     },
