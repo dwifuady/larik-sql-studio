@@ -30,7 +30,9 @@ export interface SpacesSlice {
         username: string,
         password: string,
         trustCertificate?: boolean,
-        encrypt?: boolean
+        encrypt?: boolean,
+        databaseType?: string,
+        sslMode?: string
     ) => Promise<boolean>;
 
     getActiveSpace: () => Space | null;
@@ -38,6 +40,7 @@ export interface SpacesSlice {
 }
 
 export const createSpacesSlice: StateCreator<AppState, [], [], SpacesSlice> = (set, get) => ({
+    // ... existing properties ...
     spaces: [],
     activeSpaceId: null,
     spacesLoading: false,
@@ -155,6 +158,21 @@ export const createSpacesSlice: StateCreator<AppState, [], [], SpacesSlice> = (s
             await get().loadTabs(id);
             await get().loadFolders(id);
             await get().refreshSpaceConnectionStatus();
+
+            // For SQLite spaces, auto-connect since they have no persistent network connections
+            // Their in-memory connected state resets on every app restart
+            if (!get().isConnected()) {
+                const space = get().getActiveSpace();
+                if (space?.database_type?.toLowerCase() === 'sqlite') {
+                    try {
+                        await api.connectToSpace(id);
+                        await get().refreshSpaceConnectionStatus();
+                    } catch (e) {
+                        console.error('SQLite auto-connect failed:', e);
+                    }
+                }
+            }
+
             // If the new space is connected, reload databases and schema
             if (get().isConnected()) {
                 await get().loadSpaceDatabases();
@@ -168,6 +186,7 @@ export const createSpacesSlice: StateCreator<AppState, [], [], SpacesSlice> = (s
             await get().saveAppSettings();
         }
     },
+
 
     reorderSpaces: async (spaceIds) => {
         await api.reorderSpaces(spaceIds);
@@ -251,7 +270,7 @@ export const createSpacesSlice: StateCreator<AppState, [], [], SpacesSlice> = (s
         }
     },
 
-    testConnection: async (host, port, database, username, password, trustCertificate, encrypt) => {
+    testConnection: async (host, port, database, username, password, trustCertificate, encrypt, databaseType, sslMode) => {
         try {
             return await api.testConnection(
                 host,
@@ -260,7 +279,9 @@ export const createSpacesSlice: StateCreator<AppState, [], [], SpacesSlice> = (s
                 username,
                 password,
                 trustCertificate,
-                encrypt
+                encrypt,
+                databaseType,
+                sslMode
             );
         } catch (error) {
             console.error('Connection test failed:', error);

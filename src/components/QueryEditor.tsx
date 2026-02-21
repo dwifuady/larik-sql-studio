@@ -1841,6 +1841,12 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
               },
               insertText: insertText,
               insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+              // Trigger suggestions after inserting a snippet, especially useful for snippets 
+              // that end in a space (e.g., "SELECT * FROM ")
+              command: {
+                id: 'editor.action.triggerSuggest',
+                title: 'Trigger Suggest'
+              },
               // High priority for snippets
               sortText: `00_${snippet.trigger}`,
               range,
@@ -2006,6 +2012,11 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   const resultsHidden = useAppStore((state) => state.isResultsHidden(tab.id));
   const reorderQueryResults = useAppStore(state => state.reorderQueryResults);
   const showResults = (activeResult || isExecuting) && !resultsHidden;
+
+  // Memoized close handler to prevent ResultsGrid from re-rendering
+  const handleCloseResult = useCallback(() => {
+    clearQueryResult(tab.id);
+  }, [clearQueryResult, tab.id]);
 
   return (
     <div className="query-editor-container flex-1 flex flex-col min-h-0">
@@ -2342,7 +2353,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
               {activeResult ? (
                 <ResultsGrid
                   result={activeResult}
-                  onClose={() => clearQueryResult(tab.id)}
+                  onClose={handleCloseResult}
                   isExecuting={isExecuting}
                   spaceColor={spaceColor}
                   onExecuteUpdate={handleExecuteUpdateQuery}

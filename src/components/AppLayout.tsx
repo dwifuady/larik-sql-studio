@@ -658,7 +658,14 @@ export function AppLayout() {
 
                 {/* New Tab Button - Inline */}
                 <button
-                  onClick={() => setNewTabSelectorOpen(true)}
+                  onClick={() => {
+                    const activeSpace = spaces.find(s => s.id === activeSpaceId);
+                    if (activeSpace?.database_type?.toLowerCase() === 'sqlite') {
+                      handleCreateNewTab(null);
+                    } else {
+                      setNewTabSelectorOpen(true);
+                    }
+                  }}
                   className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
                   title="New Tab (Ctrl+T)"
                 >
@@ -670,7 +677,14 @@ export function AppLayout() {
 
               {/* Tabs list OR Database Explorer fills remaining space */}
               {sidebarView === 'tabs' ? (
-                <TabsList onNewTabClick={() => setNewTabSelectorOpen(true)} />
+                <TabsList onNewTabClick={() => {
+                  const activeSpace = spaces.find(s => s.id === activeSpaceId);
+                  if (activeSpace?.database_type?.toLowerCase() === 'sqlite') {
+                    handleCreateNewTab(null);
+                  } else {
+                    setNewTabSelectorOpen(true);
+                  }
+                }} />
               ) : (
                 <div className="flex-1 overflow-hidden min-h-0">
                   <DatabaseExplorer />

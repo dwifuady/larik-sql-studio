@@ -15,6 +15,7 @@ export async function createSpace(input: CreateSpaceInput): Promise<Space> {
     name: input.name,
     color: input.color,
     icon: input.icon,
+    databaseType: input.database_type,
     connectionHost: input.connection_host,
     connectionPort: input.connection_port,
     connectionDatabase: input.connection_database,
@@ -22,6 +23,8 @@ export async function createSpace(input: CreateSpaceInput): Promise<Space> {
     connectionPassword: input.connection_password,
     connectionTrustCert: input.connection_trust_cert,
     connectionEncrypt: input.connection_encrypt,
+    postgresSslmode: input.postgres_sslmode,
+    mysqlSslEnabled: input.mysql_ssl_enabled,
   });
 }
 
@@ -126,7 +129,16 @@ export async function updateTab(
   database?: string | null,
   sortOrder?: number | null
 ): Promise<Tab | null> {
-  return invoke<Tab | null>('update_tab', { id, title, content, metadata, database, sortOrder });
+  return invoke<Tab | null>('update_tab', {
+    id,
+    input: {
+      title,
+      content,
+      metadata,
+      database,
+      sort_order: sortOrder
+    }
+  });
 }
 
 /** Update just the database selection for a tab */
@@ -172,7 +184,14 @@ export async function updateFolder(
   isExpanded?: boolean | null,
   sortOrder?: number | null
 ): Promise<TabFolder | null> {
-  return invoke<TabFolder | null>('update_folder', { id, name, isExpanded, sortOrder });
+  return invoke<TabFolder | null>('update_folder', {
+    id,
+    input: {
+      name,
+      is_expanded: isExpanded,
+      sort_order: sortOrder
+    }
+  });
 }
 
 export async function deleteFolder(id: string): Promise<boolean> {
@@ -230,7 +249,9 @@ export async function testConnection(
   username: string,
   password: string,
   trustCertificate?: boolean,
-  encrypt?: boolean
+  encrypt?: boolean,
+  databaseType?: string,
+  sslMode?: string
 ): Promise<boolean> {
   return invoke<boolean>('test_connection', {
     host,
@@ -240,6 +261,8 @@ export async function testConnection(
     password,
     trustCertificate,
     encrypt,
+    databaseType,
+    sslMode,
   });
 }
 

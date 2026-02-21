@@ -73,6 +73,9 @@ impl DatabaseManager {
                 connection_password TEXT,
                 connection_trust_cert INTEGER DEFAULT 1,
                 connection_encrypt INTEGER DEFAULT 0,
+                database_type TEXT,
+                postgres_sslmode TEXT,
+                mysql_ssl_enabled INTEGER DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now')),
                 sort_order INTEGER NOT NULL DEFAULT 0
@@ -354,6 +357,23 @@ impl DatabaseManager {
             }
         }
 
+        // Migration: Add database_type and other new connection fields
+        let has_database_type: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('spaces') WHERE name = 'database_type'",
+            [],
+            |row| row.get(0),
+        )?;
+        
+        if !has_database_type {
+            conn.execute_batch(
+                r#"
+                ALTER TABLE spaces ADD COLUMN database_type TEXT;
+                ALTER TABLE spaces ADD COLUMN postgres_sslmode TEXT;
+                ALTER TABLE spaces ADD COLUMN mysql_ssl_enabled INTEGER DEFAULT 0;
+                "#
+            )?;
+        }
+
         Ok(())
     }
 
@@ -382,7 +402,7 @@ pub fn get_default_db_path() -> StorageResult<PathBuf> {
         .ok_or(StorageError::AppDataDir)?;
     
     let data_dir = proj_dirs.data_dir();
-    Ok(data_dir.join("larik.db"))
+    Ok(data_dir.join("larik-beta.db"))
 }
 
 #[cfg(test)]
