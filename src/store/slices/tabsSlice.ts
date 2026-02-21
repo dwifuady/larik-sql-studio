@@ -71,7 +71,17 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
         }
 
         try {
-            const tab = await api.createTab(spaceId, title, tabType, content, null, database);
+            // Auto-select database for SQLite spaces
+            const activeSpace = get().spaces.find(s => s.id === spaceId);
+            let targetDatabase = database;
+            if (!targetDatabase && activeSpace?.database_type?.toLowerCase() === 'sqlite') {
+                const spaceDatabases = get().spaceDatabases;
+                if (spaceDatabases && spaceDatabases.length > 0) {
+                    targetDatabase = spaceDatabases[0].name;
+                }
+            }
+
+            const tab = await api.createTab(spaceId, title, tabType, content, null, targetDatabase);
             set((state) => ({ tabs: [tab, ...state.tabs], activeTabId: tab.id }));
             return tab;
         } catch (error) {

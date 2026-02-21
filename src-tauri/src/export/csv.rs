@@ -2,7 +2,7 @@
 // Fast CSV export with streaming support for large datasets
 
 use super::{ExportError, ExportOptions, ExportProgress};
-use crate::db::query::{CellValue, ColumnInfo};
+use crate::db::{CellValue, ColumnInfo};
 use std::io::Write;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};

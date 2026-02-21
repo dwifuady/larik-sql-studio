@@ -3,6 +3,9 @@
 /** Tab type enum matching backend */
 export type TabType = 'query' | 'results' | 'schema' | 'settings';
 
+/** Database type enum matching backend DatabaseType */
+export type DatabaseType = 'sqlite' | 'mssql' | 'postgresql' | 'mysql';
+
 /** A Space represents a work environment containing related tabs and 1:1 connection */
 export interface Space {
   id: string;
@@ -12,7 +15,9 @@ export interface Space {
   created_at: string;
   updated_at: string;
   sort_order: number;
-  // Connection fields (1:1 model)
+  // Database type
+  database_type: DatabaseType | null;
+  // Connection fields (1:1 model - MS-SQL specific)
   connection_host: string | null;
   connection_port: number | null;
   connection_database: string | null;
@@ -20,11 +25,16 @@ export interface Space {
   // Note: password is not returned from backend for security
   connection_trust_cert: boolean | null;
   connection_encrypt: boolean | null;
+  // PostgreSQL specific
+  postgres_sslmode: string | null; // "prefer", "require", "verify-ca", "verify-full"
+  // MySQL specific
+  mysql_ssl_enabled: boolean | null;
   last_active_tab_id: string | null;
 }
 
 /** Check if a space has a connection configured */
 export function spaceHasConnection(space: Space): boolean {
+  if (space.database_type?.toLowerCase() === 'sqlite') return !!space.connection_database;
   return !!(space.connection_host && space.connection_database);
 }
 
@@ -33,14 +43,21 @@ export interface CreateSpaceInput {
   name: string;
   color?: string | null;
   icon?: string | null;
-  // Connection fields
+  // Database type
+  database_type?: DatabaseType | null;
+  // Common connection fields
   connection_host?: string | null;
   connection_port?: number | null;
   connection_database?: string | null;
   connection_username?: string | null;
   connection_password?: string | null;
+  // MS-SQL specific
   connection_trust_cert?: boolean | null;
   connection_encrypt?: boolean | null;
+  // PostgreSQL specific
+  postgres_sslmode?: string | null;
+  // MySQL specific
+  mysql_ssl_enabled?: boolean | null;
 }
 
 /** Input for updating an existing space */

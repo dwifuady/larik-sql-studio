@@ -160,8 +160,15 @@ export function useKeyboardShortcuts() {
 
   // Create new tab handler
   const handleNewTab = useCallback(async () => {
-    const { setNewTabSelectorOpen } = useAppStore.getState();
-    setNewTabSelectorOpen(true);
+    const { setNewTabSelectorOpen, spaces, activeSpaceId, tabs, createTab } = useAppStore.getState();
+    const activeSpace = spaces.find(s => s.id === activeSpaceId);
+    if (activeSpace?.database_type?.toLowerCase() === 'sqlite') {
+      const tabCount = tabs.length + 1;
+      await createTab(`Query ${tabCount}`, 'query', '');
+      setNewTabSelectorOpen(false); // Just in case
+    } else {
+      setNewTabSelectorOpen(true);
+    }
   }, []);
 
   // Close current tab handler

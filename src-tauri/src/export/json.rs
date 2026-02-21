@@ -2,7 +2,7 @@
 // Fast JSON export with streaming support for large datasets
 
 use super::{ExportError, ExportOptions, ExportProgress};
-use crate::db::query::{CellValue, ColumnInfo};
+use crate::db::{CellValue, ColumnInfo};
 use serde_json::{json, Map, Value};
 use std::io::Write;
 use std::path::Path;
