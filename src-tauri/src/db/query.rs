@@ -87,7 +87,7 @@ impl QueryEngine {
         &self,
         connection_id: &str,
         query: &str,
-        _database: Option<&str>, // Optional context switch
+        database: Option<&str>, // Optional context switch
         _is_selection: bool, // If true, this is a "run selection" action
     ) -> Result<Vec<QueryResult>, ConnectionError> {
         let db_type = self.connection_manager.get_connection_type(connection_id).await
@@ -125,7 +125,7 @@ impl QueryEngine {
                          pool,
                      };
                      
-                     self.mssql_driver.execute_query(&conn_wrapper, sql, query_id.clone()).await
+                     self.mssql_driver.execute_query(&conn_wrapper, sql, query_id.clone(), database).await
                  },
                  DatabaseType::Postgresql => {
                      let pool = self.connection_manager.postgres().connect(connection_id).await
@@ -136,7 +136,7 @@ impl QueryEngine {
                          pool,
                      };
                      
-                     self.postgres_driver.execute_query(&conn_wrapper, sql, query_id.clone()).await
+                     self.postgres_driver.execute_query(&conn_wrapper, sql, query_id.clone(), database).await
                  },
                  DatabaseType::Sqlite => {
                      // SQLite: open connection per-query from stored config (stateless)
@@ -149,7 +149,7 @@ impl QueryEngine {
                              ))?;
                          let sqlite_driver = crate::db::drivers::sqlite::SqliteDriver::new();
                          let conn = sqlite_driver.connect(&db_config).await?;
-                         sqlite_driver.execute_query(conn.as_ref(), sql, query_id.clone()).await
+                         sqlite_driver.execute_query(conn.as_ref(), sql, query_id.clone(), database).await
                      }.await;
                      driver_result
                  },

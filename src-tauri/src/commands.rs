@@ -651,6 +651,20 @@ pub async fn get_space_databases_with_access(
             // For now, just return empty or generic list since we didn't implement HAS_DBACCESS equivalent
              Ok(vec![])
         },
+        DatabaseType::Sqlite => {
+            let config = state.connection_manager.sqlite()
+                .get_database_config(&space_id).await;
+            match config {
+                Some(c) => {
+                    let file_name = std::path::Path::new(&c.database)
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| c.database.clone());
+                    Ok(vec![DatabaseInfo { name: file_name, has_access: true }])
+                },
+                None => Ok(vec![]),
+            }
+        },
         _ => Ok(vec![]),
     }
 }

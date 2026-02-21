@@ -129,6 +129,7 @@ impl DatabaseDriver for PostgresDriver {
         conn: &dyn Connection,
         sql: &str,
         query_id: String,
+        _database: Option<&str>,
     ) -> Result<QueryResult, DatabaseError> {
         let pg_conn = conn.as_any().downcast_ref::<PostgresConnection>()
             .ok_or_else(|| DatabaseError::InvalidConnection)?;

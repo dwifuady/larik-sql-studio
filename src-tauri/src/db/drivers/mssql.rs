@@ -133,6 +133,7 @@ impl DatabaseDriver for MssqlDriver {
         conn: &dyn Connection,
         sql: &str,
         query_id: String,
+        database: Option<&str>,
     ) -> Result<QueryResult, DatabaseError> {
         let mssql_conn = conn
             .as_any()
@@ -144,6 +145,22 @@ impl DatabaseDriver for MssqlDriver {
             .get()
             .await
             .map_err(|e| DatabaseError::PoolError(e.to_string()))?;
+
+        // Switch context if specified, or fall back to default to prevent pool contamination
+        let db_to_use = match database {
+            Some(db) => Some(db.to_string()),
+            None => {
+                self.connection_manager.get_connection(&mssql_conn.id).await.map(|c| c.database.clone())
+            }
+        };
+
+        if let Some(db) = db_to_use {
+            if !db.is_empty() {
+                let use_query = format!("USE [{}]", db.replace("]", "]]"));
+                connection.simple_query(use_query).await
+                    .map_err(|e| DatabaseError::QueryError(format!("Failed to switch database context: {}", e)))?;
+            }
+        }
 
         let start = std::time::Instant::now();
 

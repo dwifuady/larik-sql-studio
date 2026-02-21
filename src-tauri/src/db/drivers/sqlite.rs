@@ -109,6 +109,7 @@ impl DatabaseDriver for SqliteDriver {
         conn: &dyn Connection,
         sql: &str,
         query_id: String,
+        _database: Option<&str>,
     ) -> Result<QueryResult, DatabaseError> {
         let sqlite_conn = conn
             .as_any()

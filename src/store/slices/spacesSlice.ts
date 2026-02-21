@@ -163,7 +163,7 @@ export const createSpacesSlice: StateCreator<AppState, [], [], SpacesSlice> = (s
             // Their in-memory connected state resets on every app restart
             if (!get().isConnected()) {
                 const space = get().getActiveSpace();
-                if (space?.database_type === 'sqlite') {
+                if (space?.database_type?.toLowerCase() === 'sqlite') {
                     try {
                         await api.connectToSpace(id);
                         await get().refreshSpaceConnectionStatus();

@@ -34,7 +34,7 @@ export interface Space {
 
 /** Check if a space has a connection configured */
 export function spaceHasConnection(space: Space): boolean {
-  if (space.database_type === 'sqlite') return !!space.connection_database;
+  if (space.database_type?.toLowerCase() === 'sqlite') return !!space.connection_database;
   return !!(space.connection_host && space.connection_database);
 }
 

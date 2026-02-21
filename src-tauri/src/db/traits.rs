@@ -186,6 +186,7 @@ pub trait DatabaseDriver: Send + Sync {
         conn: &dyn Connection,
         sql: &str,
         query_id: String,
+        database: Option<&str>,
     ) -> Result<QueryResult, DatabaseError>;
 
     /// Cancel a running query (if supported)

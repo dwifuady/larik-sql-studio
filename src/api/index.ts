@@ -129,7 +129,16 @@ export async function updateTab(
   database?: string | null,
   sortOrder?: number | null
 ): Promise<Tab | null> {
-  return invoke<Tab | null>('update_tab', { id, title, content, metadata, database, sortOrder });
+  return invoke<Tab | null>('update_tab', {
+    id,
+    input: {
+      title,
+      content,
+      metadata,
+      database,
+      sort_order: sortOrder
+    }
+  });
 }
 
 /** Update just the database selection for a tab */
@@ -175,7 +184,14 @@ export async function updateFolder(
   isExpanded?: boolean | null,
   sortOrder?: number | null
 ): Promise<TabFolder | null> {
-  return invoke<TabFolder | null>('update_folder', { id, name, isExpanded, sortOrder });
+  return invoke<TabFolder | null>('update_folder', {
+    id,
+    input: {
+      name,
+      is_expanded: isExpanded,
+      sort_order: sortOrder
+    }
+  });
 }
 
 export async function deleteFolder(id: string): Promise<boolean> {

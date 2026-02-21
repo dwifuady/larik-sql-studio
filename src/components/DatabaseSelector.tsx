@@ -42,7 +42,11 @@ export function DatabaseSelector({ isCompact = false }: DatabaseSelectorProps) {
         setIsOpen(false);
     };
 
-    const currentDatabaseValue = activeTab?.database || activeSpace?.connection_database || 'Default DB';
+    const isSqlite = activeSpace?.database_type?.toLowerCase() === 'sqlite';
+
+    const currentDatabaseValue = isSqlite
+        ? (spaceDatabases[0]?.name || activeSpace?.connection_database?.split(/[/\\]/).pop() || 'SQLite DB')
+        : (activeTab?.database || activeSpace?.connection_database || 'Default DB');
 
     return (
         <div
@@ -61,7 +65,7 @@ export function DatabaseSelector({ isCompact = false }: DatabaseSelectorProps) {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
             </svg>
 
-            {isConnected && spaceDatabases.length > 0 ? (
+            {isConnected && spaceDatabases.length > 0 && !isSqlite ? (
                 <div ref={dropdownRef} className="flex-1 relative min-w-0 h-full flex items-center">
                     <button
                         onClick={() => !databasesLoading && setIsOpen(!isOpen)}
@@ -125,10 +129,10 @@ export function DatabaseSelector({ isCompact = false }: DatabaseSelectorProps) {
                                     disabled={!db.hasAccess}
                                     title={!db.hasAccess ? 'You do not have access to this database' : undefined}
                                     className={`w-full px-3 py-1.5 text-left text-xs flex items-center gap-2 transition-colors ${!db.hasAccess
-                                            ? 'opacity-40 cursor-not-allowed text-[var(--text-muted)]'
-                                            : activeTab?.database === db.name
-                                                ? 'bg-[var(--bg-active)] text-[var(--text-primary)]'
-                                                : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
+                                        ? 'opacity-40 cursor-not-allowed text-[var(--text-muted)]'
+                                        : activeTab?.database === db.name
+                                            ? 'bg-[var(--bg-active)] text-[var(--text-primary)]'
+                                            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
                                         }`}
                                 >
                                     {db.hasAccess ? (
@@ -150,7 +154,7 @@ export function DatabaseSelector({ isCompact = false }: DatabaseSelectorProps) {
                     )}
                 </div>
             ) : (
-                <span className={`flex-1 text-[var(--text-muted)] truncate ${isCompact ? 'text-[10px]' : 'text-xs'}`}>
+                <span className={`flex-1 truncate ${isConnected ? 'font-medium text-[var(--text-primary)]' : 'text-[var(--text-muted)]'} ${isCompact ? 'text-[10px]' : 'text-xs'}`}>
                     {isConnected ? currentDatabaseValue : 'Not connected'}
                 </span>
             )}
