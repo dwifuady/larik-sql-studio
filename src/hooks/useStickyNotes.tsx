@@ -57,7 +57,12 @@ export function useStickyNotes({ editor, model, onContentChange, enabled = true 
         const parseAndSetNotes = () => {
             const content = model.getValue();
             const extracted = extractNotes(content);
-            setNotes(extracted);
+            setNotes(prev => {
+                if (prev.length === extracted.length && JSON.stringify(prev) === JSON.stringify(extracted)) {
+                    return prev;
+                }
+                return extracted;
+            });
         };
 
         // Initial parse

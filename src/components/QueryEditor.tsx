@@ -2007,6 +2007,11 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   const reorderQueryResults = useAppStore(state => state.reorderQueryResults);
   const showResults = (activeResult || isExecuting) && !resultsHidden;
 
+  // Memoized close handler to prevent ResultsGrid from re-rendering
+  const handleCloseResult = useCallback(() => {
+    clearQueryResult(tab.id);
+  }, [clearQueryResult, tab.id]);
+
   return (
     <div className="query-editor-container flex-1 flex flex-col min-h-0">
       <StickyNotesRenderer />
@@ -2342,7 +2347,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
               {activeResult ? (
                 <ResultsGrid
                   result={activeResult}
-                  onClose={() => clearQueryResult(tab.id)}
+                  onClose={handleCloseResult}
                   isExecuting={isExecuting}
                   spaceColor={spaceColor}
                   onExecuteUpdate={handleExecuteUpdateQuery}
