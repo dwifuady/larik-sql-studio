@@ -8,6 +8,7 @@ import { ExportButton } from './ExportDialog';
 import { CellPreviewPanel } from './CellPreviewPanel';
 import { useAppStore } from '../store';
 import type { QueryResult, ColumnInfo, CellValue } from '../types';
+import { formatExecutionTime } from '../utils/formatters';
 
 interface ResultsGridProps {
   result: QueryResult;
@@ -1332,7 +1333,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
             </svg>
             <p className="text-[var(--text-primary)]">Query executed successfully</p>
             <p className="text-[var(--text-muted)] text-sm mt-1">
-              {result.row_count} row{result.row_count !== 1 ? 's' : ''} affected • {result.execution_time_ms}ms
+              {result.row_count} row{result.row_count !== 1 ? 's' : ''} affected • {formatExecutionTime(result.execution_time_ms)}
             </p>
           </div>
         </div>
@@ -1443,7 +1444,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
               <strong className="text-[var(--text-primary)]">{result.columns.length}</strong> column{result.columns.length !== 1 ? 's' : ''}
             </span>
             <span>
-              <strong className="text-[var(--text-primary)]">{result.execution_time_ms}</strong>ms
+              <strong className="text-[var(--text-primary)]">{formatExecutionTime(result.execution_time_ms)}</strong>
             </span>
             {/* Edit status indicator */}
             {editedCells.size > 0 && (

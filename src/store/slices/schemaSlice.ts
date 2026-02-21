@@ -70,9 +70,7 @@ export const createSchemaSlice: StateCreator<AppState, [], [], SchemaSlice> = (s
         const targetDb = database || activeTab?.database || activeSpace?.connection_database;
 
         if (!targetDb) {
-            // connected but no database selected? 
-            // We can try fetching for "master" or let backend handle it, 
-            // but usually we want to show schema for the CURRENT context.
+            // No database context available to load schema
             set({ schemaInfo: null });
             return;
         }

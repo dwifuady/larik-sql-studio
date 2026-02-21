@@ -74,10 +74,7 @@ export function AppLayout() {
   const theme = useAppStore(s => s.theme);
   const initTheme = useAppStore(s => s.initTheme);
 
-  // Shallow compare for addToast to avoid re-renders? 
-  // Actually addToast is stable function from zustand if defined correctly, 
-  // but here we are selecting specific properties.
-  // The above pattern is repetitive but ensures we only subscribe to what we use.
+  // Subscribe to atomic selectors to prevent unnecessary re-renders.
 
   // Initialize global keyboard shortcuts (T041)
   const { exportDialog } = useKeyboardShortcuts();
@@ -560,8 +557,8 @@ export function AppLayout() {
             opacity: sidebarOpacity,
             transform: sidebarHidden && !isShowingSidebarHover ? 'translateX(-100%)' : 'translateX(0)',
             background: isShowingSidebarHover
-              ? `linear-gradient(${spaceColor}40, ${spaceColor}40), var(--bg-primary)` // Soft tint (25%) over opaque background
-              : `${spaceColor}40`, // 40 = ~25% opacity
+              ? `linear-gradient(${spaceColor}40, ${spaceColor}40), var(--bg-primary)`
+              : `${spaceColor}40`,
             position: sidebarHidden ? 'absolute' : 'relative',
             left: 0,
             top: 0,
