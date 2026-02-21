@@ -326,7 +326,7 @@ function buildProcedureDocumentation(params: ParameterInfo[], returnType: string
   return parts.join('\n');
 }
 
-export function setValidationOptions(enabled: boolean, showWarnings: boolean, showInfo: boolean) {
+export function setValidationOptions(_enabled: boolean, _showWarnings: boolean, _showInfo: boolean) {
   // Implemented in QueryEditor component
 }
 
