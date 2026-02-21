@@ -94,10 +94,7 @@ describe('queriesSlice', () => {
         await useTestStore.getState().executeQuery(tabId, 'SELECT * FROM');
 
         expect(useTestStore.getState().tabQueryResults[tabId]).toBeUndefined(); // Or however error handling sets state
-        // Actually our slice implementation sets a toast on error and returns null, 
-        // but does NOT set result state if completely failed (it catches and toasts)
-        // Wait, let's check implementation:
-        // It catches, logs, toasts, and returns null. executed state set to false.
+        // The slice implementation catches errors, logs them, and returns null without setting result state.
 
         expect(useTestStore.getState().tabExecuting[tabId]).toBe(false);
         expect(useTestStore.getState().addToast).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));

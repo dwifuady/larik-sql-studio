@@ -90,7 +90,7 @@ export function useStickyNotes({ editor, model, onContentChange, enabled = true 
 
             // Since we know the ID, we can find the line in the current text that has this ID.
             // extractNotes returns line numbers.
-            // Let's re-extract to be sure of current line positions
+            // Re-extract notes to ensure correct line positions before update.
             const currentNotes = extractNotes(currentContent);
             const targetNote = currentNotes.find(n => n.id === id);
 

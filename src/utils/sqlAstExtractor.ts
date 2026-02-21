@@ -336,7 +336,7 @@ function extractAliasesFromStatement(stmt: any, aliases: Set<string>): void {
       if (col.expr && col.expr.type === 'select') {
         extractAliasesFromStatement(col.expr, aliases);
       }
-      // NOTE: We don't extract column aliases (col.as) here because column aliases
+      // Note: We don't extract column aliases (col.as) here because column aliases
       // don't conflict with table aliases in SQL. We only track table/CTE/subquery aliases.
     }
   }
@@ -477,9 +477,7 @@ export function parseTableAliases(sql: string): Map<string, { schema: string; ta
     // \s+AS\s*            : AS keyword
     // \(([\s\S]*?)\)      : Capture Definition Body
 
-    // We actually need a loop that finds START of CTEs because definitions can contain nested parens
-    // So we look for "WITH Name [cols] AS (" or ", Name [cols] AS ("
-
+    // Identify the start of CTEs to handle potential nested parentheses in definitions
     const cteStartPattern = /(?:;|^|\s)WITH\s+(?:\[?(\w+)\]?)\s*(?:\(([^)]+)\))?\s+AS\s*\(|,\s*(?:\[?(\w+)\]?)\s*(?:\(([^)]+)\))?\s+AS\s*\(/gi;
 
     // Simpler pattern to just find names if the complex one fails or for robustness
@@ -555,10 +553,7 @@ export function parseTableAliases(sql: string): Map<string, { schema: string; ta
             const from = stmt.from[0] as any;
             if (from.table && typeof from.table === 'string') {
               // Check if * is present in the SELECT list (either explicit * or implied by missing columns?)
-              // Actually, if we have explicit columns (e.g. CTE(A, B)), we probably don't need source table info for * expansion
-              // UNLESS the user wants to see original types etc.
-              // But usually `CTE(A, B) AS (SELECT * ...)` means A maps to col1, B maps to col2.
-              // For now, let's keep sourceTable logic mainly for `CTE AS (SELECT * ...)` case where we don't know column names.
+              // SourceTable logic captures column names from the original table when * is used.
 
               const hasWildcard = stmt.columns?.some((c: any) => c.expr && c.expr.type === 'column_ref' && c.expr.column === '*');
               if (hasWildcard) {
