@@ -116,9 +116,19 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
                 activeResultIndex: newActiveResultIndex,
                 resultCustomNames: newResultCustomNames,
                 resultColumnOrder: newResultColumnOrder,
-                resultsHidden: newResultsHidden
+                resultsHidden: newResultsHidden,
+                hasOpenTransaction: { ...state.hasOpenTransaction, [id]: false },
+                transactionStartTime: { ...state.transactionStartTime, [id]: null }
             };
         });
+
+        // Close any active backend connection for this tab (which also rolls back uncommitted transactions)
+        try {
+            await api.closeTabConnection(id);
+        } catch (error) {
+            console.error('Failed to close tab connection on delete:', error);
+        }
+
         // Reload folders to handle auto-cleanup of empty folders
         const spaceId = get().activeSpaceId;
         if (spaceId) {

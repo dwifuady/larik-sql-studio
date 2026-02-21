@@ -119,6 +119,7 @@ pub fn run() {
             commands::cancel_query,
             commands::cancel_queries_for_connection,
             commands::get_query_status,
+            commands::close_tab_connection,
             // Schema metadata commands (T025)
             commands::get_schema_info,
             commands::get_table_columns,

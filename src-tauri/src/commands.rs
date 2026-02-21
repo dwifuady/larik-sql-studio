@@ -728,6 +728,7 @@ pub async fn check_connection_health(
 pub async fn execute_query(
     state: State<'_, AppState>,
     connection_id: String,
+    tab_id: String,
     query: String,
     database: Option<String>,
     selected_text: Option<String>,
@@ -736,7 +737,7 @@ pub async fn execute_query(
     let query_to_execute = selected_text.as_ref().unwrap_or(&query);
     let is_selection = selected_text.is_some();
 
-    state.query_engine.execute_query(&connection_id, query_to_execute, database.as_deref(), is_selection)
+    state.query_engine.execute_query(&connection_id, &tab_id, query_to_execute, database.as_deref(), is_selection)
         .await
         .map_err(|e| e.to_string())
 }
@@ -772,6 +773,16 @@ pub async fn get_query_status(
     query_id: String,
 ) -> Result<Option<QueryInfo>, String> {
     Ok(state.query_engine.get_query_status(&query_id).await)
+}
+
+/// Close a specific tab connection cleanly
+#[command]
+pub async fn close_tab_connection(
+    state: State<'_, AppState>,
+    tab_id: String,
+) -> Result<(), String> {
+    state.query_engine.close_tab_connection(&tab_id).await;
+    Ok(())
 }
 
 // ============================================================================

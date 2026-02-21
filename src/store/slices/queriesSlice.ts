@@ -5,6 +5,8 @@ import type { AppState } from '../index';
 
 export interface QueriesSlice {
     tabQueryResults: Record<string, QueryResult[]>;
+    hasOpenTransaction: Record<string, boolean>; // Track open transaction per tab
+    transactionStartTime: Record<string, number | null>; // Time transaction started
     tabExecuting: Record<string, boolean>;
     activeResultIndex: Record<string, number>;
     resultCustomNames: Record<string, Record<number, string>>;
@@ -77,6 +79,8 @@ export interface QueriesSlice {
 
 export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = (set, get) => ({
     tabQueryResults: {},
+    hasOpenTransaction: {},
+    transactionStartTime: {},
     tabExecuting: {},
     activeResultIndex: {},
     resultCustomNames: {},
@@ -120,10 +124,14 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
 
             const results = await api.executeQuery(
                 spaceId,
+                tabId,
                 query,
                 database,
                 selectedText
             );
+
+            // Check if any of the results indicated an open transaction
+            const hasOpenTx = results.some(r => r.has_open_transaction);
 
             set((state) => {
                 const currentResults = state.tabQueryResults[tabId] || [];
@@ -175,6 +183,14 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
 
                 return {
                     tabQueryResults: { ...state.tabQueryResults, [tabId]: newResults },
+                    hasOpenTransaction: {
+                        ...state.hasOpenTransaction,
+                        [tabId]: hasOpenTx
+                    },
+                    transactionStartTime: {
+                        ...state.transactionStartTime,
+                        [tabId]: hasOpenTx ? (state.hasOpenTransaction[tabId] ? state.transactionStartTime[tabId] : Date.now()) : null
+                    },
                     // Keep focus on the same position (start of the new results)
                     activeResultIndex: { ...state.activeResultIndex, [tabId]: activeIndex },
                     resultCustomNames: { ...state.resultCustomNames, [tabId]: newCustomNames },
@@ -215,6 +231,7 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
 
             const newResults = await api.executeQuery(
                 spaceId,
+                tabId, // Pass tabId here
                 query,
                 database,
                 selectedText
@@ -262,7 +279,7 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
             const activeSpace = get().spaces.find(s => s.id === spaceId);
             const database = activeTab?.database || activeSpace?.connection_database;
 
-            await api.executeQuery(spaceId, query, database);
+            await api.executeQuery(spaceId, tabId, query, database); // Pass tabId here
             return { success: true };
         } catch (error) {
             return { success: false, error: String(error) };

@@ -216,6 +216,7 @@ export interface QueryResult {
   statement_index: number | null; // Index in batch execution (null for single query)
   statement_text: string | null; // The actual SQL text executed (useful for batch)
   displayId?: number; // Stable ID for display (e.g., Result 1, Result 2)
+  has_open_transaction: boolean;
 }
 
 /** Status of a query */

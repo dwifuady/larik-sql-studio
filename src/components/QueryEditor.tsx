@@ -22,6 +22,7 @@ import { useStickyNotes, EVENT_ADD_STICKY_NOTE } from '../hooks/useStickyNotes';
 import { extractAllStatements } from '../utils/queryExtractor';
 import { extractNotes } from '../utils/noteManager';
 import { ContextMenu, ContextMenuItem } from './ContextMenu';
+import { closeTabConnection } from '../api';
 
 interface QueryEditorProps {
   tab: Tab;
@@ -325,6 +326,19 @@ function buildProcedureDocumentation(params: ParameterInfo[], returnType: string
   return parts.join('\n');
 }
 
+export function setValidationOptions(_enabled: boolean, _showWarnings: boolean, _showInfo: boolean) {
+  // Implemented in QueryEditor component
+}
+
+// Helper to format countdown timer
+const formatCountdown = (seconds: number | null) => {
+  if (seconds === null) return '';
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+};
+
 function QueryEditorComp({ tab }: QueryEditorProps) {
 
   // Atomic selectors to prevent re-renders
@@ -378,6 +392,8 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   const queryResults = useAppStore(s => s.tabQueryResults[tab.id] ?? null);
   const activeResultIndex = useAppStore(s => s.activeResultIndex[tab.id] ?? 0);
   const isExecuting = useAppStore(s => s.tabExecuting[tab.id] ?? false);
+  const hasOpenTransaction = useAppStore(s => s.hasOpenTransaction[tab.id] ?? false);
+  const transactionStartTime = useAppStore(s => s.transactionStartTime[tab.id] ?? null);
 
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
@@ -396,6 +412,45 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   const [editorReady, setEditorReady] = useState(false);
   const [lastExecutedQuery, setLastExecutedQuery] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ position: { x: number; y: number } } | null>(null);
+  const [rollbackCountdown, setRollbackCountdown] = useState<number | null>(null);
+
+  // Timer for open transaction warning
+  useEffect(() => {
+    if (!hasOpenTransaction || !transactionStartTime) {
+      setRollbackCountdown(null);
+      return;
+    }
+
+    const durationSeconds = 15 * 60; // 15 minutes
+
+    const updateTimer = () => {
+      const elapsed = Math.floor((Date.now() - transactionStartTime) / 1000);
+      const remaining = durationSeconds - elapsed;
+
+      if (remaining <= 0) {
+        setRollbackCountdown(0);
+        // Rollback automatically when timer expires
+        if (useAppStore.getState().hasOpenTransaction[tab.id]) {
+          closeTabConnection(tab.id).then(() => {
+            // Update state to remove transaction flag
+            useAppStore.setState(state => ({
+              hasOpenTransaction: { ...state.hasOpenTransaction, [tab.id]: false },
+              transactionStartTime: { ...state.transactionStartTime, [tab.id]: null }
+            }));
+          });
+        }
+      } else {
+        setRollbackCountdown(remaining);
+      }
+    };
+
+    updateTimer(); // Initial call
+    const interval = setInterval(updateTimer, 1000);
+
+    return () => clearInterval(interval);
+  }, [hasOpenTransaction, transactionStartTime, tab.id]);
+
+  // Hook to close connection on tab close (handled at higher level, but could also be done via useEffect unmount if needed)
 
   // Sticky Notes Integration
   const { StickyNotesRenderer } = useStickyNotes({
@@ -2125,6 +2180,33 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
           )}
         </div>
       </div>
+
+      {/* Transaction Warning Banner */}
+      {hasOpenTransaction && rollbackCountdown !== null && (
+        <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-2 flex justify-between items-center text-amber-500 text-sm">
+          <div className="flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <span>
+              <strong>Warning:</strong> You have an uncommitted transaction. It will be rolled back in {formatCountdown(rollbackCountdown)} unless committed or rolled back manually.
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              closeTabConnection(tab.id).then(() => {
+                useAppStore.setState(state => ({
+                  hasOpenTransaction: { ...state.hasOpenTransaction, [tab.id]: false },
+                  transactionStartTime: { ...state.transactionStartTime, [tab.id]: null }
+                }));
+              });
+            }}
+            className="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 rounded text-amber-600 dark:text-amber-400 font-medium transition-colors"
+          >
+            Rollback Now
+          </button>
+        </div>
+      )}
 
       {/* Monaco Editor */}
       <div className="flex-1 min-h-0 relative" style={{ flex: showResults ? '1 1 auto' : '1 1 100%' }} data-allow-select-all>
