@@ -33,7 +33,8 @@ const TabItem = memo(({
   onContextMenu,
   onRenameStarted,
   onSetActive,
-  spaceColor
+  spaceColor,
+  hasOpenTransaction
 }: {
   tab: Tab;
   isPinned: boolean;
@@ -45,6 +46,7 @@ const TabItem = memo(({
   onRenameStarted?: () => void;
   onSetActive: (id: string) => void;
   spaceColor: string;
+  hasOpenTransaction?: boolean;
 }) => {
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
@@ -172,9 +174,9 @@ const TabItem = memo(({
           <span className={`truncate text-sm ${isActive ? 'text-[var(--text-primary)] font-medium' : 'text-[--text-secondary]'}`}>
             {tab.title}
           </span>
-          {tab.database && (
-            <span className="truncate text-[10px] text-[--text-muted] leading-tight">
-              {tab.database}
+          {(tab.database || hasOpenTransaction) && (
+            <span className={`truncate text-[10px] leading-tight ${hasOpenTransaction ? 'text-amber-500 font-medium' : 'text-[--text-muted]'}`}>
+              {hasOpenTransaction ? '⚠️ Uncommitted Tx' : tab.database}
             </span>
           )}
         </div>
@@ -230,6 +232,9 @@ const TabItem = memo(({
 
   // Space color changed = must re-render
   if (prevProps.spaceColor !== nextProps.spaceColor) return false;
+
+  // Transaction state changed = must re-render
+  if (prevProps.hasOpenTransaction !== nextProps.hasOpenTransaction) return false;
 
   // All other changes = skip re-render (handlers are stable)
   return true;
@@ -357,7 +362,8 @@ export function TabsList({ onNewTabClick }: { onNewTabClick?: () => void }) {
     removeTabFromFolder,
     reorderFolders,
     getPinnedTabsGrouped,
-    spaces
+    spaces,
+    hasOpenTransaction
   } = useAppStore();
 
   const activeSpace = spaces.find(s => s.id === activeSpaceId);
@@ -450,10 +456,6 @@ export function TabsList({ onNewTabClick }: { onNewTabClick?: () => void }) {
 
   const handleTabContextMenu = useCallback((e: React.MouseEvent, tab: Tab) => {
     setContextMenu({ x: e.clientX, y: e.clientY, tab });
-  }, []);
-
-  const handleRenameStarted = useCallback(() => {
-    setTabToRename(null);
   }, []);
 
   const handleSetActive = useCallback((id: string) => {
@@ -667,6 +669,7 @@ export function TabsList({ onNewTabClick }: { onNewTabClick?: () => void }) {
                 onRenameStarted={handleTabRenameStarted}
                 onSetActive={handleSetActive}
                 spaceColor={spaceColor}
+                hasOpenTransaction={hasOpenTransaction[tab.id]}
               />
             ))}
 
@@ -796,27 +799,23 @@ export function TabsList({ onNewTabClick }: { onNewTabClick?: () => void }) {
                         {...provided.dragHandleProps}
                         style={{
                           ...provided.draggableProps.style,
+                          transform: snapshot.isDragging ? 'translateY(-50%)' : 'none',
+                          opacity: snapshot.isDragging ? 0.8 : 1,
                         }}
                       >
-                        <div
-                          style={{
-                            transform: snapshot.isDragging ? 'translateY(-50%)' : 'none',
-                            opacity: snapshot.isDragging ? 0.8 : 1,
-                          }}
-                        >
-                          <TabItem
-                            tab={tab}
-                            isPinned={false}
-                            isActive={tab.id === activeTabId}
-                            onRename={handleRename}
-                            onDelete={handleDeleteTab}
-                            shouldStartRename={tabToRename === tab.id}
-                            onContextMenu={handleTabContextMenu}
-                            onRenameStarted={handleRenameStarted}
-                            onSetActive={handleSetActive}
-                            spaceColor={spaceColor}
-                          />
-                        </div>
+                        <TabItem
+                          tab={tab}
+                          isPinned={false}
+                          isActive={tab.id === activeTabId}
+                          onRename={handleRename}
+                          onDelete={handleDeleteTab}
+                          shouldStartRename={tabToRename === tab.id}
+                          onContextMenu={handleTabContextMenu}
+                          onRenameStarted={handleTabRenameStarted}
+                          onSetActive={handleSetActive}
+                          spaceColor={spaceColor}
+                          hasOpenTransaction={hasOpenTransaction[tab.id]}
+                        />
                       </div>
                     )}
                   </Draggable>
@@ -837,141 +836,145 @@ export function TabsList({ onNewTabClick }: { onNewTabClick?: () => void }) {
       </div>
 
       {/* Tab context menu */}
-      {contextMenu && (
-        <ContextMenu
-          position={{ x: contextMenu.x, y: contextMenu.y }}
-          onClose={() => setContextMenu(null)}
-          items={[
-            {
-              id: 'pin',
-              label: contextMenu.tab.is_pinned ? 'Unpin Tab' : 'Pin Tab',
-              icon: contextMenu.tab.is_pinned ? (
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              ) : (
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-                </svg>
-              ),
-              shortcut: 'Ctrl+P',
-              action: () => handleTogglePin(contextMenu.tab.id),
-            },
-            // Show folder options for pinned tabs
-            ...(contextMenu.tab.is_pinned && contextMenu.tab.folder_id ? [
+      {
+        contextMenu && (
+          <ContextMenu
+            position={{ x: contextMenu.x, y: contextMenu.y }}
+            onClose={() => setContextMenu(null)}
+            items={[
               {
-                id: 'remove-from-folder',
-                label: 'Remove from Folder',
-                icon: (
+                id: 'pin',
+                label: contextMenu.tab.is_pinned ? 'Unpin Tab' : 'Pin Tab',
+                icon: contextMenu.tab.is_pinned ? (
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
-                ),
-                action: () => handleRemoveTabFromFolder(contextMenu.tab.id),
-              },
-            ] : contextMenu.tab.is_pinned ? [
-              {
-                id: 'add-to-new-folder',
-                label: 'Add to New Folder',
-                icon: (
+                ) : (
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
                   </svg>
                 ),
-                action: () => handleCreateFolderForTab(contextMenu.tab.id),
+                shortcut: 'Ctrl+P',
+                action: () => handleTogglePin(contextMenu.tab.id),
               },
-            ] : []),
-            {
-              id: 'rename',
-              label: 'Rename',
-              icon: (
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                </svg>
-              ),
-              shortcut: 'F2',
-              action: () => {
-                const tabId = contextMenu.tab.id;
-                setTimeout(() => setTabToRename(tabId), 0);
+              // Show folder options for pinned tabs
+              ...(contextMenu.tab.is_pinned && contextMenu.tab.folder_id ? [
+                {
+                  id: 'remove-from-folder',
+                  label: 'Remove from Folder',
+                  icon: (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  ),
+                  action: () => handleRemoveTabFromFolder(contextMenu.tab.id),
+                },
+              ] : contextMenu.tab.is_pinned ? [
+                {
+                  id: 'add-to-new-folder',
+                  label: 'Add to New Folder',
+                  icon: (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                    </svg>
+                  ),
+                  action: () => handleCreateFolderForTab(contextMenu.tab.id),
+                },
+              ] : []),
+              {
+                id: 'rename',
+                label: 'Rename',
+                icon: (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                ),
+                shortcut: 'F2',
+                action: () => {
+                  const tabId = contextMenu.tab.id;
+                  setTimeout(() => setTabToRename(tabId), 0);
+                },
               },
-            },
-            {
-              id: 'export',
-              label: 'Export as SQL File...',
-              icon: (
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              ),
-              shortcut: 'Ctrl+Shift+E',
-              action: () => handleExportTab(contextMenu.tab),
-            },
-            {
-              id: 'delete',
-              label: 'Delete',
-              icon: (
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              ),
-              shortcut: 'Ctrl+W',
-              separator: true,
-              danger: true,
-              action: () => handleDeleteTab(contextMenu.tab.id),
-            },
-          ]}
-        />
-      )}
+              {
+                id: 'export',
+                label: 'Export as SQL File...',
+                icon: (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                ),
+                shortcut: 'Ctrl+Shift+E',
+                action: () => handleExportTab(contextMenu.tab),
+              },
+              {
+                id: 'delete',
+                label: 'Delete',
+                icon: (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                ),
+                shortcut: 'Ctrl+W',
+                separator: true,
+                danger: true,
+                action: () => handleDeleteTab(contextMenu.tab.id),
+              },
+            ]}
+          />
+        )
+      }
 
       {/* Folder context menu */}
-      {folderContextMenu && (
-        <ContextMenu
-          position={{ x: folderContextMenu.x, y: folderContextMenu.y }}
-          onClose={() => setFolderContextMenu(null)}
-          items={[
-            {
-              id: 'rename-folder',
-              label: 'Rename Folder',
-              icon: (
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                </svg>
-              ),
-              shortcut: 'F2',
-              action: () => {
-                const folderId = folderContextMenu.folder.id;
-                setTimeout(() => setFolderToRename(folderId), 0);
+      {
+        folderContextMenu && (
+          <ContextMenu
+            position={{ x: folderContextMenu.x, y: folderContextMenu.y }}
+            onClose={() => setFolderContextMenu(null)}
+            items={[
+              {
+                id: 'rename-folder',
+                label: 'Rename Folder',
+                icon: (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                ),
+                shortcut: 'F2',
+                action: () => {
+                  const folderId = folderContextMenu.folder.id;
+                  setTimeout(() => setFolderToRename(folderId), 0);
+                },
               },
-            },
-            {
-              id: 'toggle-folder',
-              label: folderContextMenu.folder.is_expanded ? 'Collapse Folder' : 'Expand Folder',
-              icon: (
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  {folderContextMenu.folder.is_expanded ? (
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  ) : (
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  )}
-                </svg>
-              ),
-              action: () => handleToggleFolderExpanded(folderContextMenu.folder.id),
-            },
-            {
-              id: 'delete-folder',
-              label: 'Delete Folder',
-              icon: (
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              ),
-              separator: true,
-              danger: true,
-              action: () => handleDeleteFolder(folderContextMenu.folder.id),
-            },
-          ]}
-        />
-      )}
+              {
+                id: 'toggle-folder',
+                label: folderContextMenu.folder.is_expanded ? 'Collapse Folder' : 'Expand Folder',
+                icon: (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    {folderContextMenu.folder.is_expanded ? (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    ) : (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    )}
+                  </svg>
+                ),
+                action: () => handleToggleFolderExpanded(folderContextMenu.folder.id),
+              },
+              {
+                id: 'delete-folder',
+                label: 'Delete Folder',
+                icon: (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                ),
+                separator: true,
+                danger: true,
+                action: () => handleDeleteFolder(folderContextMenu.folder.id),
+              },
+            ]}
+          />
+        )
+      }
 
       {/* Create Folder Dialog */}
       <CreateFolderDialog
@@ -983,6 +986,6 @@ export function TabsList({ onNewTabClick }: { onNewTabClick?: () => void }) {
         }}
         onCreateFolder={handleCreateFolderFromDrag}
       />
-    </div>
+    </div >
   );
 }

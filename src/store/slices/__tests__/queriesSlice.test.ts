@@ -70,7 +70,7 @@ describe('queriesSlice', () => {
 
         await useTestStore.getState().executeQuery(tabId, 'SELECT 1');
 
-        expect(api.executeQuery).toHaveBeenCalledWith(spaceId, 'SELECT 1', 'master', undefined);
+        expect(api.executeQuery).toHaveBeenCalledWith(spaceId, tabId, 'SELECT 1', 'master', undefined);
         expect(useTestStore.getState().tabQueryResults[tabId]).toEqual(expect.arrayContaining([
             expect.objectContaining({ rows: [[1]], displayId: 1 })
         ]));

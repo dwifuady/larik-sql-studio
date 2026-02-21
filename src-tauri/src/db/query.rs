@@ -280,6 +280,7 @@ pub struct QueryResult {
     pub is_selection: bool, // Indicates if this was executed from selected text
     pub statement_index: Option<usize>, // Index in batch execution (None for single query)
     pub statement_text: Option<String>, // The actual SQL text executed (useful for batch)
+    pub has_open_transaction: bool, // Indicates if there's an open transaction after execution
 }
 
 impl QueryResult {
@@ -295,6 +296,7 @@ impl QueryResult {
             is_selection: false,
             statement_index: None,
             statement_text: None,
+            has_open_transaction: false,
         }
     }
 
@@ -310,6 +312,7 @@ impl QueryResult {
             is_selection: false,
             statement_index: None,
             statement_text: None,
+            has_open_transaction: false,
         }
     }
 }
@@ -342,6 +345,8 @@ pub struct QueryEngine {
     cancel_senders: RwLock<HashMap<String, oneshot::Sender<()>>>,
     /// Query info for status checking
     query_info: RwLock<HashMap<String, QueryInfo>>,
+    /// Maintain persistent connections per tab
+    tab_connections: RwLock<HashMap<String, Arc<tokio::sync::Mutex<tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>>>>>,
 }
 
 /// Auto-wrap procedure calls without EXEC keyword
@@ -360,6 +365,7 @@ fn auto_wrap_procedure(stmt: String) -> String {
         "SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "ALTER", "DROP",
         "DECLARE", "SET", "IF", "BEGIN", "END", "WHILE", "FOR", "MERGE",
         "WITH", "UNION", "USE", "PRINT", "RETURN", "CAST", "CASE",
+        "COMMIT", "ROLLBACK", "SAVE", "TRUNCATE", "GRANT", "REVOKE",
     ];
     
     let first_word = trimmed.split_whitespace().next().unwrap_or("").to_uppercase();
@@ -505,6 +511,7 @@ impl QueryEngine {
             connection_manager,
             cancel_senders: RwLock::new(HashMap::new()),
             query_info: RwLock::new(HashMap::new()),
+            tab_connections: RwLock::new(HashMap::new()),
         }
     }
 
@@ -514,6 +521,7 @@ impl QueryEngine {
     pub async fn execute_query(
         &self,
         connection_id: &str,
+        tab_id: &str,
         query: &str,
         database: Option<&str>,
         is_selection: bool,
@@ -525,6 +533,7 @@ impl QueryEngine {
         if statements.len() == 1 {
             let result = self.execute_single_statement(
                 connection_id,
+                tab_id,
                 &statements[0],
                 database,
                 is_selection,
@@ -535,7 +544,7 @@ impl QueryEngine {
         }
 
         // Multiple statements - execute as batch
-        self.execute_batch(connection_id, statements, database, is_selection).await
+        self.execute_batch(connection_id, tab_id, statements, database, is_selection).await
     }
 
     /// Execute a batch of SQL statements sequentially
@@ -544,6 +553,7 @@ impl QueryEngine {
     async fn execute_batch(
         &self,
         connection_id: &str,
+        tab_id: &str,
         statements: Vec<String>,
         database: Option<&str>,
         is_selection: bool,
@@ -554,6 +564,7 @@ impl QueryEngine {
             // Check if batch was cancelled by looking at the results so far
             let query_result = self.execute_single_statement(
                 connection_id,
+                tab_id,
                 statement,
                 database,
                 is_selection,
@@ -588,6 +599,7 @@ impl QueryEngine {
     async fn execute_single_statement(
         &self,
         connection_id: &str,
+        tab_id: &str,
         query: &str,
         database: Option<&str>,
         is_selection: bool,
@@ -619,10 +631,18 @@ impl QueryEngine {
             });
         }
 
-        // Create a dedicated connection (not from pool) so we can drop it to cancel
-        log_info!("[QUERY] Creating dedicated connection for query_id={}", query_id);
-        let mut conn = self.connection_manager.create_dedicated_connection(connection_id).await?;
-        log_info!("[QUERY] Dedicated connection created for query_id={}", query_id);
+        // Get or create dedicated connection for this tab
+        let conn_mutex = {
+            let mut tabs = self.tab_connections.write().await;
+            if !tabs.contains_key(tab_id) {
+                log_info!("[QUERY] Creating new dedicated connection for tab_id={}", tab_id);
+                let conn = self.connection_manager.create_dedicated_connection(connection_id).await?;
+                tabs.insert(tab_id.to_string(), Arc::new(tokio::sync::Mutex::new(conn)));
+            }
+            Arc::clone(tabs.get(tab_id).unwrap())
+        };
+        
+        let mut conn = conn_mutex.lock().await;
 
         // Check if this is a DML query (INSERT, UPDATE, DELETE, MERGE)
         let query_upper = query.trim().to_uppercase();
@@ -632,11 +652,14 @@ impl QueryEngine {
             || query_upper.starts_with("MERGE");
 
         // Build the full query with optional USE database
-        let full_query = if let Some(db) = database {
+        // Also append transaction check
+        let base_query = if let Some(db) = database {
             format!("USE [{}]; {}", db, query)
         } else {
             query.to_string()
         };
+        
+        let full_query = format!("{}; SELECT @@TRANCOUNT AS HasOpenTransaction", base_query);
 
         log_info!("[QUERY] Executing query with tokio::select!, query_id={}", query_id);
         
@@ -663,8 +686,14 @@ impl QueryEngine {
             // If cancel signal received, drop the connection and return cancelled
             _ = cancel_rx => {
                 log_warn!("[QUERY] Cancel signal received! Dropping connection, query_id={}", query_id_for_cancel);
-                // Drop the connection - this closes TCP and cancels the query on SQL Server
+                // Drop the connection lock
                 drop(conn);
+                
+                // Remove the connection from the map so the next query will establish a new one (since doing this closes TCP on drop of the Client)
+                {
+                    let mut tabs = self.tab_connections.write().await;
+                    tabs.remove(tab_id);
+                }
                 
                 return self.make_cancelled_result(query_id, start_time, is_selection, statement_index, statement_text).await;
             }
@@ -687,6 +716,25 @@ impl QueryEngine {
             Ok(all_result_sets) => {
                 let execution_time = start_time.elapsed().as_millis() as u64;
                 
+                let mut has_open_transaction = false;
+                
+                // Process result sets. The last one should be our transaction check, or there could just be 1 if it's DML
+                let mut actual_result_sets = all_result_sets;
+                if !actual_result_sets.is_empty() {
+                    let last_idx = actual_result_sets.len() - 1;
+                    let last_rs = &actual_result_sets[last_idx];
+                    
+                    if !last_rs.is_empty() && last_rs[0].columns().len() == 1 {
+                        if last_rs[0].columns()[0].name() == "HasOpenTransaction" {
+                            if let Some(val) = last_rs[0].try_get::<i32, _>(0).ok().flatten() {
+                                has_open_transaction = val > 0;
+                            }
+                            // Remove the transaction check result set
+                            actual_result_sets.pop();
+                        }
+                    }
+                }
+
                 // For DML queries, show a simple success message
                 // For SELECT queries, show actual data rows
                 let (columns, converted_rows) = if is_dml {
@@ -697,8 +745,8 @@ impl QueryEngine {
                     };
                     let row = vec![CellValue::String("Query executed successfully".to_string())];
                     (vec![column], vec![row])
-                } else if !all_result_sets.is_empty() && !all_result_sets[0].is_empty() {
-                    let rows = &all_result_sets[0];
+                } else if !actual_result_sets.is_empty() && !actual_result_sets[0].is_empty() {
+                    let rows = &actual_result_sets[0];
                     
                     // Extract column info from first row
                     let columns: Vec<ColumnInfo> = rows[0].columns().iter().map(ColumnInfo::from).collect();
@@ -741,6 +789,7 @@ impl QueryEngine {
                     is_selection,
                     statement_index,
                     statement_text,
+                    has_open_transaction,
                 })
             }
             Err(e) => {
@@ -797,6 +846,7 @@ impl QueryEngine {
             is_selection,
             statement_index,
             statement_text,
+            has_open_transaction: false,
         })
     }
 
@@ -867,5 +917,12 @@ impl QueryEngine {
         info.retain(|_, qi| {
             qi.status == QueryStatus::Running || qi.status == QueryStatus::Pending
         });
+    }
+
+    /// Close persistent connection for a tab
+    pub async fn close_tab_connection(&self, tab_id: &str) {
+        let mut tabs = self.tab_connections.write().await;
+        tabs.remove(tab_id);
+        log_info!("[QUERY] Closed persistent connection for tab_id={}", tab_id);
     }
 }

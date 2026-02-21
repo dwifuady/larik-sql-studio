@@ -307,11 +307,12 @@ export async function checkConnectionHealth(connectionId: string): Promise<boole
 
 export async function executeQuery(
   connectionId: string,
+  tabId: string,
   query: string,
   database?: string | null,
   selectedText?: string | null
 ): Promise<QueryResult[]> {
-  return invoke<QueryResult[]>('execute_query', { connectionId, query, database, selectedText });
+  return invoke<QueryResult[]>('execute_query', { connectionId, tabId, query, database, selectedText });
 }
 
 export async function cancelQuery(queryId: string): Promise<boolean> {
@@ -320,6 +321,10 @@ export async function cancelQuery(queryId: string): Promise<boolean> {
 
 export async function cancelQueriesForConnection(connectionId: string): Promise<number> {
   return invoke<number>('cancel_queries_for_connection', { connectionId });
+}
+
+export async function closeTabConnection(tabId: string): Promise<void> {
+  return invoke<void>('close_tab_connection', { tabId });
 }
 
 export async function getQueryStatus(queryId: string): Promise<QueryInfo | null> {
