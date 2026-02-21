@@ -190,8 +190,10 @@ function isRowInSelection(row: number, selection: SelectionRange | null): boolea
 function arePropsEqual(prev: RowComponentProps, next: RowComponentProps) {
   if (prev.index !== next.index) return false;
 
-  // If style object changed (scrolling), we must render
-  if (prev.style !== next.style) return false;
+  // React-window updates the style prop for virtual positioning (top offset).
+  // If we return false here, we break memoization for every single row on every scroll event.
+  // We MUST ignore the style prop in our equality check and let react-window handle positioning.
+  // if (prev.style !== next.style) return false;
 
   const d1 = prev.data;
   const d2 = next.data;
@@ -363,7 +365,25 @@ const Cell = memo(function Cell({
       )}
     </div>
   );
-});
+}, areCellPropsEqual);
+
+// Custom comparison for Cell to prevent re-renders from callback reference changes
+function areCellPropsEqual(prev: any, next: any) {
+  return (
+    prev.rowIndex === next.rowIndex &&
+    prev.colIndex === next.colIndex &&
+    prev.width === next.width &&
+    prev.displayValue === next.displayValue &&
+    prev.isSingleSelected === next.isSingleSelected &&
+    prev.isInSelection === next.isInSelection &&
+    prev.isCopied === next.isCopied &&
+    prev.isInCopiedSelection === next.isInCopiedSelection &&
+    prev.isEditing === next.isEditing &&
+    prev.isEdited === next.isEdited &&
+    prev.isHovered === next.isHovered &&
+    prev.editingValue === next.editingValue
+  );
+}
 
 const Row = memo(function Row({
   index,

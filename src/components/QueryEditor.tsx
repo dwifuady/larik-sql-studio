@@ -1841,6 +1841,12 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
               },
               insertText: insertText,
               insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+              // Trigger suggestions after inserting a snippet, especially useful for snippets 
+              // that end in a space (e.g., "SELECT * FROM ")
+              command: {
+                id: 'editor.action.triggerSuggest',
+                title: 'Trigger Suggest'
+              },
               // High priority for snippets
               sortText: `00_${snippet.trigger}`,
               range,
