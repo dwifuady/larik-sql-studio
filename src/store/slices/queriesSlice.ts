@@ -280,16 +280,12 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
 
     cancelRunningQueries: async (_tabId) => {
         try {
-            // Find all running queries for this tab... logic simplified as API handles it?
-            // Need connection ID?
-            // The API `cancelQueriesForConnection` might be needed
-            // But for now let's assume `cancelQuery` is enough if we track IDs
-            // Actually backend `cancel_query` takes a query_id. 
-            // Do we track query IDs separately? Only in results.
-            // If query is strictly running, we might not have result yet?
-            // Backend T019 implementation details...
-            return 0;
+            // Use the active space ID as the connection ID (1:1 model)
+            const spaceId = get().activeSpaceId;
+            if (!spaceId) return 0;
+            return await api.cancelQueriesForConnection(spaceId);
         } catch (error) {
+            console.error('Failed to cancel running queries:', error);
             return 0;
         }
     },

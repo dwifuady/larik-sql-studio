@@ -8,6 +8,7 @@ import type { Tab, SchemaInfo, SchemaColumnInfo, ParameterInfo } from '../types'
 import { spaceHasConnection, getDisplayDataType } from '../types';
 import { ResultsGrid } from './ResultsGrid';
 import { formatSqlWithIndentation } from '../utils/sqlFormatter';
+import { formatExecutionTime } from '../utils/formatters';
 import { useSqlValidation } from '../hooks/useSqlValidation';
 import { extractStatementAtCursor, findCurrentSqlBlockFallback } from '../utils/queryExtractor';
 import {
@@ -2306,7 +2307,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
                         <span className="text-sm font-medium text-[var(--text-primary)]">Results</span>
                         {activeResult && !activeResult.error && activeResult.columns.length > 0 && (
                           <span className="text-xs text-[var(--text-muted)]">
-                            {activeResult.row_count.toLocaleString()} rows • {activeResult.execution_time_ms}ms
+                            {activeResult.row_count.toLocaleString()} rows • {formatExecutionTime(activeResult.execution_time_ms)}
                           </span>
                         )}
                       </>
