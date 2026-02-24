@@ -230,6 +230,19 @@ impl DatabaseManager {
             "#
         )?;
 
+        // Migration: Create schema_cache table
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS schema_cache (
+                connection_id TEXT NOT NULL,
+                database_name TEXT NOT NULL,
+                schema_info TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (connection_id, database_name)
+            );
+            "#
+        )?;
+
         // Migration: Add folder_id column to pinned_tabs
         let has_folder_id: bool = conn.query_row(
             "SELECT COUNT(*) > 0 FROM pragma_table_info('pinned_tabs') WHERE name = 'folder_id'",

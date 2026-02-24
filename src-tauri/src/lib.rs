@@ -43,7 +43,12 @@ pub fn run() {
     let query_engine = Arc::new(QueryEngine::new(Arc::clone(&mssql_manager)));
 
     // Initialize schema metadata manager (T024)
-    let schema_manager = Arc::new(SchemaMetadataManager::new(Arc::clone(&mssql_manager)));
+    let schema_db_manager = DatabaseManager::new(db_path.clone())
+        .expect("Failed to initialize database for schema manager");
+    let schema_manager = Arc::new(SchemaMetadataManager::new(
+        Arc::clone(&mssql_manager),
+        Arc::new(schema_db_manager)
+    ));
 
     let app_state = AppState {
         db: Mutex::new(db_manager),

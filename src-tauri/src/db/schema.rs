@@ -2,10 +2,10 @@
 // Queries SQL Server system catalogs for database schema information
 
 use crate::db::connection::{ConnectionError, MssqlConnectionManager};
+use crate::storage::DatabaseManager;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
 /// Represents a column in a table or view
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,39 +66,26 @@ pub struct SchemaInfo {
 
 /// Manages schema metadata caching per connection/database
 pub struct SchemaMetadataManager {
-    /// Map of "connection_id:database_name" -> SchemaInfo
-    cache: RwLock<HashMap<String, SchemaInfo>>,
     connection_manager: Arc<MssqlConnectionManager>,
+    db_manager: Arc<DatabaseManager>,
 }
 
 impl SchemaMetadataManager {
-    pub fn new(connection_manager: Arc<MssqlConnectionManager>) -> Self {
+    pub fn new(connection_manager: Arc<MssqlConnectionManager>, db_manager: Arc<DatabaseManager>) -> Self {
         Self {
-            cache: RwLock::new(HashMap::new()),
             connection_manager,
+            db_manager,
         }
-    }
-
-    /// Generate cache key from connection and database
-    fn cache_key(connection_id: &str, database: &str) -> String {
-        format!("{}:{}", connection_id, database)
     }
 
     /// Get schema info from cache
     pub async fn get_cached_schema(&self, connection_id: &str, database: &str) -> Option<SchemaInfo> {
-        let cache = self.cache.read().await;
-        cache.get(&Self::cache_key(connection_id, database)).cloned()
+        self.db_manager.get_schema(connection_id, database).unwrap_or(None)
     }
 
     /// Clear schema cache for a connection/database
     pub async fn invalidate_cache(&self, connection_id: &str, database: Option<&str>) {
-        let mut cache = self.cache.write().await;
-        if let Some(db) = database {
-            cache.remove(&Self::cache_key(connection_id, db));
-        } else {
-            // Remove all entries for this connection
-            cache.retain(|k, _| !k.starts_with(&format!("{}:", connection_id)));
-        }
+        let _ = self.db_manager.clear_schema(connection_id, database);
     }
 
     /// Fetch and cache schema information for a database
@@ -134,10 +121,7 @@ impl SchemaMetadataManager {
         };
 
         // Cache the result
-        {
-            let mut cache = self.cache.write().await;
-            cache.insert(Self::cache_key(connection_id, database), schema_info.clone());
-        }
+        let _ = self.db_manager.save_schema(connection_id, database, &schema_info);
 
         Ok(schema_info)
     }
