@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createTabsSlice } from '../tabsSlice';
 import { createSpacesSlice } from '../spacesSlice';
+import { createQueriesSlice } from '../queriesSlice';
 import { create } from 'zustand';
 import * as api from '../../../api';
 
@@ -25,6 +26,7 @@ vi.mock('../../../api', () => ({
 const useTestStore = create<any>((set, get, api) => ({
     ...createSpacesSlice(set, get, api),
     ...createTabsSlice(set, get, api),
+    ...createQueriesSlice(set, get, api),
     // Mock other slices required by tabsSlice
     loadArchiveCount: vi.fn(),
     loadFolders: vi.fn(),
@@ -101,5 +103,32 @@ describe('tabsSlice', () => {
 
         expect(useTestStore.getState().activeTabId).toBe('tab-2');
         expect(useTestStore.getState().touchActiveTab).toHaveBeenCalled();
+    });
+
+    it('should cleanup per-tab scroll positions on delete', async () => {
+        const spaceId = 'space-1';
+        const tabId = 'tab-1';
+        useTestStore.setState({
+            activeSpaceId: spaceId,
+            tabs: [
+                { id: tabId, space_id: spaceId, title: 'Tab 1' } as any,
+                { id: 'tab-2', space_id: spaceId, title: 'Tab 2' } as any,
+            ],
+            activeTabId: tabId,
+            tabQueryResults: {
+                [tabId]: [{ query_id: 'q1', rows: [[1]] }]
+            },
+            resultScrollPosition: {
+                [tabId]: {
+                    0: { top: 100, left: 200 }
+                }
+            }
+        });
+
+        (api.archiveTab as any).mockResolvedValue(undefined);
+
+        await useTestStore.getState().deleteTab(tabId);
+
+        expect(useTestStore.getState().resultScrollPosition[tabId]).toBeUndefined();
     });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseTableAliases } from './sqlAstExtractor';
+import { parseTableAliases, getCompletionContext } from './sqlAstExtractor';
 
 describe('sqlAstExtractor CTE Support', () => {
     it('should extract CTE names from incomplete SQL using regex fallback', () => {
@@ -131,5 +131,30 @@ describe('sqlAstExtractor CTE Support', () => {
         expect(info?.columns).toBeDefined();
         expect(info?.columns).toContain('ColA');
         expect(info?.columns).toContain('ColB');
+    });
+});
+
+describe('sqlAstExtractor completion context', () => {
+    it('keeps column context when typing after AND in WHERE', () => {
+        const textBeforeCursor = `
+            SELECT q.[ApplicationId]
+            FROM [dbo].[BCApplicationQuotes] q
+            WHERE q.[ApplicationId] = 11347 AND q
+        `.trimEnd();
+
+        const context = getCompletionContext(textBeforeCursor);
+
+        expect(context.type).toBe('column');
+        expect(context.lastKeyword).toBe('AND');
+        expect(context.partialWord).toBe('q');
+    });
+
+    it('keeps column context when typing after ORDER BY', () => {
+        const textBeforeCursor = 'SELECT * FROM dbo.Product p ORDER BY na';
+        const context = getCompletionContext(textBeforeCursor);
+
+        expect(context.type).toBe('column');
+        expect(context.lastKeyword).toBe('ORDER BY');
+        expect(context.partialWord).toBe('na');
     });
 });

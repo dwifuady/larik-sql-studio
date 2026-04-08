@@ -106,6 +106,7 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
             const { [id]: _removedActiveIdx, ...newActiveResultIndex } = state.activeResultIndex;
             const { [id]: _removedNames, ...newResultCustomNames } = state.resultCustomNames;
             const { [id]: _removedOrder, ...newResultColumnOrder } = state.resultColumnOrder;
+            const { [id]: _removedScroll, ...newResultScrollPosition } = state.resultScrollPosition;
             const { [id]: _removedHidden, ...newResultsHidden } = state.resultsHidden;
 
             return {
@@ -116,6 +117,7 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
                 activeResultIndex: newActiveResultIndex,
                 resultCustomNames: newResultCustomNames,
                 resultColumnOrder: newResultColumnOrder,
+                resultScrollPosition: newResultScrollPosition,
                 resultsHidden: newResultsHidden
             };
         });

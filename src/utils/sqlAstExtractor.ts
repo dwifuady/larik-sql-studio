@@ -1078,6 +1078,8 @@ export function getCompletionContext(
   fullText?: string
 ): CompletionContext {
   const trimmed = textBeforeCursor.trim().toUpperCase();
+  const COLUMN_CONTEXT_KEYWORDS = ['SELECT', 'WHERE', 'ON', 'AND', 'OR', 'SET', 'ORDER BY', 'GROUP BY', 'HAVING', 'BY', '='];
+  const ROUTINE_CONTEXT_KEYWORDS = ['EXEC', 'EXECUTE', 'CALL'];
 
   // Quick check for alias.column pattern (common case - keep fast)
   const aliasMatch = textBeforeCursor.match(/\[?(\w+)\]?\.\s*$/);
@@ -1095,7 +1097,9 @@ export function getCompletionContext(
   const words = trimmed.split(/\s+/);
   const lastWord = words[words.length - 1];
   const secondLastWord = words.length > 1 ? words[words.length - 2] : '';
+  const thirdLastWord = words.length > 2 ? words[words.length - 3] : '';
   const combinedKeyword = `${secondLastWord} ${lastWord}`;
+  const previousCombinedKeyword = `${thirdLastWord} ${secondLastWord}`;
 
   const TABLE_CONTEXT_KEYWORDS = ['FROM', 'JOIN', 'INNER JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'OUTER JOIN', 'CROSS JOIN', 'INTO', 'UPDATE', 'TABLE', 'APPLY', 'CROSS APPLY', 'OUTER APPLY'];
 
@@ -1106,6 +1110,28 @@ export function getCompletionContext(
 
   if (TABLE_CONTEXT_KEYWORDS.includes(lastWord)) {
     return { type: 'table', lastKeyword: lastWord };
+  }
+
+  // If user is currently typing a partial identifier, derive context from the
+  // keyword directly before it (e.g. "AND q", "WHERE na", "ORDER BY cr").
+  // This keeps autocomplete context-aware while the clause is still incomplete.
+  const isTypingPartialWord = !/\s$/.test(textBeforeCursor) && /^[A-Z_][A-Z0-9_]*$/.test(lastWord);
+  if (isTypingPartialWord) {
+    if (TABLE_CONTEXT_KEYWORDS.includes(previousCombinedKeyword)) {
+      return { type: 'table', lastKeyword: previousCombinedKeyword, partialWord: lastWord.toLowerCase() };
+    }
+
+    if (TABLE_CONTEXT_KEYWORDS.includes(secondLastWord)) {
+      return { type: 'table', lastKeyword: secondLastWord, partialWord: lastWord.toLowerCase() };
+    }
+
+    if (COLUMN_CONTEXT_KEYWORDS.includes(previousCombinedKeyword)) {
+      return { type: 'column', lastKeyword: previousCombinedKeyword, partialWord: lastWord.toLowerCase() };
+    }
+
+    if (COLUMN_CONTEXT_KEYWORDS.includes(secondLastWord)) {
+      return { type: 'column', lastKeyword: secondLastWord, partialWord: lastWord.toLowerCase() };
+    }
   }
 
   // Try AST-based analysis if full text is provided (more accurate but slower)
@@ -1150,8 +1176,6 @@ export function getCompletionContext(
   }
 
   // Keyword-based context detection
-  const COLUMN_CONTEXT_KEYWORDS = ['SELECT', 'WHERE', 'ON', 'AND', 'OR', 'SET', 'ORDER BY', 'GROUP BY', 'HAVING', 'BY', '='];
-  const ROUTINE_CONTEXT_KEYWORDS = ['EXEC', 'EXECUTE', 'CALL'];
 
 
   const isDatabaseContext = /\bUSE\s+\[?\w*$/i.test(textBeforeCursor);

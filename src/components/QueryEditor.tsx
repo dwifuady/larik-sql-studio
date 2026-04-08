@@ -164,6 +164,27 @@ function getUsedAliases(sql: string): Set<string> {
 }
 
 /**
+ * Extract declared T-SQL local variables before the cursor.
+ * Handles single and multi-variable DECLARE statements.
+ */
+function extractDeclaredVariables(sql: string): string[] {
+  const declaredVariables = new Set<string>();
+  const declareRegex = /\bDECLARE\b([\s\S]*?)(?=\b(?:SELECT|INSERT|UPDATE|DELETE|MERGE|EXEC|EXECUTE|WITH|IF|WHILE|BEGIN|END|RETURN|PRINT|RAISERROR|THROW|SET)\b|$)/gi;
+
+  let declareMatch: RegExpExecArray | null;
+  while ((declareMatch = declareRegex.exec(sql)) !== null) {
+    const declarationBody = declareMatch[1] || '';
+    const variableMatches = declarationBody.match(/@[A-Za-z_][A-Za-z0-9_]*/g) || [];
+
+    variableMatches.forEach(variableName => {
+      declaredVariables.add(variableName);
+    });
+  }
+
+  return Array.from(declaredVariables);
+}
+
+/**
  * Generate a unique alias that doesn't conflict with existing ones
  */
 function generateUniqueAlias(tableName: string, usedAliases: Set<string>): string {
@@ -744,7 +765,9 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     tableAliases: Map<string, { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } }>,
     range: IRange,
     fullText: string,
-    databases: string[]
+    databases: string[],
+    activeQualifier?: string,
+    activeQualifierPrefixLength?: number
   ): languages.CompletionItem[] => {
     const suggestions: languages.CompletionItem[] = [];
     const recentTables = getRecentTables();
@@ -1220,6 +1243,17 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
           table.columns.forEach(col => {
             // If table has an alias, show [alias].[column] format with filterText for searching
             if (alias && isRelevant) {
+              const shouldReplaceQualifiedPrefix = !!activeQualifier
+                && activeQualifier === alias.toLowerCase()
+                && !!activeQualifierPrefixLength
+                && activeQualifierPrefixLength > 0;
+              const aliasColumnRange: IRange = shouldReplaceQualifiedPrefix
+                ? {
+                    ...range,
+                    startColumn: Math.max(1, range.startColumn - activeQualifierPrefixLength),
+                  }
+                : range;
+
               suggestions.push({
                 label: `[${alias}].[${col.name}]`,
                 kind: monaco.languages.CompletionItemKind.Field,
@@ -1229,7 +1263,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
                 // Allow filtering by column name OR alias - so typing "id" finds "[a].[Id]"
                 filterText: `${col.name} ${alias}.${col.name} [${alias}].[${col.name}]`,
                 sortText: `0_${alias}_${col.name}`,
-                range,
+                range: aliasColumnRange,
               });
             }
 
@@ -1711,7 +1745,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
     // Register new completion provider with updated schema
     completionProviderRef.current = monaco.languages.registerCompletionItemProvider('sql', {
-      triggerCharacters: ['.', ' ', '['],
+      triggerCharacters: ['.', ' ', '[', '@'],
       provideCompletionItems: (model, position) => {
         const word = model.getWordUntilPosition(position);
         let completionRange: IRange = {
@@ -1732,10 +1766,32 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         const fullText = model.getValue();
         const context = getCompletionContext(textBeforeCursor, fullText);
 
+        const lineText = model.getLineContent(position.lineNumber);
+        const linePrefix = lineText.slice(0, Math.max(0, position.column - 1));
+        const previousChar = position.column > 1 ? lineText.charAt(position.column - 2) : '';
+
+        const qualifierMatch = linePrefix.match(/(?:\[(\w+)\]|(\w+))\.\w*$/);
+        const activeQualifier = qualifierMatch
+          ? (qualifierMatch[1] || qualifierMatch[2] || '').toLowerCase()
+          : undefined;
+        const qualifierTokenLength = qualifierMatch
+          ? (qualifierMatch[1] ? qualifierMatch[1].length + 2 : (qualifierMatch[2]?.length || 0))
+          : 0;
+        const activeQualifierPrefixLength = qualifierTokenLength > 0 ? qualifierTokenLength + 1 : undefined;
+
         if (textBeforeCursor.endsWith('[')) {
           completionRange = {
             ...completionRange,
             startColumn: position.column - 1
+          };
+        }
+
+        // Monaco's SQL word range excludes '@'. Expand the range so replacing
+        // an in-progress variable (e.g. @Q) does not duplicate '@'.
+        if (previousChar === '@') {
+          completionRange = {
+            ...completionRange,
+            startColumn: Math.max(1, completionRange.startColumn - 1),
           };
         }
 
@@ -1748,6 +1804,19 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         const tableAliases = parseTableAliases(currentBlockText);
 
         const suggestions: languages.CompletionItem[] = [];
+
+        // Add local variable suggestions from DECLARE statements above cursor.
+        const declaredVariables = extractDeclaredVariables(textBeforeCursor);
+        declaredVariables.forEach(variableName => {
+          suggestions.push({
+            label: variableName,
+            kind: monaco.languages.CompletionItemKind.Variable,
+            detail: 'Local variable',
+            insertText: variableName,
+            sortText: `00_${variableName}`,
+            range: completionRange,
+          });
+        });
 
         // Add SQL keywords (lower priority)
         if (context.type === 'keyword' || context.type === 'column') {
@@ -1763,7 +1832,17 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         }
 
         // Add schema-based completions (use current block text for context-aware suggestions)
-        const schemaCompletions = createSchemaCompletions(monaco, schemaInfo, context, tableAliases, completionRange, currentBlockText, spaceDatabases.map(db => db.name));
+        const schemaCompletions = createSchemaCompletions(
+          monaco,
+          schemaInfo,
+          context,
+          tableAliases,
+          completionRange,
+          currentBlockText,
+          spaceDatabases.map(db => db.name),
+          activeQualifier,
+          activeQualifierPrefixLength
+        );
         suggestions.push(...schemaCompletions);
 
         return { suggestions };

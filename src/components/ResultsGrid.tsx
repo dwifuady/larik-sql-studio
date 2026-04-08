@@ -529,6 +529,8 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
   const updateResultCells = useAppStore((state) => state.updateResultCells);
   const resultColumnOrder = useAppStore((state) => state.resultColumnOrder);
   const setResultColumnOrder = useAppStore((state) => state.setResultColumnOrder);
+  const setResultScrollPosition = useAppStore((state) => state.setResultScrollPosition);
+  const getResultScrollPosition = useAppStore((state) => state.getResultScrollPosition);
 
   const cellPreviewPanel = useAppStore(s => s.cellPreviewPanel);
   const showCellPreview = useAppStore(s => s.showCellPreview);
@@ -550,7 +552,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
   const [hoveredCell, setHoveredCell] = useState<{ row: number; col: number } | null>(null);
 
   // Scroll position preservation
-  const scrollPositionRef = useRef<number>(0);
+  const scrollPositionRef = useRef<{ top: number; left: number }>({ top: 0, left: 0 });
 
   // Editing state
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
@@ -648,6 +650,26 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     setResultColumnOrder(tabId, resultIndex, newOrder);
   }, [columnOrder, tabId, resultIndex, setResultColumnOrder]);
 
+  // Persist scroll when leaving current result tab context
+  useEffect(() => {
+    if (!tabId || resultIndex === undefined) return;
+
+    return () => {
+      setResultScrollPosition(tabId, resultIndex, scrollPositionRef.current.top, scrollPositionRef.current.left);
+    };
+  }, [tabId, resultIndex, setResultScrollPosition]);
+
+  // Restore scroll for active result context (including replaced results)
+  useEffect(() => {
+    if (!tabId || resultIndex === undefined) {
+      scrollPositionRef.current = { top: 0, left: 0 };
+      return;
+    }
+
+    const storedScroll = getResultScrollPosition(tabId, resultIndex);
+    scrollPositionRef.current = storedScroll ?? { top: 0, left: 0 };
+  }, [tabId, resultIndex, result.query_id, getResultScrollPosition]);
+
   // Measure container size with throttling for performance
   useEffect(() => {
     if (!containerRef.current) return;
@@ -696,19 +718,21 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
       const scrollableElement = bodyRef.current?.querySelector('[style*="overflow"]') as HTMLElement;
       if (!scrollableElement) return;
 
-      // Restore previous scroll position if List was remounted
-      if (scrollPositionRef.current > 0) {
-        scrollableElement.scrollLeft = scrollPositionRef.current;
-        if (headerRef.current) {
-          headerRef.current.scrollLeft = scrollPositionRef.current;
-        }
+      // Restore previous scroll position for the active result tab
+      scrollableElement.scrollTop = scrollPositionRef.current.top;
+      scrollableElement.scrollLeft = scrollPositionRef.current.left;
+      if (headerRef.current) {
+        headerRef.current.scrollLeft = scrollPositionRef.current.left;
       }
 
       const handleScroll = () => {
+        scrollPositionRef.current = {
+          top: scrollableElement.scrollTop,
+          left: scrollableElement.scrollLeft,
+        };
+
         if (headerRef.current) {
           headerRef.current.scrollLeft = scrollableElement.scrollLeft;
-          // Store scroll position for preservation across remounts
-          scrollPositionRef.current = scrollableElement.scrollLeft;
         }
       };
 
@@ -723,7 +747,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
       clearTimeout(timer);
       cleanupFn?.();
     };
-  }, [result.rows.length, editingCell]); // Add editingCell to dependencies
+  }, [result.rows.length, editingCell, tabId, resultIndex, result.query_id]);
 
   // Close cell preview panel when results change
   useEffect(() => {

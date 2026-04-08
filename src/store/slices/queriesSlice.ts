@@ -9,6 +9,7 @@ export interface QueriesSlice {
     activeResultIndex: Record<string, number>;
     resultCustomNames: Record<string, Record<number, string>>;
     resultColumnOrder: Record<string, Record<number, number[]>>;
+    resultScrollPosition: Record<string, Record<number, { top: number; left: number }>>;
     resultsHidden: Record<string, boolean>;
     tabResultCounters: Record<string, number>;
 
@@ -51,6 +52,9 @@ export interface QueriesSlice {
     setResultColumnOrder: (tabId: string, resultIndex: number, order: number[]) => void;
     getResultColumnOrder: (tabId: string, resultIndex: number) => number[] | null;
 
+    setResultScrollPosition: (tabId: string, resultIndex: number, top: number, left: number) => void;
+    getResultScrollPosition: (tabId: string, resultIndex: number) => { top: number; left: number } | null;
+
     toggleResultsHidden: (tabId: string) => void;
     isResultsHidden: (tabId: string) => boolean;
 
@@ -81,6 +85,7 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
     activeResultIndex: {},
     resultCustomNames: {},
     resultColumnOrder: {},
+    resultScrollPosition: {},
     resultsHidden: {},
     tabResultCounters: {},
     enableStickyNotes: true,
@@ -201,6 +206,7 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
 
                 const newCustomNames = shiftMap(state.resultCustomNames[tabId]);
                 const newColumnOrders = shiftMap(state.resultColumnOrder[tabId]);
+                const newScrollPositions = shiftMap(state.resultScrollPosition[tabId]);
 
                 // Assign displayId to new results
                 const currentCounter = state.tabResultCounters[tabId] || 0;
@@ -215,6 +221,7 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
                     activeResultIndex: { ...state.activeResultIndex, [tabId]: activeIndex },
                     resultCustomNames: { ...state.resultCustomNames, [tabId]: newCustomNames },
                     resultColumnOrder: { ...state.resultColumnOrder, [tabId]: newColumnOrders },
+                    resultScrollPosition: { ...state.resultScrollPosition, [tabId]: newScrollPositions },
                     tabResultCounters: { ...state.tabResultCounters, [tabId]: newCounter },
                     tabExecuting: { ...state.tabExecuting, [tabId]: false }
                 };
@@ -369,10 +376,12 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
             const { [tabId]: _, ...restResults } = state.tabQueryResults;
             const { [tabId]: __, ...restIndices } = state.activeResultIndex;
             const { [tabId]: ___, ...restCounters } = state.tabResultCounters;
+            const { [tabId]: ____, ...restScrollPositions } = state.resultScrollPosition;
             return {
                 tabQueryResults: restResults,
                 activeResultIndex: restIndices,
-                tabResultCounters: restCounters
+                tabResultCounters: restCounters,
+                resultScrollPosition: restScrollPositions
             };
         });
     },
@@ -383,6 +392,19 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
             const newResults = [...currentResults];
             newResults.splice(resultIndex, 1);
 
+            const currentScrollPositions = state.resultScrollPosition[tabId] || {};
+            const newScrollPositions: Record<number, { top: number; left: number }> = {};
+            Object.entries(currentScrollPositions).forEach(([k, v]) => {
+                const idx = parseInt(k, 10);
+                if (idx < resultIndex) {
+                    newScrollPositions[idx] = v;
+                } else if (idx > resultIndex) {
+                    newScrollPositions[idx - 1] = v;
+                }
+            });
+
+            const { [tabId]: _removedTabScroll, ...restScrollPositions } = state.resultScrollPosition;
+
             // Update active index if needed
             let newActiveIndex = state.activeResultIndex[tabId] || 0;
             if (newActiveIndex >= newResults.length) {
@@ -392,6 +414,9 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
             return {
                 tabQueryResults: { ...state.tabQueryResults, [tabId]: newResults },
                 activeResultIndex: { ...state.activeResultIndex, [tabId]: newActiveIndex },
+                resultScrollPosition: newResults.length > 0
+                    ? { ...state.resultScrollPosition, [tabId]: newScrollPositions }
+                    : restScrollPositions,
                 ...(newResults.length === 0 ? {
                     tabResultCounters: { ...state.tabResultCounters, [tabId]: 0 }
                 } : {})
@@ -449,6 +474,23 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
     getResultColumnOrder: (tabId, resultIndex) => {
         const orders = get().resultColumnOrder[tabId];
         return orders ? orders[resultIndex] : null;
+    },
+
+    setResultScrollPosition: (tabId, resultIndex, top, left) => {
+        set((state) => ({
+            resultScrollPosition: {
+                ...state.resultScrollPosition,
+                [tabId]: {
+                    ...(state.resultScrollPosition[tabId] || {}),
+                    [resultIndex]: { top, left }
+                }
+            }
+        }));
+    },
+
+    getResultScrollPosition: (tabId, resultIndex) => {
+        const positions = get().resultScrollPosition[tabId];
+        return positions ? positions[resultIndex] : null;
     },
 
     toggleResultsHidden: (tabId) => {
@@ -534,6 +576,7 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
 
             const newCustomNames = reorderMap(state.resultCustomNames[tabId]);
             const newColumnOrders = reorderMap(state.resultColumnOrder[tabId]);
+            const newScrollPositions = reorderMap(state.resultScrollPosition[tabId]);
 
             return {
                 tabQueryResults: {
@@ -547,6 +590,10 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
                 resultColumnOrder: {
                     ...state.resultColumnOrder,
                     [tabId]: newColumnOrders
+                },
+                resultScrollPosition: {
+                    ...state.resultScrollPosition,
+                    [tabId]: newScrollPositions
                 },
                 activeResultIndex: {
                     ...state.activeResultIndex,

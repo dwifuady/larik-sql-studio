@@ -523,7 +523,7 @@ impl QueryEngine {
 
         // If single statement, execute as before but return as Vec
         if statements.len() == 1 {
-            let result = self.execute_single_statement(
+            let results = self.execute_single_statement(
                 connection_id,
                 &statements[0],
                 database,
@@ -531,7 +531,7 @@ impl QueryEngine {
                 None,
                 None,
             ).await?;
-            return Ok(vec![result]);
+            return Ok(results);
         }
 
         // Multiple statements - execute as batch
@@ -562,10 +562,12 @@ impl QueryEngine {
             ).await;
 
             match query_result {
-                Ok(result) => {
+                Ok(mut statement_results) => {
                     // If batch cancelled, stop execution
-                    let should_stop = result.error.as_ref().map_or(false, |e| e.contains("cancelled"));
-                    results.push(result);
+                    let should_stop = statement_results
+                        .iter()
+                        .any(|r| r.error.as_ref().is_some_and(|e| e.contains("cancelled")));
+                    results.append(&mut statement_results);
                     if should_stop {
                         break;
                     }
@@ -593,7 +595,7 @@ impl QueryEngine {
         is_selection: bool,
         statement_index: Option<usize>,
         statement_text: Option<String>,
-    ) -> Result<QueryResult, ConnectionError> {
+    ) -> Result<Vec<QueryResult>, ConnectionError> {
         let query_id = Uuid::new_v4().to_string();
         let start_time = std::time::Instant::now();
         
@@ -666,7 +668,8 @@ impl QueryEngine {
                 // Drop the connection - this closes TCP and cancels the query on SQL Server
                 drop(conn);
                 
-                return self.make_cancelled_result(query_id, start_time, is_selection, statement_index, statement_text).await;
+                let cancelled_result = self.make_cancelled_result(query_id, start_time, is_selection, statement_index, statement_text).await?;
+                return Ok(vec![cancelled_result]);
             }
             
             // Normal query execution
@@ -730,7 +733,52 @@ impl QueryEngine {
                     }
                 }
 
-                Ok(QueryResult {
+                // For statements returning multiple result sets (e.g. DECLARE + multiple SELECTs),
+                // return each non-empty result set as its own QueryResult.
+                if !is_dml {
+                    let mut multi_results: Vec<QueryResult> = Vec::new();
+
+                    for (result_set_index, rows) in all_result_sets.iter().enumerate() {
+                        if rows.is_empty() {
+                            continue;
+                        }
+
+                        let columns: Vec<ColumnInfo> = rows[0].columns().iter().map(ColumnInfo::from).collect();
+                        let col_types: Vec<ColumnType> = rows[0].columns().iter().map(|c| c.column_type()).collect();
+
+                        let converted_rows: Vec<Vec<CellValue>> = rows
+                            .iter()
+                            .map(|row| {
+                                (0..row.columns().len())
+                                    .map(|idx| CellValue::from_row(row, idx, &col_types[idx]))
+                                    .collect()
+                            })
+                            .collect();
+
+                        multi_results.push(QueryResult {
+                            query_id: if result_set_index == 0 {
+                                query_id.clone()
+                            } else {
+                                format!("{}:{}", query_id, result_set_index + 1)
+                            },
+                            columns,
+                            row_count: converted_rows.len(),
+                            rows: converted_rows,
+                            execution_time_ms: execution_time,
+                            error: None,
+                            is_complete: true,
+                            is_selection,
+                            statement_index,
+                            statement_text: statement_text.clone(),
+                        });
+                    }
+
+                    if !multi_results.is_empty() {
+                        return Ok(multi_results);
+                    }
+                }
+
+                Ok(vec![QueryResult {
                     query_id,
                     columns,
                     rows: converted_rows,
@@ -741,13 +789,14 @@ impl QueryEngine {
                     is_selection,
                     statement_index,
                     statement_text,
-                })
+                }])
             }
             Err(e) => {
                 // Check if error is due to cancellation
                 let error_msg = e.to_string();
                 if error_msg.contains("connection closed") || error_msg.contains("reset") {
-                    return self.make_cancelled_result(query_id, start_time, is_selection, statement_index, statement_text).await;
+                    let cancelled_result = self.make_cancelled_result(query_id, start_time, is_selection, statement_index, statement_text).await?;
+                    return Ok(vec![cancelled_result]);
                 }
                 
                 // Update query info
@@ -758,7 +807,7 @@ impl QueryEngine {
                     }
                 }
 
-                Ok(QueryResult::with_error(query_id, error_msg))
+                Ok(vec![QueryResult::with_error(query_id, error_msg)])
             }
         }
     }

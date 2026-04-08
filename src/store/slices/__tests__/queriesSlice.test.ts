@@ -122,6 +122,13 @@ describe('queriesSlice', () => {
                     1: [1, 0],
                     2: [0, 1]
                 }
+            },
+            resultScrollPosition: {
+                [tabId]: {
+                    0: { top: 10, left: 20 },
+                    1: { top: 30, left: 40 },
+                    2: { top: 50, left: 60 }
+                }
             }
         });
 
@@ -157,6 +164,12 @@ describe('queriesSlice', () => {
         expect(orders[0]).toEqual([1, 0]);
         expect(orders[1]).toEqual([0, 1]);
         expect(orders[2]).toEqual([0, 1]);
+
+        // Check scroll positions reorder with results
+        const scroll = useTestStore.getState().resultScrollPosition[tabId];
+        expect(scroll[0]).toEqual({ top: 30, left: 40 });
+        expect(scroll[1]).toEqual({ top: 50, left: 60 });
+        expect(scroll[2]).toEqual({ top: 10, left: 20 });
     });
     it('should replace only the active result when executing a query', async () => {
         const spaceId = 'space-1';
@@ -272,5 +285,60 @@ describe('queriesSlice', () => {
 
         // Active index remains 1 (start of new results)
         expect(useTestStore.getState().activeResultIndex[tabId]).toBe(1);
+    });
+
+    it('should shift and remove scroll positions when closing a result', () => {
+        const tabId = 'tab-1';
+
+        useTestStore.setState({
+            tabQueryResults: {
+                [tabId]: [
+                    { query_id: 'q1', rows: [[1]] },
+                    { query_id: 'q2', rows: [[2]] },
+                    { query_id: 'q3', rows: [[3]] }
+                ]
+            },
+            activeResultIndex: { [tabId]: 2 },
+            resultScrollPosition: {
+                [tabId]: {
+                    0: { top: 5, left: 6 },
+                    1: { top: 15, left: 16 },
+                    2: { top: 25, left: 26 }
+                }
+            }
+        });
+
+        // Remove middle result index 1
+        useTestStore.getState().closeResult(tabId, 1);
+
+        const updatedResults = useTestStore.getState().tabQueryResults[tabId];
+        expect(updatedResults).toHaveLength(2);
+        expect(updatedResults[0].query_id).toBe('q1');
+        expect(updatedResults[1].query_id).toBe('q3');
+
+        const scroll = useTestStore.getState().resultScrollPosition[tabId];
+        expect(scroll[0]).toEqual({ top: 5, left: 6 });
+        expect(scroll[1]).toEqual({ top: 25, left: 26 });
+        expect(scroll[2]).toBeUndefined();
+    });
+
+    it('should remove scroll positions when clearing results', () => {
+        const tabId = 'tab-1';
+
+        useTestStore.setState({
+            tabQueryResults: {
+                [tabId]: [{ query_id: 'q1', rows: [[1]] }]
+            },
+            resultScrollPosition: {
+                [tabId]: {
+                    0: { top: 12, left: 24 }
+                }
+            }
+        });
+
+        useTestStore.getState().clearQueryResult(tabId);
+
+        expect(useTestStore.getState().tabQueryResults[tabId]).toBeUndefined();
+        expect(useTestStore.getState().resultScrollPosition[tabId]).toBeUndefined();
     });
 });
