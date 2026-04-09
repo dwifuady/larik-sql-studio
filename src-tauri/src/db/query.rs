@@ -6,7 +6,7 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tiberius::{Column, ColumnType, Row};
+use tiberius::{Column, ColumnType, Row, ToSql};
 use tiberius::numeric::Numeric;
 use tokio::sync::{RwLock, oneshot};
 use uuid::Uuid;
@@ -274,6 +274,8 @@ pub struct QueryResult {
     pub columns: Vec<ColumnInfo>,
     pub rows: Vec<Vec<CellValue>>,
     pub row_count: usize,
+    pub truncated: bool,
+    pub limit_applied: Option<usize>,
     pub execution_time_ms: u64,
     pub error: Option<String>,
     pub is_complete: bool,
@@ -289,6 +291,8 @@ impl QueryResult {
             columns: Vec::new(),
             rows: Vec::new(),
             row_count: 0,
+            truncated: false,
+            limit_applied: None,
             execution_time_ms: 0,
             error: None,
             is_complete: false,
@@ -304,6 +308,8 @@ impl QueryResult {
             columns: Vec::new(),
             rows: Vec::new(),
             row_count: 0,
+            truncated: false,
+            limit_applied: None,
             execution_time_ms: 0,
             error: Some(error),
             is_complete: true,
@@ -499,6 +505,205 @@ fn parse_sql_statements(sql: &str) -> Vec<String> {
     statements
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StatementKind {
+    Dml,
+    Other,
+}
+
+fn starts_with_keyword(input: &str, keyword: &str) -> bool {
+    if !input.starts_with(keyword) {
+        return false;
+    }
+
+    match input.as_bytes().get(keyword.len()) {
+        None => true,
+        Some(next) => !next.is_ascii_alphanumeric() && *next != b'_',
+    }
+}
+
+fn infer_statement_kind(sql: &str) -> StatementKind {
+    let mut last_kind = StatementKind::Other;
+
+    let mut in_string = false;
+    let mut in_line_comment = false;
+    let mut in_block_comment = false;
+    let mut statement_start = true;
+
+    let bytes = sql.as_bytes();
+    let mut i = 0usize;
+
+    while i < bytes.len() {
+        let b = bytes[i];
+        let next = bytes.get(i + 1).copied();
+
+        if in_line_comment {
+            if b == b'\n' {
+                in_line_comment = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if in_block_comment {
+            if b == b'*' && next == Some(b'/') {
+                in_block_comment = false;
+                i += 2;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+
+        if in_string {
+            if b == b'\'' {
+                if next == Some(b'\'') {
+                    i += 2;
+                } else {
+                    in_string = false;
+                    i += 1;
+                }
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+
+        if b == b'-' && next == Some(b'-') {
+            in_line_comment = true;
+            i += 2;
+            continue;
+        }
+
+        if b == b'/' && next == Some(b'*') {
+            in_block_comment = true;
+            i += 2;
+            continue;
+        }
+
+        if b == b'\'' {
+            in_string = true;
+            i += 1;
+            continue;
+        }
+
+        if b == b';' {
+            statement_start = true;
+            i += 1;
+            continue;
+        }
+
+        if b.is_ascii_whitespace() {
+            i += 1;
+            continue;
+        }
+
+        if statement_start {
+            if b.is_ascii_alphabetic() || b == b'_' {
+                let start = i;
+                i += 1;
+                while i < bytes.len() {
+                    let c = bytes[i];
+                    if c.is_ascii_alphanumeric() || c == b'_' {
+                        i += 1;
+                    } else {
+                        break;
+                    }
+                }
+
+                let upper = sql[start..i].to_uppercase();
+
+                if starts_with_keyword(&upper, "UPDATE")
+                    || starts_with_keyword(&upper, "INSERT")
+                    || starts_with_keyword(&upper, "DELETE")
+                    || starts_with_keyword(&upper, "MERGE")
+                {
+                    last_kind = StatementKind::Dml;
+                } else if starts_with_keyword(&upper, "SELECT")
+                    || starts_with_keyword(&upper, "EXEC")
+                    || starts_with_keyword(&upper, "EXECUTE")
+                    || starts_with_keyword(&upper, "CREATE")
+                    || starts_with_keyword(&upper, "ALTER")
+                    || starts_with_keyword(&upper, "DROP")
+                    || starts_with_keyword(&upper, "TRUNCATE")
+                    || starts_with_keyword(&upper, "WITH")
+                {
+                    last_kind = StatementKind::Other;
+                }
+            } else {
+                i += 1;
+            }
+
+            statement_start = false;
+            continue;
+        }
+
+        i += 1;
+    }
+
+    last_kind
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{infer_statement_kind, StatementKind};
+
+    #[test]
+    fn infer_kind_for_declare_then_update_is_dml() {
+        let sql = "\
+DECLARE @ExistingChildId int = (SELECT Id FROM ProductQuestions WHERE ShortName = 'CLMoreThan25FromUSOrCanada');
+UPDATE ProductQuestion_Rule
+SET EffectiveFrom = '2026-05-01'
+WHERE ProductQuestionId = 2856;
+";
+
+        assert_eq!(infer_statement_kind(sql), StatementKind::Dml);
+    }
+
+    #[test]
+    fn infer_kind_for_update_with_subquery_select_is_dml() {
+        let sql = "\
+UPDATE ProductQuestion_Rule
+SET EffectiveFrom = (SELECT MAX(EffectiveFrom) FROM ProductQuestion_Rule)
+WHERE ProductQuestionId = 2856;
+";
+
+        assert_eq!(infer_statement_kind(sql), StatementKind::Dml);
+    }
+
+    #[test]
+    fn infer_kind_ignores_comments_and_uses_last_executable_statement() {
+        let sql = "\
+/* UPDATE ProductQuestion_Rule SET EffectiveFrom = '1900-01-01' */
+-- DELETE FROM ProductQuestion_Rule WHERE ProductQuestionId = 2856
+DECLARE @note nvarchar(100) = 'comment mentions UPDATE';
+UPDATE ProductQuestion_Rule SET EffectiveFrom = '2026-05-01' WHERE ProductQuestionId = 2856;
+SELECT EffectiveFrom FROM ProductQuestion_Rule WHERE ProductQuestionId = 2856;
+";
+
+        assert_eq!(infer_statement_kind(sql), StatementKind::Other);
+    }
+
+    #[test]
+    fn infer_kind_ignores_keywords_inside_string_literals() {
+        let sql = "\
+SELECT 'UPDATE ProductQuestion_Rule SET EffectiveFrom = ''2026-05-01''' AS script_text;
+";
+
+        assert_eq!(infer_statement_kind(sql), StatementKind::Other);
+    }
+
+    #[test]
+    fn infer_kind_for_select_then_update_is_dml() {
+        let sql = "\
+SELECT TOP 1 Id FROM ProductQuestion_Rule;
+UPDATE ProductQuestion_Rule SET EffectiveFrom = '2026-05-01' WHERE ProductQuestionId = 2856;
+";
+
+        assert_eq!(infer_statement_kind(sql), StatementKind::Dml);
+    }
+}
+
 impl QueryEngine {
     pub fn new(connection_manager: Arc<MssqlConnectionManager>) -> Self {
         Self {
@@ -517,6 +722,7 @@ impl QueryEngine {
         query: &str,
         database: Option<&str>,
         is_selection: bool,
+        max_rows: Option<usize>,
     ) -> Result<Vec<QueryResult>, ConnectionError> {
         // Parse into statements
         let statements = parse_sql_statements(query);
@@ -528,6 +734,7 @@ impl QueryEngine {
                 &statements[0],
                 database,
                 is_selection,
+                max_rows,
                 None,
                 None,
             ).await?;
@@ -535,7 +742,7 @@ impl QueryEngine {
         }
 
         // Multiple statements - execute as batch
-        self.execute_batch(connection_id, statements, database, is_selection).await
+        self.execute_batch(connection_id, statements, database, is_selection, max_rows).await
     }
 
     /// Execute a batch of SQL statements sequentially
@@ -547,6 +754,7 @@ impl QueryEngine {
         statements: Vec<String>,
         database: Option<&str>,
         is_selection: bool,
+        max_rows: Option<usize>,
     ) -> Result<Vec<QueryResult>, ConnectionError> {
         let mut results = Vec::new();
 
@@ -557,6 +765,7 @@ impl QueryEngine {
                 statement,
                 database,
                 is_selection,
+                max_rows,
                 Some(index),
                 Some(statement.clone()),
             ).await;
@@ -593,6 +802,7 @@ impl QueryEngine {
         query: &str,
         database: Option<&str>,
         is_selection: bool,
+        max_rows: Option<usize>,
         statement_index: Option<usize>,
         statement_text: Option<String>,
     ) -> Result<Vec<QueryResult>, ConnectionError> {
@@ -626,18 +836,25 @@ impl QueryEngine {
         let mut conn = self.connection_manager.create_dedicated_connection(connection_id).await?;
         log_info!("[QUERY] Dedicated connection created for query_id={}", query_id);
 
-        // Check if this is a DML query (INSERT, UPDATE, DELETE, MERGE)
-        let query_upper = query.trim().to_uppercase();
-        let is_dml = query_upper.starts_with("UPDATE") 
-            || query_upper.starts_with("INSERT") 
-            || query_upper.starts_with("DELETE")
-            || query_upper.starts_with("MERGE");
+        // Detect final statement behavior (DML vs result set) for scripts such as
+        // DECLARE ...; UPDATE ... that should report affected rows.
+        let is_dml = infer_statement_kind(query) == StatementKind::Dml;
+
+        let row_limit = max_rows.unwrap_or(0);
+        let use_row_limit = !is_dml && row_limit > 0;
+        let fetch_limit = row_limit.saturating_add(1);
+
+        let statement_sql = if use_row_limit {
+            format!("SET ROWCOUNT {}; {}; SET ROWCOUNT 0;", fetch_limit, query)
+        } else {
+            query.to_string()
+        };
 
         // Build the full query with optional USE database
         let full_query = if let Some(db) = database {
-            format!("USE [{}]; {}", db, query)
+            format!("USE [{}]; {}", db, statement_sql)
         } else {
-            query.to_string()
+            statement_sql
         };
 
         log_info!("[QUERY] Executing query with tokio::select!, query_id={}", query_id);
@@ -646,16 +863,42 @@ impl QueryEngine {
         let query_id_for_log = query_id.clone();
         let query_future = async {
             log_info!("[QUERY] Query future started, query_id={}", query_id_for_log);
-            let stream = conn.simple_query(&full_query).await
-                .map_err(|e| ConnectionError::QueryError(e.to_string()))?;
-            
-            log_info!("[QUERY] Query stream received, fetching results, query_id={}", query_id_for_log);
-            // Use into_results() to get all result sets
-            let all_results = stream.into_results().await
-                .map_err(|e| ConnectionError::QueryError(e.to_string()))?;
-            
-            log_info!("[QUERY] Query results fetched, query_id={}", query_id_for_log);
-            Ok::<_, ConnectionError>(all_results)
+            if is_dml {
+                let params: &[&dyn ToSql] = &[];
+                let execute_result = conn
+                    .execute(&full_query, params)
+                    .await
+                    .map_err(|e| ConnectionError::QueryError(e.to_string()))?;
+
+                let affected_rows = execute_result
+                    .rows_affected()
+                    .iter()
+                    .copied()
+                    .sum::<u64>() as usize;
+
+                log_info!(
+                    "[QUERY] DML executed, affected_rows={}, query_id={}",
+                    affected_rows,
+                    query_id_for_log
+                );
+
+                Ok::<_, ConnectionError>((Vec::new(), affected_rows))
+            } else {
+                let stream = conn
+                    .simple_query(&full_query)
+                    .await
+                    .map_err(|e| ConnectionError::QueryError(e.to_string()))?;
+
+                log_info!("[QUERY] Query stream received, fetching results, query_id={}", query_id_for_log);
+                // Use into_results() to get all result sets
+                let all_results = stream
+                    .into_results()
+                    .await
+                    .map_err(|e| ConnectionError::QueryError(e.to_string()))?;
+
+                log_info!("[QUERY] Query results fetched, query_id={}", query_id_for_log);
+                Ok::<_, ConnectionError>((all_results, 0usize))
+            }
         };
 
         let query_id_for_cancel = query_id.clone();
@@ -687,56 +930,14 @@ impl QueryEngine {
         }
 
         match result {
-            Ok(all_result_sets) => {
+            Ok((all_result_sets, affected_rows)) => {
                 let execution_time = start_time.elapsed().as_millis() as u64;
-                
-                // For DML queries, show a simple success message
-                // For SELECT queries, show actual data rows
-                let (columns, converted_rows) = if is_dml {
-                    let column = ColumnInfo {
-                        name: "Result".to_string(),
-                        data_type: "String".to_string(),
-                        nullable: false,
-                    };
-                    let row = vec![CellValue::String("Query executed successfully".to_string())];
-                    (vec![column], vec![row])
-                } else if !all_result_sets.is_empty() && !all_result_sets[0].is_empty() {
-                    let rows = &all_result_sets[0];
-                    
-                    // Extract column info from first row
-                    let columns: Vec<ColumnInfo> = rows[0].columns().iter().map(ColumnInfo::from).collect();
-                    let col_types: Vec<ColumnType> = rows[0].columns().iter().map(|c| c.column_type()).collect();
-
-                    // Convert rows to our format
-                    let converted_rows: Vec<Vec<CellValue>> = rows
-                        .iter()
-                        .map(|row| {
-                            (0..row.columns().len())
-                                .map(|idx| CellValue::from_row(row, idx, &col_types[idx]))
-                                .collect()
-                        })
-                        .collect();
-                    
-                    (columns, converted_rows)
-                } else {
-                    (Vec::new(), Vec::new())
-                };
-
-                let row_count = converted_rows.len();
-
-                // Update query info
-                {
-                    let mut info = self.query_info.write().await;
-                    if let Some(qi) = info.get_mut(&query_id) {
-                        qi.status = QueryStatus::Completed;
-                        qi.rows_fetched = row_count;
-                    }
-                }
-
+ 
                 // For statements returning multiple result sets (e.g. DECLARE + multiple SELECTs),
                 // return each non-empty result set as its own QueryResult.
                 if !is_dml {
                     let mut multi_results: Vec<QueryResult> = Vec::new();
+                    let mut total_rows_fetched = 0usize;
 
                     for (result_set_index, rows) in all_result_sets.iter().enumerate() {
                         if rows.is_empty() {
@@ -746,7 +947,7 @@ impl QueryEngine {
                         let columns: Vec<ColumnInfo> = rows[0].columns().iter().map(ColumnInfo::from).collect();
                         let col_types: Vec<ColumnType> = rows[0].columns().iter().map(|c| c.column_type()).collect();
 
-                        let converted_rows: Vec<Vec<CellValue>> = rows
+                        let mut converted_rows: Vec<Vec<CellValue>> = rows
                             .iter()
                             .map(|row| {
                                 (0..row.columns().len())
@@ -754,6 +955,12 @@ impl QueryEngine {
                                     .collect()
                             })
                             .collect();
+
+                        let is_truncated = use_row_limit && converted_rows.len() > row_limit;
+                        if is_truncated {
+                            converted_rows.truncate(row_limit);
+                        }
+                        total_rows_fetched += converted_rows.len();
 
                         multi_results.push(QueryResult {
                             query_id: if result_set_index == 0 {
@@ -764,6 +971,8 @@ impl QueryEngine {
                             columns,
                             row_count: converted_rows.len(),
                             rows: converted_rows,
+                            truncated: is_truncated,
+                            limit_applied: if use_row_limit { Some(row_limit) } else { None },
                             execution_time_ms: execution_time,
                             error: None,
                             is_complete: true,
@@ -773,16 +982,49 @@ impl QueryEngine {
                         });
                     }
 
+                    {
+                        let mut info = self.query_info.write().await;
+                        if let Some(qi) = info.get_mut(&query_id) {
+                            qi.status = QueryStatus::Completed;
+                            qi.rows_fetched = total_rows_fetched;
+                        }
+                    }
+
                     if !multi_results.is_empty() {
                         return Ok(multi_results);
+                    }
+
+                    return Ok(vec![QueryResult {
+                        query_id,
+                        columns: Vec::new(),
+                        rows: Vec::new(),
+                        row_count: 0,
+                        truncated: false,
+                        limit_applied: if use_row_limit { Some(row_limit) } else { None },
+                        execution_time_ms: execution_time,
+                        error: None,
+                        is_complete: true,
+                        is_selection,
+                        statement_index,
+                        statement_text,
+                    }]);
+                }
+
+                {
+                    let mut info = self.query_info.write().await;
+                    if let Some(qi) = info.get_mut(&query_id) {
+                        qi.status = QueryStatus::Completed;
+                        qi.rows_fetched = affected_rows;
                     }
                 }
 
                 Ok(vec![QueryResult {
                     query_id,
-                    columns,
-                    rows: converted_rows,
-                    row_count,
+                    columns: Vec::new(),
+                    rows: Vec::new(),
+                    row_count: affected_rows,
+                    truncated: false,
+                    limit_applied: None,
                     execution_time_ms: execution_time,
                     error: None,
                     is_complete: true,
@@ -840,6 +1082,8 @@ impl QueryEngine {
             columns: Vec::new(),
             rows: Vec::new(),
             row_count: 0,
+            truncated: false,
+            limit_applied: None,
             execution_time_ms: start_time.elapsed().as_millis() as u64,
             error: Some("Query cancelled".to_string()),
             is_complete: true,

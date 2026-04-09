@@ -385,6 +385,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   const toggleValidation = useAppStore(s => s.toggleValidation);
 
   const enableStickyNotes = useAppStore(s => s.enableStickyNotes);
+  const maxResultRows = useAppStore(s => s.maxResultRows);
 
   // Get theme for Monaco editor
   const theme = useAppStore((state) => state.theme);
@@ -1656,6 +1657,34 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     }
   }, [isConnected, activeSpaceId, executeSilentQuery, tab.id]);
 
+  const handleLoadMore = useCallback(async () => {
+    const currentResult = queryResults?.[activeResultIndex] ?? null;
+    const currentLimit = currentResult?.limit_applied ?? maxResultRows;
+    if (!currentLimit || currentLimit <= 0) return;
+
+    if (!isConnected) {
+      const connected = await connectToSpace();
+      if (!connected) {
+        return;
+      }
+    }
+
+    const nextLimit = currentLimit + maxResultRows;
+    const queryToRun = lastExecutedQuery ?? editorRef.current?.getModel()?.getValue() ?? '';
+    if (!queryToRun.trim()) return;
+
+    await executeQuery(tab.id, queryToRun, null, nextLimit);
+  }, [
+    queryResults,
+    activeResultIndex,
+    maxResultRows,
+    isConnected,
+    connectToSpace,
+    lastExecutedQuery,
+    executeQuery,
+    tab.id,
+  ]);
+
   // Handle drag end for reordering results tabs
   const handleDragEnd = (result: DropResult) => {
     if (!result.destination) return;
@@ -2425,6 +2454,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
                   isExecuting={isExecuting}
                   spaceColor={spaceColor}
                   onExecuteUpdate={handleExecuteUpdateQuery}
+                  onLoadMore={handleLoadMore}
                   canEdit={isConnected}
                   queryText={lastExecutedQuery ?? undefined}
                   tabId={tab.id}

@@ -209,6 +209,8 @@ export interface QueryResult {
   columns: ColumnInfo[];
   rows: CellValue[][];
   row_count: number;
+  truncated?: boolean;
+  limit_applied?: number | null;
   execution_time_ms: number;
   error: string | null;
   is_complete: boolean;

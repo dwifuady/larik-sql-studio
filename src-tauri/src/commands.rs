@@ -731,12 +731,21 @@ pub async fn execute_query(
     query: String,
     database: Option<String>,
     selected_text: Option<String>,
+    max_rows: Option<usize>,
 ) -> Result<Vec<QueryResult>, String> {
     // Use selected_text if provided, otherwise use full query
     let query_to_execute = selected_text.as_ref().unwrap_or(&query);
     let is_selection = selected_text.is_some();
 
-    state.query_engine.execute_query(&connection_id, query_to_execute, database.as_deref(), is_selection)
+    state
+        .query_engine
+        .execute_query(
+            &connection_id,
+            query_to_execute,
+            database.as_deref(),
+            is_selection,
+            max_rows,
+        )
         .await
         .map_err(|e| e.to_string())
 }

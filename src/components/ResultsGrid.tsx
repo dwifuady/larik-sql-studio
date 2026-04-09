@@ -15,6 +15,7 @@ interface ResultsGridProps {
   onClose: () => void;
   isExecuting?: boolean;
   spaceColor?: string;
+  onLoadMore?: () => Promise<void>;
   /** Callback to execute an UPDATE query for saving edits */
   onExecuteUpdate?: (query: string) => Promise<boolean>;
   /** Whether the grid is connected and can save edits */
@@ -525,7 +526,7 @@ function formatValueForInsert(value: CellValue, dataType: string): string {
   return `'${strValue}'`;
 }
 
-function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#6366f1', onExecuteUpdate, canEdit = false, queryText, tabId, resultIndex }: ResultsGridProps) {
+function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#6366f1', onLoadMore, onExecuteUpdate, canEdit = false, queryText, tabId, resultIndex }: ResultsGridProps) {
   const updateResultCells = useAppStore((state) => state.updateResultCells);
   const resultColumnOrder = useAppStore((state) => state.resultColumnOrder);
   const setResultColumnOrder = useAppStore((state) => state.setResultColumnOrder);
@@ -1355,10 +1356,10 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
             <svg className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <p className="text-[var(--text-primary)]">Query executed successfully</p>
-            <p className="text-[var(--text-muted)] text-sm mt-1">
-              {result.row_count} row{result.row_count !== 1 ? 's' : ''} affected • {formatExecutionTime(result.execution_time_ms)}
+            <p className="text-[var(--text-primary)]">
+              {result.row_count} row{result.row_count !== 1 ? 's' : ''} affected
             </p>
+            <p className="text-[var(--text-muted)] text-sm mt-1">{formatExecutionTime(result.execution_time_ms)}</p>
           </div>
         </div>
       </div>
@@ -1470,6 +1471,11 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
             <span>
               <strong className="text-[var(--text-primary)]">{formatExecutionTime(result.execution_time_ms)}</strong>
             </span>
+            {result.truncated && (
+              <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 rounded">
+                Showing first {(result.limit_applied ?? result.row_count).toLocaleString()} rows
+              </span>
+            )}
             {/* Edit status indicator */}
             {editedCells.size > 0 && (
               <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded">
@@ -1488,6 +1494,16 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
               <span className="px-2 py-0.5 bg-[var(--bg-hover)] rounded">
                 Row {selectedCell.row + 1}, Col {selectedCell.col + 1}
               </span>
+            )}
+
+            {result.truncated && onLoadMore && (
+              <button
+                onClick={() => void onLoadMore()}
+                className="px-3 py-1 rounded bg-[var(--bg-hover)] hover:bg-[var(--bg-active)] transition-colors"
+                title="Load more rows"
+              >
+                Load more
+              </button>
             )}
 
             {/* Edit action buttons */}

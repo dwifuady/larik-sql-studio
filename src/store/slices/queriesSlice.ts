@@ -33,8 +33,8 @@ export interface QueriesSlice {
         formatterType: 'auto' | 'json' | 'xml' | 'plain';
     };
 
-    executeQuery: (tabId: string, query: string, selectedText?: string | null) => Promise<QueryResult[] | null>;
-    executeQueryAppend: (tabId: string, query: string, selectedText?: string | null) => Promise<QueryResult[] | null>;
+    executeQuery: (tabId: string, query: string, selectedText?: string | null, maxRowsOverride?: number) => Promise<QueryResult[] | null>;
+    executeQueryAppend: (tabId: string, query: string, selectedText?: string | null, maxRowsOverride?: number) => Promise<QueryResult[] | null>;
     executeSilentQuery: (tabId: string, query: string) => Promise<{ success: boolean; error?: string }>;
     cancelQuery: (tabId: string, queryId: string) => Promise<boolean>;
     cancelRunningQueries: (tabId: string) => Promise<number>;
@@ -105,7 +105,7 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
         formatterType: 'auto'
     },
 
-    executeQuery: async (tabId, query, selectedText) => {
+    executeQuery: async (tabId, query, selectedText, maxRowsOverride) => {
         // Basic validation check
         const spaceId = get().activeSpaceId;
         if (!spaceId) {
@@ -124,11 +124,14 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
 
                 const database = activeTab?.database || activeSpace?.connection_database;
 
+                const maxRows = maxRowsOverride ?? get().maxResultRows;
+
                 const results = await api.executeQuery(
                     spaceId,
                     query,
                     database,
-                    selectedText
+                    selectedText,
+                    maxRows
                 );
 
                 return results;
@@ -242,7 +245,7 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
         }
     },
 
-    executeQueryAppend: async (tabId, query, selectedText) => {
+    executeQueryAppend: async (tabId, query, selectedText, maxRowsOverride) => {
         // Similar to executeQuery but appends results
         const spaceId = get().activeSpaceId;
         if (!spaceId) return null;
@@ -257,11 +260,14 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
                 const activeSpace = get().spaces.find(s => s.id === spaceId);
                 const database = activeTab?.database || activeSpace?.connection_database;
 
+                const maxRows = maxRowsOverride ?? get().maxResultRows;
+
                 const newResults = await api.executeQuery(
                     spaceId,
                     query,
                     database,
-                    selectedText
+                    selectedText,
+                    maxRows
                 );
                 return newResults;
             } catch (error: any) {
@@ -603,8 +609,14 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
         });
     },
 
-    setEnableStickyNotes: (enabled) => set({ enableStickyNotes: enabled }),
-    setMaxResultRows: (rows) => set({ maxResultRows: rows }),
+    setEnableStickyNotes: (enabled) => {
+        set({ enableStickyNotes: enabled });
+        get().saveAppSettings();
+    },
+    setMaxResultRows: (rows) => {
+        set({ maxResultRows: rows });
+        get().saveAppSettings();
+    },
 
     showCellPreview: (tabId, resultIndex, rowIndex, colIndex, value, columnName, dataType) => {
         set((state) => ({

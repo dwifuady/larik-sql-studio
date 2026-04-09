@@ -309,9 +309,10 @@ export async function executeQuery(
   connectionId: string,
   query: string,
   database?: string | null,
-  selectedText?: string | null
+  selectedText?: string | null,
+  maxRows?: number
 ): Promise<QueryResult[]> {
-  return invoke<QueryResult[]>('execute_query', { connectionId, query, database, selectedText });
+  return invoke<QueryResult[]>('execute_query', { connectionId, query, database, selectedText, maxRows });
 }
 
 export async function cancelQuery(queryId: string): Promise<boolean> {
