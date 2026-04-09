@@ -135,6 +135,19 @@ describe('sqlAstExtractor CTE Support', () => {
 });
 
 describe('sqlAstExtractor completion context', () => {
+    it('keeps column context immediately after ON', () => {
+        const textBeforeCursor = `
+            SELECT *
+            FROM [dbo].[Application] AS [a]
+            JOIN [dbo].[BCApplicationQuotes] AS [bcaq] ON 
+        `.trimEnd();
+
+        const context = getCompletionContext(textBeforeCursor);
+
+        expect(context.type).toBe('column');
+        expect(context.lastKeyword).toBe('ON');
+    });
+
     it('keeps column context when typing after AND in WHERE', () => {
         const textBeforeCursor = `
             SELECT q.[ApplicationId]

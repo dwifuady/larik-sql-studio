@@ -18,6 +18,7 @@ import {
   getCompletionContext as getCompletionContextAST,
   type CompletionContext,
 } from '../utils/sqlAstExtractor';
+import { buildJoinConditionSuggestions } from '../utils/sqlJoinSuggestions';
 import { useStickyNotes, EVENT_ADD_STICKY_NOTE } from '../hooks/useStickyNotes';
 import { extractAllStatements } from '../utils/queryExtractor';
 import { extractNotes } from '../utils/noteManager';
@@ -766,6 +767,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     tableAliases: Map<string, { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } }>,
     range: IRange,
     fullText: string,
+    textBeforeCursor: string,
     databases: string[],
     activeQualifier?: string,
     activeQualifierPrefixLength?: number
@@ -791,6 +793,21 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     }
 
     if (!schemaData) return suggestions;
+
+    if (context.type === 'column') {
+      const joinSuggestions = buildJoinConditionSuggestions(textBeforeCursor, schemaData);
+      joinSuggestions.forEach((suggestion, index) => {
+        suggestions.push({
+          label: suggestion.label,
+          kind: monaco.languages.CompletionItemKind.Operator,
+          detail: suggestion.detail,
+          documentation: suggestion.documentation,
+          insertText: suggestion.insertText,
+          sortText: `00_join_${index.toString().padStart(2, '0')}`,
+          range,
+        });
+      });
+    }
 
     // UPDATE column completion (only columns from the table being updated)
     if (context.type === 'update_column' && context.targetTable) {
@@ -1827,6 +1844,14 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         // Get current SQL block to parse aliases only from the current statement
         const currentBlock = findCurrentSqlBlock(fullText, position.lineNumber - 1, position.column - 1);
         const currentBlockText = currentBlock ? currentBlock.text : fullText;
+        const currentBlockTextBeforeCursor = currentBlock
+          ? model.getValueInRange({
+              startLineNumber: currentBlock.startLine + 1,
+              startColumn: currentBlock.startColumn + 1,
+              endLineNumber: position.lineNumber,
+              endColumn: position.column,
+            })
+          : textBeforeCursor;
 
         // Parse aliases from currentBlockText (current statement only)
         // This ensures aliases from other statements don't pollute suggestions
@@ -1868,6 +1893,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
           tableAliases,
           completionRange,
           currentBlockText,
+          currentBlockTextBeforeCursor,
           spaceDatabases.map(db => db.name),
           activeQualifier,
           activeQualifierPrefixLength
