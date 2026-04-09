@@ -12,5 +12,6 @@ pub use connection::{
 };
 pub use query::{CellValue, ColumnInfo, QueryEngine, QueryInfo, QueryResult, QueryStatus};
 pub use schema::{
-    ColumnInfo as SchemaColumnInfo, RoutineInfo, SchemaInfo, SchemaMetadataManager, TableInfo,
+    ColumnInfo as SchemaColumnInfo, RelationshipInfo as SchemaRelationshipInfo, RoutineInfo,
+    SchemaInfo, SchemaMetadataManager, TableInfo,
 };

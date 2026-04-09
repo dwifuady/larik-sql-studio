@@ -115,6 +115,7 @@ mod tests {
             database_name: "testdb".to_string(),
             schemas: vec!["dbo".to_string()],
             tables: vec![],
+            relationships: vec![],
             routines: vec![],
             fetched_at: "2023-01-01T00:00:00Z".to_string(),
         };
