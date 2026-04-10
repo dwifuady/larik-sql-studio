@@ -92,7 +92,7 @@ const TabItem = memo(({
       aria-label={`${isPinned ? 'Pinned tab' : 'Tab'}: ${tab.title}${tab.database ? ` (${tab.database})` : ''}`}
       aria-current={isActive ? 'page' : undefined}
       className={`
-        group flex items-center gap-2 px-2 py-1.5 mx-1 my-0.5 rounded-lg cursor-pointer relative
+        group flex items-center gap-1.5 px-1.5 py-1 mx-1 my-0.5 rounded-md cursor-pointer relative
         transition-all duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] focus:ring-offset-1
         ${isActive
           ? 'text-[var(--text-primary)]' // Active: background handled by style
@@ -131,7 +131,7 @@ const TabItem = memo(({
       {/* Active colored strip - visible when active */}
       {isActive && (
         <div
-          className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r-full"
+          className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-0.5 rounded-r-full"
           style={{
             backgroundColor: spaceColor,
             boxShadow: `0 0 8px ${spaceColor}66` // Add 40% opacity glow
@@ -142,11 +142,11 @@ const TabItem = memo(({
       {/* Tab icon */}
       <div className="shrink-0" style={{ color: isActive ? spaceColor : 'var(--text-muted)' }}>
         {tab.tab_type === 'query' ? (
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
         ) : (
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
         )}
@@ -165,15 +165,15 @@ const TabItem = memo(({
           }}
           onBlur={handleFinishRename}
           onClick={(e) => e.stopPropagation()}
-          className="flex-1 min-w-0 text-sm bg-white/10 px-2 py-0.5 rounded outline-none"
+          className="flex-1 min-w-0 text-xs bg-white/10 px-1.5 py-0.5 rounded outline-none"
         />
       ) : (
-        <div className="flex-1 min-w-0 flex flex-col">
-          <span className={`truncate text-sm ${isActive ? 'text-[var(--text-primary)] font-medium' : 'text-[--text-secondary]'}`}>
+        <div className="flex-1 min-w-0 flex flex-col leading-tight">
+          <span className={`truncate text-[12px] ${isActive ? 'text-[var(--text-primary)] font-medium' : 'text-[--text-secondary]'}`}>
             {tab.title}
           </span>
           {tab.database && (
-            <span className="truncate text-[10px] text-[--text-muted] leading-tight">
+            <span className="truncate text-[10px] text-[--text-muted] max-h-0 opacity-0 overflow-hidden transition-all duration-150 group-hover:max-h-4 group-hover:opacity-100">
               {tab.database}
             </span>
           )}
@@ -182,7 +182,7 @@ const TabItem = memo(({
 
       {/* Pin indicator for pinned tabs */}
       {isPinned && !isRenaming && (
-        <svg className="w-3 h-3 text-[--text-muted] shrink-0" fill="currentColor" viewBox="0 0 24 24">
+        <svg className="w-2.5 h-2.5 text-[--text-muted] shrink-0" fill="currentColor" viewBox="0 0 24 24">
           <path d="M16 4l4 4-6 6 2 6-2 2-3-5-4 4v2h-2l-1-3-3-1v-2l4-4-5-3 2-2 6 2 6-6z" />
         </svg>
       )}
@@ -197,7 +197,7 @@ const TabItem = memo(({
           className="p-0.5 opacity-0 group-hover:opacity-100 hover:bg-[var(--bg-active)] rounded transition-all shrink-0"
           title="Close"
         >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>

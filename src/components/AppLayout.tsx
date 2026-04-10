@@ -549,7 +549,7 @@ export function AppLayout() {
         {/* Sidebar with browser-like layout - overlay when hidden */}
         <aside
           ref={sidebarRef}
-          className={`flex flex-col overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] backdrop-blur ${isShowingSidebarHover ? 'rounded-2xl m-2 mt-2' : ''}`}
+          className={`flex flex-col overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] backdrop-blur ${isShowingSidebarHover ? 'rounded-xl m-1.5 mt-1.5' : ''}`}
           style={{
             width: isShowingSidebarHover ? sidebarWidth - 16 : (sidebarHidden ? sidebarWidth : currentSidebarWidth),
             minWidth: isShowingSidebarHover ? sidebarWidth - 16 : (sidebarHidden ? sidebarWidth : currentSidebarWidth),
@@ -572,10 +572,10 @@ export function AppLayout() {
           {/* Content */}
           <div className="relative z-10 flex flex-col flex-1 min-h-0">
             {/* URL Bar style database selector at top */}
-            <div className="px-2 pt-2 pb-1">
+            <div className="px-1.5 pt-1.5 pb-0.5">
               {spacesLoading && spaces.length === 0 ? (
                 /* Skeleton for database bar */
-                <div className="flex items-center gap-2 px-2 py-1 bg-[var(--bg-hover)] border border-[var(--border-color)] rounded-lg">
+                <div className="flex items-center gap-1.5 px-1.5 py-0.5 bg-[var(--bg-hover)] border border-[var(--border-color)] rounded-md">
                   <div className="w-4 h-4 rounded bg-[var(--bg-active)] animate-pulse" />
                   <div className="flex-1 h-4 rounded bg-[var(--bg-active)] animate-pulse" />
                 </div>
@@ -594,13 +594,13 @@ export function AppLayout() {
             >
               {/* Space Name & Connection Controls - Compact Header */}
               {activeSpace && (
-                <div className="px-3 py-2 pb-0 flex items-center justify-between group">
+                <div className="px-2 py-1.5 pb-0 flex items-center justify-between group">
                   <span className="text-xs font-semibold text-[var(--text-primary)] truncate" title={activeSpace.name}>
                     {activeSpace.name}
                   </span>
 
                   {hasConnection && (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       {/* Status Dot */}
                       <div
                         className={`w-1.5 h-1.5 rounded-full transition-colors ${isConnected ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 'bg-[var(--text-muted)]'}`}
@@ -630,39 +630,39 @@ export function AppLayout() {
               )}
 
               {/* Sidebar View Toggle & Actions */}
-              <div className="px-2 py-1.5 flex items-center gap-1.5">
-                <div className="bg-black/5 dark:bg-white/5 p-1 rounded-lg flex gap-1 flex-1">
+                <div className="px-1.5 py-1 flex items-center gap-1">
+                 <div className="bg-black/5 dark:bg-white/5 p-0.5 rounded-md flex gap-0.5 flex-1">
                   <button
                     onClick={() => setSidebarView('tabs')}
-                    className={`flex-1 flex items-center justify-center py-1 rounded-md text-[11px] font-medium transition-all duration-200 ${sidebarView === 'tabs'
-                      ? 'bg-white dark:bg-[#2d2d2d] shadow-sm'
-                      : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-                      }`}
+                    className={`flex-1 flex items-center justify-center py-[3px] rounded-md text-[10px] font-medium transition-all duration-200 ${sidebarView === 'tabs'
+                       ? 'bg-white dark:bg-[#2d2d2d] shadow-sm'
+                       : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                       }`}
                     style={sidebarView === 'tabs' ? { color: activeSpace?.color || 'var(--accent-color)' } : undefined}
                   >
-                    <LayoutList className="w-3 h-3 mr-1.5" />
-                    Tabs
-                  </button>
-                  <button
-                    onClick={() => setSidebarView('explorer')}
-                    className={`flex-1 flex items-center justify-center py-1 rounded-md text-[11px] font-medium transition-all duration-200 ${sidebarView === 'explorer'
-                      ? 'bg-white dark:bg-[#2d2d2d] shadow-sm'
-                      : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-                      }`}
+                     <LayoutList className="w-3 h-3 mr-1" />
+                     Tabs
+                   </button>
+                   <button
+                     onClick={() => setSidebarView('explorer')}
+                     className={`flex-1 flex items-center justify-center py-[3px] rounded-md text-[10px] font-medium transition-all duration-200 ${sidebarView === 'explorer'
+                       ? 'bg-white dark:bg-[#2d2d2d] shadow-sm'
+                       : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                       }`}
                     style={sidebarView === 'explorer' ? { color: activeSpace?.color || 'var(--accent-color)' } : undefined}
                   >
-                    <Database className="w-3 h-3 mr-1.5" />
-                    Explorer
-                  </button>
-                </div>
+                     <Database className="w-3 h-3 mr-1" />
+                     Explorer
+                   </button>
+                 </div>
 
                 {/* New Tab Button - Inline */}
                 <button
                   onClick={() => setNewTabSelectorOpen(true)}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                  className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/5 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
                   title="New Tab (Ctrl+T)"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                   </svg>
                 </button>
@@ -679,14 +679,14 @@ export function AppLayout() {
             </div>
 
             {/* Footer Section: Archive | Spaces | Settings */}
-            <div className="px-3 py-2 border-t border-[var(--border-subtle)] flex items-center justify-between shrink-0">
+            <div className="px-2 py-1.5 border-t border-[var(--border-subtle)] flex items-center justify-between shrink-0">
               {/* Left: Archive */}
               <button
                 onClick={() => setArchiveModalOpen(true)}
-                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors relative"
+                className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors relative"
                 title="Archive"
               >
-                <Archive className="w-4 h-4" />
+                <Archive className="w-3.5 h-3.5" />
                 {archivedTabsCount > 0 && (
                   <span className="absolute top-2 right-2 w-1.5 h-1.5 bg-[var(--accent-color)] rounded-full" />
                 )}
@@ -698,10 +698,10 @@ export function AppLayout() {
               {/* Right: Settings (Command Palette) */}
               <button
                 onClick={() => setCommandPaletteOpen(true)}
-                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
                 title="Command Palette (Ctrl+Shift+P)"
               >
-                <Zap className="w-4 h-4" />
+                <Zap className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>

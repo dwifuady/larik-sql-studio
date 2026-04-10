@@ -146,7 +146,6 @@ interface RowData {
   editingCell: EditingCell | null;
   editedCells: Map<string, EditedCell>;
   canEdit: boolean;
-  hoveredCell: { row: number; col: number } | null;
   onCellClick: (row: number, col: number) => void;
   onCellMouseDown: (row: number, col: number, shiftKey: boolean) => void;
   onCellMouseEnter: (row: number, col: number) => void;
@@ -215,11 +214,6 @@ function arePropsEqual(prev: RowComponentProps, next: RowComponentProps) {
 
   // 2. Interaction checks (Row specific)
 
-  // Hover
-  // If this row is involved in hover change (either was hovered or is now hovered)
-  if ((d1.hoveredCell?.row === idx || d2.hoveredCell?.row === idx) &&
-    d1.hoveredCell !== d2.hoveredCell) return false;
-
   // Selected Cell
   if ((d1.selectedCell?.row === idx || d2.selectedCell?.row === idx) &&
     d1.selectedCell !== d2.selectedCell) return false;
@@ -260,7 +254,6 @@ const Cell = memo(function Cell({
   isInCopiedSelection,
   isEditing,
   isEdited,
-  isHovered,
   editingValue,
   onMouseDown,
   onMouseEnter,
@@ -282,7 +275,6 @@ const Cell = memo(function Cell({
   isInCopiedSelection: boolean;
   isEditing: boolean;
   isEdited: boolean;
-  isHovered: boolean;
   editingValue: string;
   onMouseDown: (row: number, col: number, shiftKey: boolean) => void;
   onMouseEnter: (row: number, col: number) => void;
@@ -295,7 +287,7 @@ const Cell = memo(function Cell({
 }) {
   return (
     <div
-      className={`px-3 flex items-center border-r border-[var(--border-color)] truncate cursor-pointer transition-colors select-none relative ${isSingleSelected || isInSelection ? 'bg-[var(--accent-glow)] ring-1 ring-[var(--accent-color)]' : ''
+      className={`group/cell px-3 flex items-center border-r border-[var(--border-color)] truncate cursor-pointer transition-colors select-none relative ${isSingleSelected || isInSelection ? 'bg-[var(--accent-glow)] ring-1 ring-[var(--accent-color)]' : ''
         } ${isCopied || isInCopiedSelection ? 'bg-green-500/20' : ''} ${isEdited && !isEditing ? 'bg-yellow-500/20' : ''}`}
       style={{ width, minWidth: width, height: ROW_HEIGHT }}
       onMouseDown={(e) => {
@@ -335,7 +327,7 @@ const Cell = memo(function Cell({
           <span className={`truncate text-xs text-[var(--text-primary)] ${isEdited ? 'font-medium' : ''}`}>
             {formatCellValue(displayValue)}
           </span>
-          {isHovered && !isEditing && (
+          {!isEditing && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -352,7 +344,7 @@ const Cell = memo(function Cell({
               onMouseEnter={(e) => {
                 e.stopPropagation();
               }}
-              className="absolute right-1 p-0.5 rounded bg-[var(--bg-secondary)] hover:bg-[var(--accent-color)] transition-colors z-10 cursor-pointer"
+              className="absolute right-1 p-0.5 rounded bg-[var(--bg-secondary)] hover:bg-[var(--accent-color)] transition-colors z-10 cursor-pointer opacity-0 pointer-events-none group-hover/cell:opacity-100 group-hover/cell:pointer-events-auto"
               title="Preview cell content (Space)"
             >
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -371,7 +363,7 @@ const Row = memo(function Row({
   style,
   data
 }: RowComponentProps): ReactElement | null {
-  const { rows, columnWidths, totalWidth, selectedCell, selection, copiedCell, copiedSelection, editingCell, editedCells, hoveredCell, onCellMouseDown, onCellMouseEnter, onCellMouseUp, onCellContextMenu, onCopyRow, onEditChange, onEditCommit, onEditCancel, onPreviewCell, columnOrder } = data;
+  const { rows, columnWidths, totalWidth, selectedCell, selection, copiedCell, copiedSelection, editingCell, editedCells, onCellMouseDown, onCellMouseEnter, onCellMouseUp, onCellContextMenu, onCopyRow, onEditChange, onEditCommit, onEditCancel, onPreviewCell, columnOrder } = data;
 
   const row = rows[index];
   if (!row) return null;
@@ -412,8 +404,6 @@ const Row = memo(function Row({
         const isEditing = editingCell?.rowIndex === index && editingCell?.colIndex === colIdx;
         const editKey = getEditKey(index, colIdx);
         const isEdited = editedCells.has(editKey);
-        const isHovered = hoveredCell?.row === index && hoveredCell?.col === colIdx;
-
         // Get the display value - use edited value if this cell was edited
         const displayValue = isEdited ? editedCells.get(editKey)!.newValue : cell;
 
@@ -431,7 +421,6 @@ const Row = memo(function Row({
             isInCopiedSelection={isInCopiedSelection}
             isEditing={isEditing}
             isEdited={isEdited}
-            isHovered={isHovered}
             editingValue={editingCell?.value || ''}
             onMouseDown={onCellMouseDown}
             onMouseEnter={onCellMouseEnter}
@@ -528,12 +517,19 @@ function formatValueForInsert(value: CellValue, dataType: string): string {
 
 function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#6366f1', onLoadMore, onExecuteUpdate, canEdit = false, queryText, tabId, resultIndex }: ResultsGridProps) {
   const updateResultCells = useAppStore((state) => state.updateResultCells);
-  const resultColumnOrder = useAppStore((state) => state.resultColumnOrder);
+  const storedColumnOrder = useAppStore((state) =>
+    tabId && resultIndex !== undefined ? state.resultColumnOrder[tabId]?.[resultIndex] ?? null : null
+  );
   const setResultColumnOrder = useAppStore((state) => state.setResultColumnOrder);
   const setResultScrollPosition = useAppStore((state) => state.setResultScrollPosition);
-  const getResultScrollPosition = useAppStore((state) => state.getResultScrollPosition);
+  const storedScrollPosition = useAppStore((state) =>
+    tabId && resultIndex !== undefined ? state.resultScrollPosition[tabId]?.[resultIndex] ?? null : null
+  );
 
-  const cellPreviewPanel = useAppStore(s => s.cellPreviewPanel);
+  const cellPreviewVisible = useAppStore(s => s.cellPreviewPanel.visible);
+  const cellPreviewWidth = useAppStore(s => s.cellPreviewPanel.width);
+  const cellPreviewSelectedCell = useAppStore(s => s.cellPreviewPanel.selectedCell);
+  const cellPreviewFormatterType = useAppStore(s => s.cellPreviewPanel.formatterType);
   const showCellPreview = useAppStore(s => s.showCellPreview);
   const hideCellPreview = useAppStore(s => s.hideCellPreview);
   const setCellPreviewWidth = useAppStore(s => s.setCellPreviewWidth);
@@ -550,7 +546,6 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
   const [copiedSelection, setCopiedSelection] = useState<SelectionRange | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; row: number; col: number } | null>(null);
   const [hoverColumnIdx, setHoverColumnIdx] = useState<number | null>(null);
-  const [hoveredCell, setHoveredCell] = useState<{ row: number; col: number } | null>(null);
 
   // Scroll position preservation
   const scrollPositionRef = useRef<{ top: number; left: number }>({ top: 0, left: 0 });
@@ -631,15 +626,12 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
 
   // Column order state from store (or default)
   const columnOrder = useMemo(() => {
-    if (tabId && resultIndex !== undefined) {
-      const stored = resultColumnOrder[tabId]?.[resultIndex];
-      if (stored && stored.length === result.columns.length) {
-        return stored;
-      }
+    if (storedColumnOrder && storedColumnOrder.length === result.columns.length) {
+      return storedColumnOrder;
     }
     // Default order [0, 1, 2, ...]
     return result.columns.map((_, i) => i);
-  }, [tabId, resultIndex, result.columns.length, resultColumnOrder]);
+  }, [result.columns.length, storedColumnOrder]);
 
   const handleDragEnd = useCallback((result: DropResult) => {
     if (!result.destination || !tabId || resultIndex === undefined) return;
@@ -667,9 +659,8 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
       return;
     }
 
-    const storedScroll = getResultScrollPosition(tabId, resultIndex);
-    scrollPositionRef.current = storedScroll ?? { top: 0, left: 0 };
-  }, [tabId, resultIndex, result.query_id, getResultScrollPosition]);
+    scrollPositionRef.current = storedScrollPosition ?? { top: 0, left: 0 };
+  }, [tabId, resultIndex, result.query_id, storedScrollPosition]);
 
   // Measure container size with throttling for performance
   useEffect(() => {
@@ -753,7 +744,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
   // Close cell preview panel when results change
   useEffect(() => {
     // Close the preview panel when new results arrive to avoid stale data
-    if (cellPreviewPanel.visible) {
+    if (cellPreviewVisible) {
       hideCellPreview();
     }
   }, [result.query_id]); // Use query_id to detect new query results
@@ -1225,13 +1216,6 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
 
   // Mouse enter handler for extending selection during drag
   const handleCellMouseEnter = useCallback((row: number, col: number) => {
-    // Set hovered cell for preview button (negative values clear hover)
-    if (row < 0 || col < 0) {
-      setHoveredCell(null);
-    } else {
-      setHoveredCell({ row, col });
-    }
-
     if (isSelecting && selectedCell) {
       // User is dragging - create or extend selection
       if (row !== selectedCell.row || col !== selectedCell.col) {
@@ -1282,7 +1266,6 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     editingCell,
     editedCells,
     canEdit: canActuallyEdit ?? false,
-    hoveredCell,
     onCellClick: handleCellClick,
     onCellMouseDown: handleCellMouseDown,
     onCellMouseEnter: handleCellMouseEnter,
@@ -1295,8 +1278,12 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     onEditCommit: handleEditCommit,
     onEditCancel: handleEditCancel,
     onPreviewCell: handlePreviewCell,
-  }), [result.rows, result.columns, columnWidths, totalWidth, selectedCell, selection, copiedCell, copiedSelection, editingCell?.rowIndex, editingCell?.colIndex, editedCells, canActuallyEdit, hoveredCell, handleCellClick, handleCellMouseDown, handleCellMouseEnter, handleCellMouseUp, handleStartEdit, handleCellContextMenu, columnOrder, handleCopyRow, handleEditChange, handleEditCommit, handleEditCancel, handlePreviewCell,
+  }), [result.rows, result.columns, columnWidths, totalWidth, selectedCell, selection, copiedCell, copiedSelection, editingCell?.rowIndex, editingCell?.colIndex, editedCells, canActuallyEdit, handleCellClick, handleCellMouseDown, handleCellMouseEnter, handleCellMouseUp, handleStartEdit, handleCellContextMenu, columnOrder, handleCopyRow, handleEditChange, handleEditCommit, handleEditCancel, handlePreviewCell,
   ]); // Only depend on row/col, not value
+
+  const renderRow = useCallback((props: Omit<RowComponentProps, 'data'>) => {
+    return <Row {...props as RowComponentProps} data={rowData} />;
+  }, [rowData]);
 
   // Reordered result for export/copy
   const reorderedResult = useMemo(() => {
@@ -1447,8 +1434,8 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
               defaultHeight={containerHeight}
               rowCount={result.rows.length}
               rowHeight={ROW_HEIGHT}
-              rowComponent={(props) => <Row {...props} data={rowData} />}
-              rowProps={{ data: rowData }}
+              rowComponent={renderRow}
+              rowProps={{}}
               style={{ overflowX: 'auto', height: containerHeight }}
               className="results-grid-list"
             />
@@ -1716,12 +1703,12 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
       </div>
 
       {/* Cell preview panel */}
-      {cellPreviewPanel.visible && (
+      {cellPreviewVisible && (
         <CellPreviewPanel
-          visible={cellPreviewPanel.visible}
-          width={cellPreviewPanel.width}
-          selectedCell={cellPreviewPanel.selectedCell}
-          formatterType={cellPreviewPanel.formatterType}
+          visible={cellPreviewVisible}
+          width={cellPreviewWidth}
+          selectedCell={cellPreviewSelectedCell}
+          formatterType={cellPreviewFormatterType}
           onClose={hideCellPreview}
           onResize={setCellPreviewWidth}
           onResizeImmediate={setCellPreviewWidthImmediate}

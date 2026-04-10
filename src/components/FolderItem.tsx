@@ -84,11 +84,11 @@ const FolderTabItem = memo(({
       }}
       {...attributes}
       {...listeners}
-      className={`
-        group flex items-center gap-2 px-2 py-1.5 ml-6 mr-1 my-0.5 rounded-lg cursor-pointer relative
-        transition-all duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] focus:ring-offset-1
-        ${isActive
-          ? 'text-[var(--text-primary)]'
+        className={`
+          group flex items-center gap-1.5 px-1.5 py-1 ml-5 mr-1 my-0.5 rounded-md cursor-pointer relative
+          transition-all duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] focus:ring-offset-1
+          ${isActive
+            ? 'text-[var(--text-primary)]'
           : 'hover:bg-black/5 dark:hover:bg-white/5 text-[var(--text-secondary)]'
         }
       `}
@@ -119,7 +119,7 @@ const FolderTabItem = memo(({
     >
       {isActive && (
         <div
-          className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r-full"
+          className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-0.5 rounded-r-full"
           style={{
             backgroundColor: spaceColor,
             boxShadow: `0 0 8px ${spaceColor}66`
@@ -127,7 +127,7 @@ const FolderTabItem = memo(({
         />
       )}
       <div className="shrink-0" style={{ color: isActive ? spaceColor : 'var(--text-muted)' }}>
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>
       </div>
@@ -144,15 +144,15 @@ const FolderTabItem = memo(({
           }}
           onBlur={handleFinishRename}
           onClick={(e) => e.stopPropagation()}
-          className="flex-1 min-w-0 text-sm bg-white/10 px-2 py-0.5 rounded outline-none"
+          className="flex-1 min-w-0 text-xs bg-white/10 px-1.5 py-0.5 rounded outline-none"
         />
       ) : (
-        <div className="flex-1 min-w-0 flex flex-col">
-          <span className={`truncate text-sm ${isActive ? 'text-[var(--text-primary)] font-medium' : 'text-[--text-secondary]'}`}>
+        <div className="flex-1 min-w-0 flex flex-col leading-tight">
+          <span className={`truncate text-[12px] ${isActive ? 'text-[var(--text-primary)] font-medium' : 'text-[--text-secondary]'}`}>
             {tab.title}
           </span>
           {tab.database && (
-            <span className="truncate text-[10px] text-[--text-muted] leading-tight">
+            <span className="truncate text-[10px] text-[--text-muted] max-h-0 opacity-0 overflow-hidden transition-all duration-150 group-hover:max-h-4 group-hover:opacity-100">
               {tab.database}
             </span>
           )}
@@ -255,7 +255,7 @@ export const FolderItem = memo(({
         tabIndex={0}
         aria-label={`Folder: ${folder.name}, ${tabs.length} tab${tabs.length !== 1 ? 's' : ''}`}
         aria-expanded={folder.is_expanded}
-        className="group flex items-center gap-2 px-2 py-1.5 mx-1 rounded-lg cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-all duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] focus:ring-offset-1"
+        className="group flex items-center gap-1.5 px-1.5 py-1 mx-1 rounded-md cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-all duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] focus:ring-offset-1"
         onClick={handleToggleExpanded}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -283,7 +283,7 @@ export const FolderItem = memo(({
           {...dragHandleListeners}
         >
           <svg
-            className={`w-4 h-4 transition-transform ${folder.is_expanded ? 'rotate-90' : ''}`}
+            className={`w-3.5 h-3.5 transition-transform ${folder.is_expanded ? 'rotate-90' : ''}`}
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -294,7 +294,7 @@ export const FolderItem = memo(({
 
         {/* Folder icon */}
         <div className="shrink-0 text-[--text-muted]">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -317,16 +317,16 @@ export const FolderItem = memo(({
             }}
             onBlur={handleFinishRenameFolder}
             onClick={(e) => e.stopPropagation()}
-            className="flex-1 min-w-0 text-sm font-medium bg-white/10 px-2 py-0.5 rounded outline-none text-[var(--text-primary)]"
+            className="flex-1 min-w-0 text-xs font-medium bg-white/10 px-1.5 py-0.5 rounded outline-none text-[var(--text-primary)]"
           />
         ) : (
-          <span className="flex-1 min-w-0 truncate text-sm font-medium text-[var(--text-primary)]">
+          <span className="flex-1 min-w-0 truncate text-[12px] font-medium text-[var(--text-primary)]">
             {folder.name}
           </span>
         )}
 
         {/* Tab count badge */}
-        <span className="shrink-0 text-[10px] text-[--text-muted] bg-white/5 px-1.5 py-0.5 rounded">
+        <span className="shrink-0 text-[9px] text-[--text-muted] bg-white/5 px-1 py-0.5 rounded">
           {tabs.length}
         </span>
       </div>
@@ -335,7 +335,7 @@ export const FolderItem = memo(({
       <div
         className="overflow-hidden transition-all duration-200 ease-in-out"
         style={{
-          maxHeight: folder.is_expanded ? `${tabs.length * 60}px` : '0px',
+          maxHeight: folder.is_expanded ? `${tabs.length * 42}px` : '0px',
           opacity: folder.is_expanded ? 1 : 0,
         }}
       >
