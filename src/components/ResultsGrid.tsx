@@ -1311,8 +1311,10 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     };
   }, [result, columnOrder]);
 
-  // Loading state
-  if (isExecuting) {
+  // Loading state — only show full-screen spinner when there's NO existing data to display
+  // If we have columns/rows/error from a previous result, show the data with a subtle overlay
+  const hasResultData = result.columns.length > 0 || result.rows.length > 0 || result.error;
+  if (isExecuting && !hasResultData) {
     return (
       <div className="flex h-full">
         <div className="flex items-center justify-center h-full flex-1">
@@ -1332,6 +1334,16 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
   if (result.error) {
     return (
       <div className="flex h-full">
+        {/* Loading overlay when executing over a previous error */}
+        {isExecuting && (
+          <div className="shrink-0 flex items-center gap-2 px-4 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-xs text-[var(--text-secondary)]">
+            <div
+              className="w-3 h-3 border-2 border-t-transparent rounded-full animate-spin shrink-0"
+              style={{ borderColor: `${spaceColor}60`, borderTopColor: 'transparent' }}
+            />
+            <span>Executing new query — previous results still visible</span>
+          </div>
+        )}
         <div className="p-4 h-full overflow-auto flex-1">
           <div className="flex items-start gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
             <svg className="w-5 h-5 text-red-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1378,6 +1390,17 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
           // Clear selection state when focus moves away and back
         }}
       >
+        {/* Executing overlay bar — appears at top of results when query runs with existing data */}
+        {isExecuting && hasResultData && (
+          <div className="shrink-0 flex items-center gap-2 px-4 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-xs text-[var(--text-secondary)]">
+            <div
+              className="w-3 h-3 border-2 border-t-transparent rounded-full animate-spin shrink-0"
+              style={{ borderColor: `${spaceColor}60`, borderTopColor: 'transparent' }}
+            />
+            <span>Executing new query — previous results still visible</span>
+          </div>
+        )}
+
         {/* Fixed header */}
         <div
           ref={headerRef}
