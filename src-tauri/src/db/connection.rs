@@ -131,10 +131,21 @@ pub enum ConnectionError {
 
 impl From<tiberius::error::Error> for ConnectionError {
     fn from(err: tiberius::error::Error) -> Self {
-        // Check for password expired error (usually 18488)
+        // Check for password expired / must-change errors from SQL Server
+        // 18487: The password has expired (and the account is locked)
+        // 18488: The password must be changed before first use
+        // 18456 with state 2: Login failed — password change required
+        // 18456 with state 1: Login failed — password expired
         if let tiberius::error::Error::Server(e) = &err {
-            if e.code() == 18488 {
-                return ConnectionError::PasswordExpired;
+            match e.code() {
+                18487 | 18488 => return ConnectionError::PasswordExpired,
+                18456 => {
+                    // Check state: 1 = password expired, 2 = must change
+                    if e.state() == 1 || e.state() == 2 {
+                        return ConnectionError::PasswordExpired;
+                    }
+                }
+                _ => {}
             }
         }
         ConnectionError::ConnectionFailed(err.to_string())
