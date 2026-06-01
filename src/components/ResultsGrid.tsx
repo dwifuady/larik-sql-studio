@@ -1334,14 +1334,13 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
   if (result.error) {
     return (
       <div className="flex h-full">
-        {/* Loading overlay when executing over a previous error */}
+        {/* Thin loading bar when executing over a previous error */}
         {isExecuting && (
-          <div className="shrink-0 flex items-center gap-2 px-4 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-xs text-[var(--text-secondary)]">
+          <div className="shrink-0 h-0.5 overflow-hidden bg-transparent">
             <div
-              className="w-3 h-3 border-2 border-t-transparent rounded-full animate-spin shrink-0"
-              style={{ borderColor: `${spaceColor}60`, borderTopColor: 'transparent' }}
+              className="h-full w-1/3 rounded-full animate-loading-bar"
+              style={{ backgroundColor: spaceColor }}
             />
-            <span>Executing new query — previous results still visible</span>
           </div>
         )}
         <div className="p-4 h-full overflow-auto flex-1">
@@ -1390,14 +1389,13 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
           // Clear selection state when focus moves away and back
         }}
       >
-        {/* Executing overlay bar — appears at top of results when query runs with existing data */}
+        {/* Thin loading bar when executing with existing data */}
         {isExecuting && hasResultData && (
-          <div className="shrink-0 flex items-center gap-2 px-4 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-xs text-[var(--text-secondary)]">
+          <div className="shrink-0 h-0.5 overflow-hidden bg-transparent">
             <div
-              className="w-3 h-3 border-2 border-t-transparent rounded-full animate-spin shrink-0"
-              style={{ borderColor: `${spaceColor}60`, borderTopColor: 'transparent' }}
+              className="h-full w-1/3 rounded-full animate-loading-bar"
+              style={{ backgroundColor: spaceColor }}
             />
-            <span>Executing new query — previous results still visible</span>
           </div>
         )}
 
