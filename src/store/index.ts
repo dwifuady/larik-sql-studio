@@ -9,6 +9,7 @@ import { createSnippetsSlice, SnippetsSlice } from './slices/snippetsSlice';
 import { createArchiveSlice, ArchiveSlice } from './slices/archiveSlice';
 import { createUISlice, UISlice } from './slices/uiSlice';
 import { createQueriesSlice, QueriesSlice } from './slices/queriesSlice';
+import { createPeekSlice, PeekSlice } from './slices/peekSlice';
 
 // Combine all slice interfaces into the main AppState
 export type AppState =
@@ -19,7 +20,8 @@ export type AppState =
   & SnippetsSlice
   & ArchiveSlice
   & UISlice
-  & QueriesSlice;
+  & QueriesSlice
+  & PeekSlice;
 
 // Create the combined store
 export const useAppStore = create<AppState>((...a) => ({
@@ -31,4 +33,5 @@ export const useAppStore = create<AppState>((...a) => ({
   ...createArchiveSlice(...a),
   ...createUISlice(...a),
   ...createQueriesSlice(...a),
+  ...createPeekSlice(...a),
 }));

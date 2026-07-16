@@ -4,7 +4,7 @@ import { useAppStore } from '../store';
 
 interface MonacoPreviewProps {
   content: string;
-  language: 'json' | 'xml' | 'plaintext';
+  language: 'json' | 'xml' | 'plaintext' | 'sql';
 }
 
 export function MonacoPreview({ content, language }: MonacoPreviewProps) {
