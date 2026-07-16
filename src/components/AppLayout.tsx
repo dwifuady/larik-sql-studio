@@ -295,8 +295,14 @@ export function AppLayout() {
 
   // Handle new tab creation with database selection
   const handleCreateNewTab = async (db: string | null) => {
-    const tabCount = tabs.length + 1;
-    const newTab = await createTab(`Query ${tabCount}`, 'query', '');
+    // Derive the next number from the highest existing "Query N" title rather than
+    // tabs.length: closing/archiving a middle tab would otherwise collide and
+    // produce duplicate "Query N" names.
+    const highest = tabs.reduce((max, t) => {
+      const match = /^Query (\d+)$/.exec(t.title);
+      return match ? Math.max(max, parseInt(match[1], 10)) : max;
+    }, 0);
+    const newTab = await createTab(`Query ${highest + 1}`, 'query', '');
     if (newTab && db !== null) {
       await updateTabDatabase(newTab.id, db);
     }
