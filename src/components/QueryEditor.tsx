@@ -21,6 +21,7 @@ import {
 import { buildJoinConditionSuggestions } from '../utils/sqlJoinSuggestions';
 import { useStickyNotes, EVENT_ADD_STICKY_NOTE } from '../hooks/useStickyNotes';
 import { extractAllStatements } from '../utils/queryExtractor';
+import { getResultStatementLabel } from '../utils/sql';
 import { extractNotes } from '../utils/noteManager';
 import { ContextMenu, ContextMenuItem } from './ContextMenu';
 
@@ -2348,7 +2349,9 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
                       >
                         {queryResults.map((result, index) => {
                           const customName = getResultCustomName(tab.id, index);
-                          const defaultName = result.displayId ? `Result ${result.displayId}` : `Result ${index + 1}`;
+                          const statementLabel = getResultStatementLabel(result.statement_text);
+                          const fallbackName = result.displayId ? `Result ${result.displayId}` : `Result ${index + 1}`;
+                          const defaultName = statementLabel ?? fallbackName;
                           const displayName = customName || defaultName;
                           const isEditing = editingResultIndex === index;
 
@@ -2404,10 +2407,10 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
                                       onClick={() => setActiveResultIndex(tab.id, index)}
                                       onDoubleClick={() => {
                                         setEditingResultIndex(index);
-                                        const defaultName = result.displayId ? `Result ${result.displayId}` : `Result ${index + 1}`;
                                         setEditingResultName(customName || defaultName);
                                       }}
                                       className="flex items-center gap-1.5 cursor-pointer"
+                                      title={result.statement_text ?? undefined}
                                     >
                                       <span>{displayName}</span>
                                       {result.row_count > 0 && (
