@@ -646,7 +646,7 @@ export function AppLayout() {
                     style={sidebarView === 'tabs' ? { backgroundColor: `${spaceColor}18`, color: spaceColor } : undefined}
                   >
                      <LayoutList className="w-3 h-3 mr-1" />
-                     Open Queries
+                     Tabs
                    </button>
                    <button
                      onClick={() => setSidebarView('explorer')}
