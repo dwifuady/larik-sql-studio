@@ -226,7 +226,7 @@ export function GlobalSearch() {
 
     // Trigger button in titlebar
     return (
-        <div ref={containerRef} className="relative mx-auto w-full max-w-md pointer-events-auto h-full flex items-center justify-center">
+        <div ref={containerRef} className="relative mx-auto w-full pointer-events-auto h-full flex items-center">
             {/* The Trigger Input - Only visible when NOT open */}
             <div
                 className={`relative flex items-center transition-all duration-200 group w-full ${isOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
