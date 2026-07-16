@@ -4,7 +4,7 @@
 product
 
 ## Platform
-web
+desktop
 
 ## Users
 - **Primary:** Backend and fullstack developers who work with Microsoft SQL Server, SQLite, and other relational databases in their daily workflow.

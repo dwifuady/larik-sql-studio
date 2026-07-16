@@ -56,6 +56,23 @@ The project utilizes `npm` scripts to manage both the frontend (Vite) and backen
     npm run preview  # Previews built frontend assets
     ```
 
+## Design Quality
+
+This project uses [Impeccable](https://github.com/pbakaus/impeccable) to catch UI anti-patterns and design quality issues. Before every UI-related commit, run:
+
+```bash
+npx impeccable detect src/
+```
+
+This scans for overused fonts, low-contrast text, dated easing curves, and other "AI slop" patterns. Fix any findings before committing.
+
+Key anti-patterns to avoid:
+- **gray-on-color:** Gray text (`text-gray-*`) on any colored background (`bg-*`), including hover states
+- **overused-font:** Inter, Geist, Plus Jakarta Sans, Space Grotesk — these are AI-overused fonts. Stick to the system font stack.
+- **bounce-easing:** `cubic-bezier` values with bounce/elastic feel. Use `cubic-bezier(0.16, 1, 0.3, 1)` or `ease-out` instead.
+
+PRODUCT.md and DESIGN.md at the project root define the design system. Read them before making UI changes.
+
 ## Development Conventions
 
 *   **IDE Setup:**
