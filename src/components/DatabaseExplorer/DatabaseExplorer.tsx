@@ -17,6 +17,9 @@ export function DatabaseExplorer() {
     const schemaLoading = useAppStore(s => s.schemaLoading);
     const refreshSchema = useAppStore(s => s.refreshSchema);
     const createTab = useAppStore(s => s.createTab);
+    const openTablePeek = useAppStore(s => s.openTablePeek);
+    const openObjectPeek = useAppStore(s => s.openObjectPeek);
+    const openTableSourcePeek = useAppStore(s => s.openTableSourcePeek);
     const activeSpaceId = useAppStore(s => s.activeSpaceId);
     const spaces = useAppStore(s => s.spaces);
 
@@ -174,6 +177,38 @@ export function DatabaseExplorer() {
         }
     };
 
+    // Arc-style "peek": Shift+click previews table/view data, Alt+click previews
+    // the source of a view/procedure. Returns true if a peek was triggered.
+    const handleModifierClick = (e: React.MouseEvent, node: TreeNode): boolean => {
+        // Shift+click a table or view -> TOP 100 data preview
+        if (e.shiftKey && (node.type === 'table' || node.type === 'view')) {
+            openTablePeek(node.data as TableInfo);
+            return true;
+        }
+        // Alt+click a table -> CREATE TABLE definition preview
+        if (e.altKey && node.type === 'table') {
+            openTableSourcePeek(node.data as TableInfo);
+            return true;
+        }
+        // Alt+click a view or procedure -> source definition preview
+        if (e.altKey && node.type === 'view') {
+            const v = node.data as TableInfo;
+            openObjectPeek('view', v.schema_name, v.table_name);
+            return true;
+        }
+        if (e.altKey && node.type === 'routine') {
+            const r = node.data as RoutineInfo;
+            openObjectPeek('routine', r.schema_name, r.routine_name);
+            return true;
+        }
+        return false;
+    };
+
+    const handleNodeClick = (e: React.MouseEvent, node: TreeNode, hasChildren: boolean) => {
+        if (handleModifierClick(e, node)) return;
+        if (hasChildren) toggleNodeExpansion(node.id);
+    };
+
     // Recursive Tree Render
     const renderTree = (nodes: TreeNode[]) => {
         return nodes.map(node => {
@@ -189,8 +224,17 @@ export function DatabaseExplorer() {
                         ${hasChildren ? '' : 'pl-6'} 
                     `}
                         style={{ paddingLeft: hasChildren ? undefined : '1.5rem' }}
-                        onClick={() => hasChildren && toggleNodeExpansion(node.id)}
+                        onClick={(e) => handleNodeClick(e, node, !!hasChildren)}
                         onDoubleClick={() => handleDoubleClick(node)}
+                        title={
+                            node.type === 'table'
+                                ? 'Shift+click to peek data · Alt+click to peek definition · double-click to open'
+                                : node.type === 'view'
+                                    ? 'Shift+click to peek data · Alt+click to peek source'
+                                    : node.type === 'routine'
+                                        ? 'Alt+click to peek source'
+                                        : undefined
+                        }
                     >
                         {/* Hover Effect using space color - thinner and stronger */}
                         <div

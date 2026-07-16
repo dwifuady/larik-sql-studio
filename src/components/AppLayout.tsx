@@ -14,6 +14,7 @@ import { TitleBar } from './TitleBar';
 import { DatabaseSelector } from './DatabaseSelector';
 import { ToastContainer } from './Toast';
 import { ArchiveModal } from './ArchiveModal';
+import { PeekPanel } from './PeekPanel';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { spaceHasConnection } from '../types';
 import * as api from '../api';
@@ -986,6 +987,9 @@ export function AppLayout() {
 
       {/* Archive modal */}
       < ArchiveModal />
+
+      {/* Explorer peek popup (Arc-style) */}
+      <PeekPanel />
     </div >
   );
 }
