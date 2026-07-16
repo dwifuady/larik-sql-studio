@@ -252,7 +252,7 @@ export function SpacesSelector() {
   return (
     <>
       {/* Bottom bar with space dots */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         {spaces.map((space, index) => {
           const color = getSpaceColor(index, space.color);
           const isActive = space.id === activeSpaceId;
@@ -266,7 +266,7 @@ export function SpacesSelector() {
                   setShowMenu(showMenu === space.id ? null : space.id);
                 }}
                 className={`
-                    w-2.5 h-2.5 rounded-full transition-all duration-200 ease-out
+                    w-2 h-2 rounded-full transition-all duration-200 ease-out
                     ${isActive
                     ? 'scale-125 ring-2 ring-white/30 ring-offset-1 ring-offset-[var(--sidebar-bg)]'
                     : 'opacity-50 hover:opacity-100 hover:scale-110'
@@ -278,21 +278,21 @@ export function SpacesSelector() {
 
               {/* Context menu */}
               {showMenu === space.id && (
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-40 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg shadow-xl z-50 py-1 animate-fade-in">
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-36 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-md shadow-xl z-50 py-1 animate-fade-in">
                   <button
                     onClick={() => startEditing(space, index)}
-                    className="w-full px-3 py-2 text-left text-sm hover:bg-white/5 flex items-center gap-2"
+                    className="w-full px-2.5 py-1.5 text-left text-[13px] hover:bg-white/5 flex items-center gap-1.5"
                   >
-                    <svg className="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                     </svg>
                     Edit Space
                   </button>
                   <button
                     onClick={() => handleDelete(space.id)}
-                    className="w-full px-3 py-2 text-left text-sm hover:bg-red-500/20 text-red-400 flex items-center gap-2"
+                    className="w-full px-2.5 py-1.5 text-left text-[13px] hover:bg-red-500/20 text-red-400 flex items-center gap-1.5"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
                     Delete
@@ -307,7 +307,7 @@ export function SpacesSelector() {
         <div className="relative" ref={settingsMenuRef}>
           <button
             onClick={() => setShowSettingsMenu(!showSettingsMenu)}
-            className="w-2.5 h-2.5 rounded-full flex items-center justify-center
+            className="w-2 h-2 rounded-full flex items-center justify-center
                             hover:bg-white/10 transition-all duration-200
                             opacity-50 hover:opacity-100"
             title="Settings"
@@ -319,37 +319,37 @@ export function SpacesSelector() {
 
           {/* Settings menu */}
           {showSettingsMenu && (
-            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg shadow-xl z-50 py-1 animate-fade-in">
-              <div className="px-3 py-1.5 text-xs font-semibold text-[var(--text-muted)] border-b border-[var(--border-color)]">
-                Actions
-              </div>
+             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-44 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-md shadow-xl z-50 py-1 animate-fade-in">
+               <div className="px-2.5 py-1 text-[11px] font-semibold text-[var(--text-muted)] border-b border-[var(--border-color)]">
+                 Actions
+               </div>
               <button
                 onClick={() => {
                   setIsCreating(true);
                   setShowSettingsMenu(false);
                 }}
-                className="w-full px-3 py-2 text-left text-sm hover:bg-white/5 flex items-center gap-2"
-              >
-                <svg className="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                 className="w-full px-2.5 py-1.5 text-left text-[13px] hover:bg-white/5 flex items-center gap-1.5"
+               >
+                 <svg className="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
                 New Space
               </button>
-              <div className="px-3 py-1.5 text-xs font-semibold text-[var(--text-muted)] border-y border-[var(--border-color)]">
-                App Data
-              </div>
+               <div className="px-2.5 py-1 text-[11px] font-semibold text-[var(--text-muted)] border-y border-[var(--border-color)]">
+                 App Data
+               </div>
               <button
                 onClick={handleImport}
-                className="w-full px-3 py-2 text-left text-sm hover:bg-white/5 flex items-center gap-2"
-              >
-                <svg className="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                 className="w-full px-2.5 py-1.5 text-left text-[13px] hover:bg-white/5 flex items-center gap-1.5"
+               >
+                 <svg className="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
                 Import Data...
               </button>
               <button
                 onClick={handleExport}
-                className="w-full px-3 py-2 text-left text-sm hover:bg-white/5 flex items-center gap-2"
-              >
-                <svg className="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                 className="w-full px-2.5 py-1.5 text-left text-[13px] hover:bg-white/5 flex items-center gap-1.5"
+               >
+                 <svg className="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                 Export Data...
               </button>
             </div>
@@ -370,8 +370,8 @@ export function SpacesSelector() {
                 setTestResult(null);
               }}
             />
-            <div className="relative pointer-events-auto bg-[var(--bg-secondary)] p-5 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto animate-fade-in" style={{ zIndex: 10000 }}>
-              <h3 className="text-lg font-semibold mb-4">New Space</h3>
+            <div className="relative pointer-events-auto bg-[var(--bg-secondary)] p-4 rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto animate-fade-in" style={{ zIndex: 10000 }}>
+              <h3 className="text-base font-semibold mb-3">New Space</h3>
               <input
                 ref={inputRef}
                 type="text"
@@ -385,19 +385,19 @@ export function SpacesSelector() {
                   }
                 }}
                 placeholder="Space name..."
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg mb-4 focus:border-[var(--accent-color)] outline-none"
+                className="w-full px-2.5 py-1.5 bg-white/5 border border-white/10 rounded-md mb-3 focus:border-[var(--accent-color)] outline-none text-sm"
               />
 
               {/* Color picker */}
-              <div className="mb-4">
-                <label className="text-sm text-[var(--text-secondary)] mb-2 block">Color</label>
-                <div className="flex gap-2 flex-wrap">
+              <div className="mb-3">
+                <label className="text-sm text-[var(--text-secondary)] mb-1.5 block">Color</label>
+                <div className="flex gap-1.5 flex-wrap">
                   {SPACE_COLORS.map(color => (
                     <button
                       key={color}
                       onClick={() => setSelectedColor(color)}
-                      className={`w-7 h-7 rounded-full transition-all ${selectedColor === color ? 'ring-2 ring-white ring-offset-2 ring-offset-[var(--bg-secondary)] scale-110' : ''
-                        }`}
+                       className={`w-6 h-6 rounded-full transition-all ${selectedColor === color ? 'ring-2 ring-white ring-offset-2 ring-offset-[var(--bg-secondary)] scale-110' : ''
+                         }`}
                       style={{ backgroundColor: color }}
                     />
                   ))}
@@ -405,22 +405,22 @@ export function SpacesSelector() {
               </div>
 
               {/* Connection form */}
-              <div className="mb-4 p-3 bg-white/5 rounded-lg">
-                <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
-                  <svg className="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="mb-3 p-2.5 bg-white/5 rounded-md">
+                <h4 className="text-sm font-medium mb-2 flex items-center gap-1.5">
+                  <svg className="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
                   </svg>
                   Database Connection <span className="text-xs text-[var(--text-secondary)] font-normal">(optional)</span>
                 </h4>
 
-                <div className="grid grid-cols-3 gap-2 mb-2">
+                <div className="grid grid-cols-3 gap-1.5 mb-1.5">
                   <div className="col-span-2">
                     <input
                       type="text"
                       value={connection.host}
                       onChange={(e) => setConnection(c => ({ ...c, host: e.target.value }))}
                       placeholder="Host / Server"
-                      className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
+                       className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
                     />
                   </div>
                   <div>
@@ -429,7 +429,7 @@ export function SpacesSelector() {
                       value={connection.port}
                       onChange={(e) => setConnection(c => ({ ...c, port: e.target.value }))}
                       placeholder="Port"
-                      className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
+                       className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
                     />
                   </div>
                 </div>
@@ -439,27 +439,27 @@ export function SpacesSelector() {
                   value={connection.database}
                   onChange={(e) => setConnection(c => ({ ...c, database: e.target.value }))}
                   placeholder="Database"
-                  className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm mb-2 focus:border-[var(--accent-color)] outline-none"
+                   className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-sm mb-1.5 focus:border-[var(--accent-color)] outline-none"
                 />
 
-                <div className="grid grid-cols-2 gap-2 mb-2">
+                 <div className="grid grid-cols-2 gap-1.5 mb-1.5">
                   <input
                     type="text"
                     value={connection.username}
                     onChange={(e) => setConnection(c => ({ ...c, username: e.target.value }))}
                     placeholder="Username"
-                    className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
+                     className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
                   />
                   <input
                     type="password"
                     value={connection.password}
                     onChange={(e) => setConnection(c => ({ ...c, password: e.target.value }))}
                     placeholder="Password"
-                    className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
+                     className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
                   />
                 </div>
 
-                <div className="flex gap-4 mb-3 text-xs">
+                 <div className="flex gap-3 mb-2 text-xs">
                   <label className="flex items-center gap-1.5 cursor-pointer">
                     <input
                       type="checkbox"
@@ -482,11 +482,11 @@ export function SpacesSelector() {
 
                 {/* Test connection button */}
                 {connection.host && connection.database && (
-                  <div className="flex items-center gap-2">
+                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={handleTestConnection}
                       disabled={isTesting}
-                      className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20 disabled:opacity-50"
+                       className="text-xs px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 disabled:opacity-50"
                     >
                       {isTesting ? 'Testing...' : 'Test Connection'}
                     </button>
@@ -496,7 +496,7 @@ export function SpacesSelector() {
                 )}
               </div>
 
-              <div className="flex justify-end gap-2">
+               <div className="flex justify-end gap-1.5">
                 <button
                   onClick={() => {
                     setIsCreating(false);
@@ -504,14 +504,14 @@ export function SpacesSelector() {
                     setConnection(emptyConnection);
                     setTestResult(null);
                   }}
-                  className="px-4 py-2 rounded-lg hover:bg-white/5 text-[var(--text-secondary)]"
+                   className="px-3 py-1.5 rounded-md hover:bg-white/5 text-[var(--text-secondary)] text-sm"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleCreate}
                   disabled={!newName.trim()}
-                  className="px-4 py-2 rounded-lg bg-[var(--accent-color)] hover:bg-[var(--accent-hover)] text-white font-medium disabled:opacity-50"
+                   className="px-3 py-1.5 rounded-md bg-[var(--accent-color)] hover:bg-[var(--accent-hover)] text-white font-medium disabled:opacity-50 text-sm"
                 >
                   Create
                 </button>
@@ -535,8 +535,8 @@ export function SpacesSelector() {
                 setTestResult(null);
               }}
             />
-            <div className="relative pointer-events-auto bg-[var(--bg-secondary)] p-5 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto animate-fade-in" style={{ zIndex: 10000 }}>
-              <h3 className="text-lg font-semibold mb-4">Edit Space</h3>
+            <div className="relative pointer-events-auto bg-[var(--bg-secondary)] p-4 rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto animate-fade-in" style={{ zIndex: 10000 }}>
+              <h3 className="text-base font-semibold mb-3">Edit Space</h3>
               <input
                 ref={inputRef}
                 type="text"
@@ -549,19 +549,19 @@ export function SpacesSelector() {
                     setConnection(emptyConnection);
                   }
                 }}
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg mb-4 focus:border-[var(--accent-color)] outline-none"
+                className="w-full px-2.5 py-1.5 bg-white/5 border border-white/10 rounded-md mb-3 focus:border-[var(--accent-color)] outline-none text-sm"
               />
 
               {/* Color picker */}
-              <div className="mb-4">
-                <label className="text-sm text-[var(--text-secondary)] mb-2 block">Color</label>
-                <div className="flex gap-2 flex-wrap">
+              <div className="mb-3">
+                <label className="text-sm text-[var(--text-secondary)] mb-1.5 block">Color</label>
+                <div className="flex gap-1.5 flex-wrap">
                   {SPACE_COLORS.map(color => (
                     <button
                       key={color}
                       onClick={() => setSelectedColor(color)}
-                      className={`w-7 h-7 rounded-full transition-all ${selectedColor === color ? 'ring-2 ring-white ring-offset-2 ring-offset-[var(--bg-secondary)] scale-110' : ''
-                        }`}
+                       className={`w-6 h-6 rounded-full transition-all ${selectedColor === color ? 'ring-2 ring-white ring-offset-2 ring-offset-[var(--bg-secondary)] scale-110' : ''
+                         }`}
                       style={{ backgroundColor: color }}
                     />
                   ))}
@@ -569,22 +569,22 @@ export function SpacesSelector() {
               </div>
 
               {/* Connection form */}
-              <div className="mb-4 p-3 bg-white/5 rounded-lg">
-                <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
-                  <svg className="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="mb-3 p-2.5 bg-white/5 rounded-md">
+                <h4 className="text-sm font-medium mb-2 flex items-center gap-1.5">
+                  <svg className="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
                   </svg>
                   Database Connection
                 </h4>
 
-                <div className="grid grid-cols-3 gap-2 mb-2">
+                <div className="grid grid-cols-3 gap-1.5 mb-1.5">
                   <div className="col-span-2">
                     <input
                       type="text"
                       value={connection.host}
                       onChange={(e) => setConnection(c => ({ ...c, host: e.target.value }))}
                       placeholder="Host / Server"
-                      className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
+                      className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
                     />
                   </div>
                   <div>
@@ -593,7 +593,7 @@ export function SpacesSelector() {
                       value={connection.port}
                       onChange={(e) => setConnection(c => ({ ...c, port: e.target.value }))}
                       placeholder="Port"
-                      className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
+                      className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
                     />
                   </div>
                 </div>
@@ -603,27 +603,27 @@ export function SpacesSelector() {
                   value={connection.database}
                   onChange={(e) => setConnection(c => ({ ...c, database: e.target.value }))}
                   placeholder="Database"
-                  className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm mb-2 focus:border-[var(--accent-color)] outline-none"
+                  className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-sm mb-1.5 focus:border-[var(--accent-color)] outline-none"
                 />
 
-                <div className="grid grid-cols-2 gap-2 mb-2">
+                <div className="grid grid-cols-2 gap-1.5 mb-1.5">
                   <input
                     type="text"
                     value={connection.username}
                     onChange={(e) => setConnection(c => ({ ...c, username: e.target.value }))}
                     placeholder="Username"
-                    className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
+                    className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
                   />
                   <input
                     type="password"
                     value={connection.password}
                     onChange={(e) => setConnection(c => ({ ...c, password: e.target.value }))}
                     placeholder="Password (leave blank to keep)"
-                    className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
+                    className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
                   />
                 </div>
 
-                <div className="flex gap-4 mb-3 text-xs">
+                <div className="flex gap-3 mb-2 text-xs">
                   <label className="flex items-center gap-1.5 cursor-pointer">
                     <input
                       type="checkbox"
@@ -646,11 +646,11 @@ export function SpacesSelector() {
 
                 {/* Test connection button */}
                 {connection.host && connection.database && (
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
                     <button
                       onClick={handleTestConnection}
                       disabled={isTesting}
-                      className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20 disabled:opacity-50"
+                      className="text-xs px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 disabled:opacity-50"
                     >
                       {isTesting ? 'Testing...' : 'Test Connection'}
                     </button>
@@ -660,7 +660,7 @@ export function SpacesSelector() {
                 )}
               </div>
 
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-1.5">
                 <button
                   onClick={() => {
                     setIsEditing(null);
@@ -668,13 +668,13 @@ export function SpacesSelector() {
                     setConnection(emptyConnection);
                     setTestResult(null);
                   }}
-                  className="px-4 py-2 rounded-lg hover:bg-white/5 text-[var(--text-secondary)]"
+                  className="px-3 py-1.5 rounded-md hover:bg-white/5 text-[var(--text-secondary)] text-sm"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={() => handleEdit(isEditing)}
-                  className="px-4 py-2 rounded-lg bg-[var(--accent-color)] hover:bg-[var(--accent-hover)] text-white font-medium"
+                  className="px-3 py-1.5 rounded-md bg-[var(--accent-color)] hover:bg-[var(--accent-hover)] text-white font-medium text-sm"
                 >
                   Save
                 </button>

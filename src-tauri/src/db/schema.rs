@@ -31,6 +31,19 @@ pub struct TableInfo {
     pub columns: Vec<ColumnInfo>,
 }
 
+/// Represents a foreign key relationship between two table columns
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelationshipInfo {
+    pub constraint_name: String,
+    pub ordinal_position: i32,
+    pub source_schema_name: String,
+    pub source_table_name: String,
+    pub source_column_name: String,
+    pub target_schema_name: String,
+    pub target_table_name: String,
+    pub target_column_name: String,
+}
+
 /// Represents a parameter of a stored procedure or function
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParameterInfo {
@@ -60,6 +73,8 @@ pub struct SchemaInfo {
     pub database_name: String,
     pub schemas: Vec<String>,
     pub tables: Vec<TableInfo>,
+    #[serde(default)]
+    pub relationships: Vec<RelationshipInfo>,
     pub routines: Vec<RoutineInfo>,
     pub fetched_at: String,
 }
@@ -109,6 +124,9 @@ impl SchemaMetadataManager {
         // Fetch tables and views
         let tables = self.fetch_tables_and_views(&mut conn, schema_filter).await?;
 
+        // Fetch foreign key relationships for join suggestions
+        let relationships = self.fetch_relationships(&mut conn, schema_filter).await?;
+
         // Fetch routines (stored procedures and functions)
         let routines = self.fetch_routines(&mut conn, schema_filter).await?;
 
@@ -116,6 +134,7 @@ impl SchemaMetadataManager {
             database_name: database.to_string(),
             schemas,
             tables,
+            relationships,
             routines,
             fetched_at: chrono::Utc::now().to_rfc3339(),
         };
@@ -124,6 +143,76 @@ impl SchemaMetadataManager {
         let _ = self.db_manager.save_schema(connection_id, database, &schema_info);
 
         Ok(schema_info)
+    }
+
+    /// Fetch foreign key relationships between tables
+    async fn fetch_relationships(
+        &self,
+        conn: &mut bb8::PooledConnection<'_, bb8_tiberius::ConnectionManager>,
+        schema_filter: Option<&str>,
+    ) -> Result<Vec<RelationshipInfo>, ConnectionError> {
+        let schema_condition = schema_filter
+            .map(|s| format!(
+                "AND (src_schema.name = '{}' OR tgt_schema.name = '{}')",
+                s.replace('\'', "''"),
+                s.replace('\'', "''")
+            ))
+            .unwrap_or_default();
+
+        let query = format!(
+            r#"
+            SELECT
+                fk.name AS constraint_name,
+                fkc.constraint_column_id AS ordinal_position,
+                src_schema.name AS source_schema_name,
+                src_table.name AS source_table_name,
+                src_column.name AS source_column_name,
+                tgt_schema.name AS target_schema_name,
+                tgt_table.name AS target_table_name,
+                tgt_column.name AS target_column_name
+            FROM sys.foreign_keys fk
+            JOIN sys.foreign_key_columns fkc
+                ON fk.object_id = fkc.constraint_object_id
+            JOIN sys.tables src_table
+                ON fkc.parent_object_id = src_table.object_id
+            JOIN sys.schemas src_schema
+                ON src_table.schema_id = src_schema.schema_id
+            JOIN sys.columns src_column
+                ON fkc.parent_object_id = src_column.object_id
+                AND fkc.parent_column_id = src_column.column_id
+            JOIN sys.tables tgt_table
+                ON fkc.referenced_object_id = tgt_table.object_id
+            JOIN sys.schemas tgt_schema
+                ON tgt_table.schema_id = tgt_schema.schema_id
+            JOIN sys.columns tgt_column
+                ON fkc.referenced_object_id = tgt_column.object_id
+                AND fkc.referenced_column_id = tgt_column.column_id
+            WHERE 1=1 {}
+            ORDER BY fk.name, fkc.constraint_column_id
+        "#,
+            schema_condition
+        );
+
+        let stream = conn.simple_query(&query).await?;
+        let rows = stream.into_first_result().await?;
+
+        let relationships = rows
+            .iter()
+            .filter_map(|row| {
+                Some(RelationshipInfo {
+                    constraint_name: row.get::<&str, _>(0)?.to_string(),
+                    ordinal_position: row.get::<i32, _>(1).unwrap_or(0),
+                    source_schema_name: row.get::<&str, _>(2)?.to_string(),
+                    source_table_name: row.get::<&str, _>(3)?.to_string(),
+                    source_column_name: row.get::<&str, _>(4)?.to_string(),
+                    target_schema_name: row.get::<&str, _>(5)?.to_string(),
+                    target_table_name: row.get::<&str, _>(6)?.to_string(),
+                    target_column_name: row.get::<&str, _>(7)?.to_string(),
+                })
+            })
+            .collect();
+
+        Ok(relationships)
     }
 
     /// Fetch all schema names in the database

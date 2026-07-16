@@ -46,13 +46,13 @@ export function DatabaseSelector({ isCompact = false }: DatabaseSelectorProps) {
 
     return (
         <div
-            className={`text-xs flex items-center gap-2 bg-[var(--bg-hover)] border border-[var(--border-color)] rounded-lg hover:bg-[var(--bg-active)] transition-all group relative ${isCompact ? 'px-1.5 py-0.5 h-6 max-w-[220px] min-w-[80px]' : 'px-2 py-1 h-7 min-w-[140px]'}`}
+            className={`text-xs flex items-center gap-1.5 bg-[var(--bg-hover)] border border-[var(--border-color)] rounded-md hover:bg-[var(--bg-active)] transition-all group relative ${isCompact ? 'px-1.5 py-0.5 h-[22px] max-w-[220px] min-w-[80px]' : 'px-1.5 py-0.5 h-6 min-w-[132px]'}`}
             style={{
                 boxShadow: isConnected ? `0 0 0 1px ${spaceColor}10` : 'none'
             }}
         >
             <svg
-                className={`${isCompact ? 'w-3 h-3' : 'w-4 h-4'} flex-shrink-0 transition-colors`}
+                className={`${isCompact ? 'w-3 h-3' : 'w-3.5 h-3.5'} flex-shrink-0 transition-colors`}
                 style={{ color: isConnected ? spaceColor : 'var(--text-muted)' }}
                 fill="none"
                 stroke="currentColor"
@@ -68,7 +68,7 @@ export function DatabaseSelector({ isCompact = false }: DatabaseSelectorProps) {
                         disabled={databasesLoading}
                         className="w-full h-full flex items-center justify-between gap-1 text-left disabled:opacity-50"
                     >
-                        <span className={`font-medium text-[var(--text-primary)] flex-1 overflow-hidden relative group/marquee max-w-full ${isCompact ? 'text-[10px]' : 'text-xs'}`}>
+                        <span className={`font-medium text-[var(--text-primary)] flex-1 overflow-hidden relative group/marquee max-w-full ${isCompact ? 'text-[10px]' : 'text-[11px]'}`}>
                             <span
                                 key={currentDatabaseValue}
                                 ref={(el) => {
@@ -105,7 +105,7 @@ export function DatabaseSelector({ isCompact = false }: DatabaseSelectorProps) {
 
                     {isOpen && (
                         <div
-                            className={`absolute top-full mt-1.5 z-[100] py-1 rounded-lg border border-[var(--border-color)] shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150 bg-[var(--bg-secondary)] backdrop-blur-xl ${isCompact ? 'left-[-30px] w-[180px]' : 'left-[-10px] right-[-10px]'}`}
+                            className={`absolute top-full mt-1 z-[100] py-1 rounded-md border border-[var(--border-color)] shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150 bg-[var(--bg-secondary)] backdrop-blur-xl ${isCompact ? 'left-[-30px] w-[180px]' : 'left-[-8px] right-[-8px]'}`}
                             style={{ maxHeight: '280px', overflowY: 'auto' }}
                         >
                             <button
