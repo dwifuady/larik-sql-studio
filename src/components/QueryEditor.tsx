@@ -22,6 +22,7 @@ import { buildJoinConditionSuggestions } from '../utils/sqlJoinSuggestions';
 import { useStickyNotes, EVENT_ADD_STICKY_NOTE } from '../hooks/useStickyNotes';
 import { extractAllStatements } from '../utils/queryExtractor';
 import { getResultStatementLabel } from '../utils/sql';
+import { getReadableTextColor } from '../utils/color';
 import { extractNotes } from '../utils/noteManager';
 import { ContextMenu, ContextMenuItem } from './ContextMenu';
 
@@ -2255,7 +2256,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
                className="p-1 text-white rounded-md transition-all hover:brightness-110 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
               style={{
                 backgroundColor: hasConnection ? spaceColor : 'transparent',
-                color: hasConnection ? 'white' : 'var(--text-muted)',
+                color: hasConnection ? getReadableTextColor(spaceColor) : 'var(--text-muted)',
               }}
               title={
                 !hasConnection

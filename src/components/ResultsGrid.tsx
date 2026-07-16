@@ -9,6 +9,7 @@ import { CellPreviewPanel } from './CellPreviewPanel';
 import { useAppStore } from '../store';
 import type { QueryResult, ColumnInfo, CellValue } from '../types';
 import { formatExecutionTime } from '../utils/formatters';
+import { getReadableTextColor } from '../utils/color';
 
 interface ResultsGridProps {
   result: QueryResult;
@@ -914,6 +915,14 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     if (!container) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // When a cell is being edited the focused target is the inline <input>.
+      // Let it handle its own keys (Space, Ctrl+C, etc.) instead of triggering
+      // grid-level shortcuts like the cell preview panel.
+      const target = e.target as HTMLElement;
+      if (editingCell || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return;
+      }
+
       // Space key - open cell preview
       if (e.key === ' ' && !e.ctrlKey && !e.metaKey && selectedCell) {
         e.preventDefault();
@@ -946,7 +955,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     // Attach to container instead of window so it only fires when grid has focus
     container.addEventListener('keydown', handleKeyDown);
     return () => container.removeEventListener('keydown', handleKeyDown);
-  }, [selectedCell, selection, handleCopyCell, handleCopySelection, handlePreviewCell, handleSelectAll]);
+  }, [selectedCell, selection, editingCell, handleCopyCell, handleCopySelection, handlePreviewCell, handleSelectAll]);
 
   // Copy a single row as JSON, respecting visual column order
   const handleCopyRow = useCallback(async (rowIdx: number) => {
@@ -1528,8 +1537,11 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
                 <button
                   onClick={handleSaveEdits}
                   disabled={isSaving || !canSaveEdits}
-                  className="px-3 py-1 rounded text-white transition-colors disabled:opacity-50 flex items-center gap-1"
-                  style={{ backgroundColor: canSaveEdits ? spaceColor : '#666' }}
+                  className="px-3 py-1 rounded transition-colors disabled:opacity-50 flex items-center gap-1"
+                  style={{
+                    backgroundColor: canSaveEdits ? spaceColor : '#666',
+                    color: canSaveEdits ? getReadableTextColor(spaceColor) : '#ffffff',
+                  }}
                   title={canSaveEdits ? "Save all changes to database" : "Cannot save: Not connected to database"}
                 >
                   {isSaving ? (
