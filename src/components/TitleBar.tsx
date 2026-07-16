@@ -87,16 +87,16 @@ export function TitleBar({ sidebarWidth = 280, sidebarHidden = false, onToggleSi
       {/* Right section - Above main content area (draggable) */}
       <div
         data-tauri-drag-region
-        className="flex-1 h-full min-w-0 flex items-center px-3 pr-32"
+        className="flex-1 h-full min-w-0 flex items-center px-3"
       >
         <div className="min-w-0 truncate text-[11px] font-medium text-[var(--text-muted)]">
           {titleText}
         </div>
-      </div>
 
-      {/* Center Search Bar - Absolute positioned to be centered in window */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
-        <GlobalSearch />
+        {/* Search Bar - aligned with content flow */}
+        <div className="ml-auto mr-2 pointer-events-auto">
+          <GlobalSearch />
+        </div>
       </div>
 
       {/* Window controls - Absolute positioned on the right */}

@@ -548,7 +548,7 @@ export function AppLayout() {
         {/* Sidebar with browser-like layout - overlay when hidden */}
         <aside
           ref={sidebarRef}
-          className={`flex flex-col overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] backdrop-blur ${isShowingSidebarHover ? 'rounded-xl m-1.5 mt-1.5' : ''}`}
+          className={`flex flex-col overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] backdrop-blur-xl border-r border-[var(--border-subtle)] ${isShowingSidebarHover ? 'rounded-xl m-1.5 mt-1.5' : ''}`}
           style={{
             width: isShowingSidebarHover ? sidebarWidth - 16 : (sidebarHidden ? sidebarWidth : currentSidebarWidth),
             minWidth: isShowingSidebarHover ? sidebarWidth - 16 : (sidebarHidden ? sidebarWidth : currentSidebarWidth),
@@ -556,8 +556,8 @@ export function AppLayout() {
             opacity: sidebarOpacity,
             transform: sidebarHidden && !isShowingSidebarHover ? 'translateX(-100%)' : 'translateX(0)',
             background: isShowingSidebarHover
-              ? `var(--bg-primary)`
-              : `var(--sidebar-bg)`,
+              ? `rgba(var(--sidebar-bg-rgb), 0.95)`
+              : `rgba(var(--sidebar-bg-rgb), 0.85)`,
             position: sidebarHidden ? 'absolute' : 'relative',
             left: 0,
             top: 0,
