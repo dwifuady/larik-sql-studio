@@ -7,13 +7,12 @@ import { DatabaseSelector } from './DatabaseSelector';
 import { useAppStore } from '../store';
 
 interface TitleBarProps {
-  spaceColor?: string;
   sidebarWidth?: number;
   sidebarHidden?: boolean;
   onToggleSidebar?: () => void;
 }
 
-export function TitleBar({ spaceColor = '#6366f1', sidebarWidth = 280, sidebarHidden = false, onToggleSidebar }: TitleBarProps) {
+export function TitleBar({ sidebarWidth = 280, sidebarHidden = false, onToggleSidebar }: TitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false);
   const appWindow = getCurrentWindow();
   const appInfo = useAppStore(s => s.appInfo);
@@ -54,7 +53,7 @@ export function TitleBar({ spaceColor = '#6366f1', sidebarWidth = 280, sidebarHi
   const titleText = appInfo.name ? `${appInfo.name}${appInfo.version ? ` v${appInfo.version}` : ''}` : 'Larik SQL Studio';
 
   return (
-    <div className="flex items-center h-7 select-none relative" style={{ background: `${spaceColor}40` }}>
+    <div className="flex items-center h-7 select-none relative" style={{ background: 'var(--bg-secondary)' }}>
       {/* Left section - Above sidebar or floating toggle when hidden */}
       <div
         className="relative h-full flex items-center transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"

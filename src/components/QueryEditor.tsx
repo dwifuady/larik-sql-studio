@@ -2181,13 +2181,19 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
           <span className="text-[10px] text-[var(--text-muted)]">•</span>
 
-          <span className="text-[10px] truncate">
+          <span className="text-[10px] truncate flex items-center gap-1">
             {isConnected ? (
-              <span className="text-green-400">{activeSpace?.connection_username}@{activeSpace?.connection_host}</span>
+              <>
+                <span className="text-[var(--text-secondary)]">{activeSpace?.connection_username}@{activeSpace?.connection_host}</span>
+                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400">Connected</span>
+              </>
             ) : hasConnection ? (
-              <span className="text-amber-400">Disconnected</span>
+              <>
+                <span className="text-[var(--text-secondary)]">{activeSpace?.connection_username}@{activeSpace?.connection_host}</span>
+                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400">Disconnected</span>
+              </>
             ) : (
-              <span className="text-amber-400">No connection</span>
+              <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-[var(--bg-hover)] text-[var(--text-muted)]">No connection</span>
             )}
           </span>
 

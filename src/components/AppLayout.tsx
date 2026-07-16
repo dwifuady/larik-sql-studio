@@ -525,7 +525,6 @@ export function AppLayout() {
       {/* Custom title bar (T047) - Higher z-index to ensure dropdowns are visible over main content */}
       <div className="relative z-[60]">
         <TitleBar
-          spaceColor={spaceColor}
           sidebarWidth={sidebarWidth}
           sidebarHidden={sidebarHidden}
           onToggleSidebar={toggleSidebarHidden}
@@ -557,8 +556,8 @@ export function AppLayout() {
             opacity: sidebarOpacity,
             transform: sidebarHidden && !isShowingSidebarHover ? 'translateX(-100%)' : 'translateX(0)',
             background: isShowingSidebarHover
-              ? `linear-gradient(${spaceColor}40, ${spaceColor}40), var(--bg-primary)`
-              : `${spaceColor}40`,
+              ? `var(--bg-primary)`
+              : `var(--sidebar-bg)`,
             position: sidebarHidden ? 'absolute' : 'relative',
             left: 0,
             top: 0,
@@ -601,11 +600,16 @@ export function AppLayout() {
 
                   {hasConnection && (
                     <div className="flex items-center gap-1.5">
-                      {/* Status Dot */}
-                      <div
-                        className={`w-1.5 h-1.5 rounded-full transition-colors ${isConnected ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 'bg-[var(--text-muted)]'}`}
-                        title={isConnected ? 'Connected' : 'Disconnected'}
-                      />
+                      {/* Connection Status Badge */}
+                      <span
+                        className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full transition-colors ${
+                          isConnected
+                            ? 'bg-green-500/20 text-green-400'
+                            : 'bg-[var(--bg-hover)] text-[var(--text-muted)]'
+                        }`}
+                      >
+                        {isConnected ? 'Connected' : 'Disconnected'}
+                      </span>
 
                       {/* Connect/Disconnect Button - Only visible on hover or if disconnected */}
                       <button
@@ -641,7 +645,7 @@ export function AppLayout() {
                     style={sidebarView === 'tabs' ? { color: activeSpace?.color || 'var(--accent-color)' } : undefined}
                   >
                      <LayoutList className="w-3 h-3 mr-1" />
-                     Tabs
+                     Open Queries
                    </button>
                    <button
                      onClick={() => setSidebarView('explorer')}

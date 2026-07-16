@@ -92,15 +92,15 @@ const TabItem = memo(({
       aria-label={`${isPinned ? 'Pinned tab' : 'Tab'}: ${tab.title}${tab.database ? ` (${tab.database})` : ''}`}
       aria-current={isActive ? 'page' : undefined}
       className={`
-        group flex items-center gap-1.5 px-1.5 py-1 mx-1 my-0.5 rounded-md cursor-pointer relative
+        group flex items-center gap-1.5 px-2 py-1.5 mx-1 my-0.5 rounded-md cursor-pointer relative
         transition-all duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] focus:ring-offset-1
         ${isActive
-          ? 'text-[var(--text-primary)]' // Active: background handled by style
-          : 'hover:bg-black/5 dark:hover:bg-white/5 text-[var(--text-secondary)]'
+          ? 'text-[var(--text-primary)] pl-2.5' // Active: background handled by style, extra left padding for strip
+          : 'hover:bg-black/10 dark:hover:bg-white/8 text-[var(--text-secondary)]'
         }
       `}
       style={{
-        backgroundColor: isActive ? `color-mix(in srgb, ${spaceColor}, transparent 85%)` : undefined
+        backgroundColor: isActive ? `color-mix(in srgb, ${spaceColor}, transparent 70%)` : undefined
       }}
       onClick={() => onSetActive(tab.id)}
       onKeyDown={(e) => {
@@ -173,7 +173,9 @@ const TabItem = memo(({
             {tab.title}
           </span>
           {tab.database && (
-            <span className="truncate text-[10px] text-[--text-muted] max-h-0 opacity-0 overflow-hidden transition-all duration-150 group-hover:max-h-4 group-hover:opacity-100">
+            <span className={`truncate text-[10px] text-[--text-muted] transition-all duration-150 ${
+              isActive ? 'max-h-4 opacity-100' : 'max-h-0 opacity-0 overflow-hidden group-hover:max-h-4 group-hover:opacity-100'
+            }`}>
               {tab.database}
             </span>
           )}
