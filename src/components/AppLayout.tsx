@@ -638,22 +638,24 @@ export function AppLayout() {
                  <div className="bg-black/5 dark:bg-white/5 p-0.5 rounded-md flex gap-0.5 flex-1">
                   <button
                     onClick={() => setSidebarView('tabs')}
-                    className={`flex-1 flex items-center justify-center py-[3px] rounded-md text-[10px] font-medium transition-all duration-200 ${sidebarView === 'tabs'
-                       ? 'bg-white dark:bg-[#2d2d2d] shadow-sm'
-                       : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-                       }`}
-                    style={sidebarView === 'tabs' ? { color: activeSpace?.color || 'var(--accent-color)' } : undefined}
+                    className={`flex-1 flex items-center justify-center py-[3px] rounded-md text-[10px] font-medium transition-all duration-200 ${
+                      sidebarView === 'tabs'
+                        ? 'shadow-sm'
+                        : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                    }`}
+                    style={sidebarView === 'tabs' ? { backgroundColor: `${spaceColor}18`, color: spaceColor } : undefined}
                   >
                      <LayoutList className="w-3 h-3 mr-1" />
                      Open Queries
                    </button>
                    <button
                      onClick={() => setSidebarView('explorer')}
-                     className={`flex-1 flex items-center justify-center py-[3px] rounded-md text-[10px] font-medium transition-all duration-200 ${sidebarView === 'explorer'
-                       ? 'bg-white dark:bg-[#2d2d2d] shadow-sm'
-                       : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-                       }`}
-                    style={sidebarView === 'explorer' ? { color: activeSpace?.color || 'var(--accent-color)' } : undefined}
+                     className={`flex-1 flex items-center justify-center py-[3px] rounded-md text-[10px] font-medium transition-all duration-200 ${
+                       sidebarView === 'explorer'
+                         ? 'shadow-sm'
+                         : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                     }`}
+                    style={sidebarView === 'explorer' ? { backgroundColor: `${spaceColor}18`, color: spaceColor } : undefined}
                   >
                      <Database className="w-3 h-3 mr-1" />
                      Explorer
