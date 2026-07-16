@@ -510,6 +510,23 @@ button:disabled {
   animation: slideInRight 0.3s ease-out;
 }
 
+/* Loading bar animation for query execution overlay */
+@keyframes loadingBar {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(200%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+.animate-loading-bar {
+  animation: loadingBar 1.5s ease-in-out infinite;
+}
+
 /* Input base styles */
 input,
 textarea {
