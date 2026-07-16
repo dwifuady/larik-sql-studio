@@ -131,7 +131,7 @@ export const StickyNote: React.FC<StickyNoteProps> = ({
                             toggleMinimized();
                         }}
                         onMouseDown={(e) => e.stopPropagation()}
-                        className="p-1 hover:bg-black/15 hover:text-gray-900 rounded text-gray-700"
+                        className="p-1 hover:bg-black/15 hover:text-[var(--text-primary)] rounded text-[var(--text-secondary)]"
                         title="Minimize"
                     >
                         <Minimize2 size={14} />
