@@ -709,7 +709,7 @@ export function TabsList({ onNewTabClick }: { onNewTabClick?: () => void }) {
           <DragOverlay
             dropAnimation={{
               duration: 200,
-              easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)',
+              easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
             }}
             style={{
               cursor: 'grabbing',

@@ -131,7 +131,7 @@ export const StickyNote: React.FC<StickyNoteProps> = ({
                             toggleMinimized();
                         }}
                         onMouseDown={(e) => e.stopPropagation()}
-                        className="p-1 hover:bg-black/10 rounded text-gray-600"
+                        className="p-1 hover:bg-black/15 hover:text-gray-900 rounded text-gray-700"
                         title="Minimize"
                     >
                         <Minimize2 size={14} />
@@ -142,7 +142,7 @@ export const StickyNote: React.FC<StickyNoteProps> = ({
                             handleDelete();
                         }}
                         onMouseDown={(e) => e.stopPropagation()}
-                        className="p-1 hover:bg-red-500/20 hover:text-red-700 rounded text-gray-600"
+                        className="p-1 hover:bg-red-100 hover:text-red-600 rounded"
                         title="Delete Note"
                     >
                         <Trash2 size={14} />
