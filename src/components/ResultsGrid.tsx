@@ -1298,8 +1298,10 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     };
   }, [result, columnOrder]);
 
-  // Loading state
-  if (isExecuting) {
+  // Loading state — only show full-screen spinner when there's NO existing data to display
+  // If we have columns/rows/error from a previous result, show the data with a subtle overlay
+  const hasResultData = result.columns.length > 0 || result.rows.length > 0 || result.error;
+  if (isExecuting && !hasResultData) {
     return (
       <div className="flex h-full">
         <div className="flex items-center justify-center h-full flex-1">
@@ -1319,6 +1321,15 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
   if (result.error) {
     return (
       <div className="flex h-full">
+        {/* Thin loading bar when executing over a previous error */}
+        {isExecuting && (
+          <div className="shrink-0 h-0.5 overflow-hidden bg-transparent">
+            <div
+              className="h-full w-1/3 rounded-full animate-loading-bar"
+              style={{ backgroundColor: spaceColor }}
+            />
+          </div>
+        )}
         <div className="p-4 h-full overflow-auto flex-1">
           <div className="flex items-start gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
             <svg className="w-5 h-5 text-red-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1365,6 +1376,16 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
           // Clear selection state when focus moves away and back
         }}
       >
+        {/* Thin loading bar when executing with existing data */}
+        {isExecuting && hasResultData && (
+          <div className="shrink-0 h-0.5 overflow-hidden bg-transparent">
+            <div
+              className="h-full w-1/3 rounded-full animate-loading-bar"
+              style={{ backgroundColor: spaceColor }}
+            />
+          </div>
+        )}
+
         {/* Fixed header */}
         <div
           ref={headerRef}
