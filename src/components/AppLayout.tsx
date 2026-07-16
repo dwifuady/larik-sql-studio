@@ -643,7 +643,7 @@ export function AppLayout() {
                         ? 'shadow-sm'
                         : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
                     }`}
-                    style={sidebarView === 'tabs' ? { backgroundColor: `${spaceColor}18`, color: spaceColor } : undefined}
+                    style={sidebarView === 'tabs' ? { backgroundColor: `${spaceColor}25`, color: `var(--text-primary)` } : undefined}
                   >
                      <LayoutList className="w-3 h-3 mr-1" />
                      Tabs
@@ -655,7 +655,7 @@ export function AppLayout() {
                          ? 'shadow-sm'
                          : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
                      }`}
-                    style={sidebarView === 'explorer' ? { backgroundColor: `${spaceColor}18`, color: spaceColor } : undefined}
+                    style={sidebarView === 'explorer' ? { backgroundColor: `${spaceColor}25`, color: `var(--text-primary)` } : undefined}
                   >
                      <Database className="w-3 h-3 mr-1" />
                      Explorer
