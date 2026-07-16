@@ -92,15 +92,15 @@ const TabItem = memo(({
       aria-label={`${isPinned ? 'Pinned tab' : 'Tab'}: ${tab.title}${tab.database ? ` (${tab.database})` : ''}`}
       aria-current={isActive ? 'page' : undefined}
       className={`
-        group flex items-center gap-1.5 px-1.5 py-1 mx-1 my-0.5 rounded-md cursor-pointer relative
+        group flex items-center gap-1.5 px-2 py-1.5 mx-1 my-0.5 rounded-md cursor-pointer relative
         transition-all duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] focus:ring-offset-1
         ${isActive
-          ? 'text-[var(--text-primary)]' // Active: background handled by style
-          : 'hover:bg-black/5 dark:hover:bg-white/5 text-[var(--text-secondary)]'
+          ? 'text-[var(--text-primary)] pl-2.5' // Active: background handled by style, extra left padding for strip
+          : 'hover:bg-black/10 dark:hover:bg-white/8 text-[var(--text-secondary)]'
         }
       `}
       style={{
-        backgroundColor: isActive ? `color-mix(in srgb, ${spaceColor}, transparent 85%)` : undefined
+        backgroundColor: isActive ? `color-mix(in srgb, ${spaceColor}, transparent 70%)` : undefined
       }}
       onClick={() => onSetActive(tab.id)}
       onKeyDown={(e) => {
@@ -140,14 +140,14 @@ const TabItem = memo(({
       )}
 
       {/* Tab icon */}
-      <div className="shrink-0" style={{ color: isActive ? spaceColor : 'var(--text-muted)' }}>
+      <div className="shrink-0 flex items-center" style={{ color: isActive ? spaceColor : 'var(--text-muted)' }}>
         {tab.tab_type === 'query' ? (
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
         ) : (
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
           </svg>
         )}
       </div>
@@ -169,14 +169,16 @@ const TabItem = memo(({
         />
       ) : (
         <div className="flex-1 min-w-0 flex flex-col leading-tight">
-          <span className={`truncate text-[12px] ${isActive ? 'text-[var(--text-primary)] font-medium' : 'text-[--text-secondary]'}`}>
+          <span className={`truncate text-[12px] ${isActive ? 'text-[var(--text-primary)] font-semibold' : 'text-[--text-secondary] font-medium'}`}>
             {tab.title}
           </span>
-          {tab.database && (
-            <span className="truncate text-[10px] text-[--text-muted] max-h-0 opacity-0 overflow-hidden transition-all duration-150 group-hover:max-h-4 group-hover:opacity-100">
-              {tab.database}
-            </span>
-          )}
+          <span className={`truncate text-[10px] transition-all duration-150 ${
+            isActive
+              ? 'text-[var(--text-secondary)] max-h-4 opacity-100'
+              : 'text-[--text-muted] max-h-0 opacity-0 overflow-hidden group-hover:max-h-4 group-hover:opacity-100'
+          }`}>
+            {tab.database || (tab.tab_type === 'query' ? 'Query' : tab.tab_type)}
+          </span>
         </div>
       )}
 
@@ -707,7 +709,7 @@ export function TabsList({ onNewTabClick }: { onNewTabClick?: () => void }) {
           <DragOverlay
             dropAnimation={{
               duration: 200,
-              easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)',
+              easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
             }}
             style={{
               cursor: 'grabbing',
