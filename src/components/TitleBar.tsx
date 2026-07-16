@@ -94,7 +94,7 @@ export function TitleBar({ sidebarWidth = 280, sidebarHidden = false, onToggleSi
         </div>
 
         {/* Search Bar - aligned with content flow */}
-        <div className="ml-auto mr-2 pointer-events-auto shrink-0 max-w-[300px]">
+        <div className="ml-auto mr-2 pointer-events-auto shrink-0 max-w-md">
           <GlobalSearch />
         </div>
       </div>
