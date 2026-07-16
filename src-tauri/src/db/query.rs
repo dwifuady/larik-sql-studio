@@ -727,7 +727,9 @@ impl QueryEngine {
         // Parse into statements
         let statements = parse_sql_statements(query);
 
-        // If single statement, execute as before but return as Vec
+        // If single statement, execute as before but return as Vec.
+        // statement_index stays None (this is not a batch), but we still record
+        // statement_text so the UI can label the result tab from the SQL that ran.
         if statements.len() == 1 {
             let results = self.execute_single_statement(
                 connection_id,
@@ -736,7 +738,7 @@ impl QueryEngine {
                 is_selection,
                 max_rows,
                 None,
-                None,
+                Some(statements[0].clone()),
             ).await?;
             return Ok(results);
         }
