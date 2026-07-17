@@ -582,3 +582,54 @@ textarea:focus {
   pointer-events: none !important;
   user-select: none !important;
 }
+
+/* ===== Sticky Notes v2 — Gutter Icon ===== */
+
+.larik-gutter-note-icon {
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23facc15' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z'/%3E%3Cpath d='M15 3v6h6'/%3E%3C/svg%3E") center no-repeat;
+  background-size: 16px;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s ease;
+}
+
+.larik-gutter-note-icon:hover {
+  opacity: 1;
+}
+
+/* Hover "+" icon for adding a new note (shown when no note exists on the line) */
+.larik-gutter-note-add-icon {
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 5v14'/%3E%3Cpath d='M5 12h14'/%3E%3C/svg%3E") center no-repeat;
+  background-size: 14px;
+  cursor: pointer;
+  opacity: 0.4;
+  transition: opacity 0.15s ease;
+}
+
+.larik-gutter-note-add-icon:hover {
+  opacity: 1;
+}
+
+/* Popover fade-in animation */
+@keyframes larik-note-popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .larik-note-popover {
+    animation: none !important;
+  }
+  .larik-gutter-note-icon {
+    transition: none !important;
+  }
+  .larik-gutter-note-add-icon {
+    transition: none !important;
+  }
+}

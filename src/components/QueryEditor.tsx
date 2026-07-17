@@ -19,11 +19,10 @@ import {
   type CompletionContext,
 } from '../utils/sqlAstExtractor';
 import { buildJoinConditionSuggestions } from '../utils/sqlJoinSuggestions';
-import { useStickyNotes, EVENT_ADD_STICKY_NOTE } from '../hooks/useStickyNotes';
+import { useGutterNotes } from '../hooks/useGutterNotes';
 import { extractAllStatements } from '../utils/queryExtractor';
 import { getResultStatementLabel } from '../utils/sql';
 import { getReadableTextColor } from '../utils/color';
-import { extractNotes } from '../utils/noteManager';
 import { ContextMenu, ContextMenuItem } from './ContextMenu';
 
 interface QueryEditorProps {
@@ -423,23 +422,13 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   const [lastExecutedQuery, setLastExecutedQuery] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ position: { x: number; y: number } } | null>(null);
 
-  // Sticky Notes Integration
-  const { StickyNotesRenderer } = useStickyNotes({
+  // Sticky Notes v2 — Gutter icon approach
+  const { gutterNotesPortal, addNoteAtLine } = useGutterNotes({
     editor: editorRef.current,
     model: editorRef.current?.getModel() || null,
+    tabId: tab.id,
     enabled: enableStickyNotes,
-    onContentChange: (newContent) => {
-      if (editorRef.current) {
-        const fullRange = editorRef.current.getModel()?.getFullModelRange();
-        if (fullRange) {
-          editorRef.current.executeEdits('sticky-note', [{
-            range: fullRange,
-            text: newContent,
-            forceMoveMarkers: true
-          }]);
-        }
-      }
-    }
+    theme: effectiveTheme === 'dark' ? 'dark' : 'light',
   });
 
   // Register CodeLens and Command
@@ -451,20 +440,9 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
     // Register global command (idempotent-ish)
     try {
-      // Check if command exists or just try-catch
-      // Monaco doesn't have hasCommand?
-      // We'll use a unique ID per editor to be safe? 
-      // No, CodeLens string ID must be known.
-      // Let's try to register. If it throws, it exists.
       monaco.editor.registerCommand('larik.runQuery', (_, args: { tabId: string, sql: string }) => {
         window.dispatchEvent(new CustomEvent(EVENT_RUN_QUERY_CODELENS, { detail: args }));
       });
-
-      if (enableStickyNotes) {
-        monaco.editor.registerCommand('larik.addStickyNote', (_, args: { line: number }) => {
-          window.dispatchEvent(new CustomEvent(EVENT_ADD_STICKY_NOTE, { detail: { line: args.line } }));
-        });
-      }
     } catch (e) {
       // Command likely already registered
     }
@@ -485,8 +463,6 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
         const sql = model.getValue();
         const statements = extractAllStatements(sql);
-        const notes = extractNotes(sql);
-        const noteLineNumbers = new Set(notes.map(n => n.lineNumber));
 
         const lenses = statements
           .map(stmt => {
@@ -508,30 +484,6 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
               }
             ];
 
-            // Conditionally add "Add Note"
-            let hasNote = false;
-            let currentLine = stmt.startLine - 1;
-            while (currentLine >= 1) {
-              if (noteLineNumbers.has(currentLine)) {
-                hasNote = true;
-                break;
-              }
-              const lineContent = model.getLineContent(currentLine).trim();
-              if (lineContent !== '') break;
-              currentLine--;
-            }
-
-            if (enableStickyNotes && !hasNote) {
-              resultLenses.push({
-                range,
-                command: {
-                  id: 'larik.addStickyNote',
-                  title: 'Add Note',
-                  arguments: [{ line: stmt.startLine }]
-                }
-              });
-            }
-
             return resultLenses;
           })
           .flat();
@@ -548,7 +500,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         codeLensProviderRef.current.dispose();
       }
     };
-  }, [editorReady, tab.id, enableStickyNotes]); // Add enableStickyNotes dependency
+  }, [editorReady, tab.id]);
 
 
 
@@ -2153,7 +2105,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
   return (
     <div className="query-editor-container flex-1 flex flex-col min-h-0">
-      <StickyNotesRenderer />
+      {gutterNotesPortal}
       {/* Arc-style editor toolbar */}
       <div className="flex items-center justify-between px-2 py-1 backdrop-blur-sm border-b border-[var(--border-color)]" style={{
         background: `linear-gradient(135deg, ${spaceColor}06 0%, transparent 50%, ${spaceColor}06 100%)`
@@ -2238,6 +2190,25 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
             </svg>
           </button>
 
+          {/* Sticky Note toggle/add button */}
+          {enableStickyNotes && (
+            <button
+              onClick={() => {
+                const editor = editorRef.current;
+                if (!editor) return;
+                const lineNumber = editor.getPosition()?.lineNumber ?? 1;
+                addNoteAtLine(lineNumber);
+              }}
+              className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+              title="Add sticky note at cursor line"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.5 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V8.5L15.5 3z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 3v6h6" />
+              </svg>
+            </button>
+          )}
+
           {/* Run/Cancel button */}
           {isExecuting ? (
             <button
@@ -2289,6 +2260,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
             fontLigatures: true,
             minimap: { enabled: false },
             lineNumbers: 'on',
+            glyphMargin: true,
             renderLineHighlight: 'line',
             scrollBeyondLastLine: false,
             wordWrap: 'on',

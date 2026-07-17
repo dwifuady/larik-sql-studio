@@ -162,6 +162,12 @@ pub fn run() {
             // Database Management commands
             commands::export_database,
             commands::import_database,
+            // Sticky Notes commands (v2 — gutter icon + DB storage)
+            commands::get_tab_notes,
+            commands::save_note,
+            commands::delete_note,
+            commands::move_note,
+            commands::clear_tab_notes,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
