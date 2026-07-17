@@ -117,6 +117,26 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
             tabExecuting: { ...state.tabExecuting, [tabId]: true }
         }));
 
+        const isPasswordExpiredError = (errorMessage: string): boolean => {
+            return (
+                errorMessage.toLowerCase().includes('password expired') ||
+                errorMessage.toLowerCase().includes('password must be changed') ||
+                errorMessage.toLowerCase().includes('password change required')
+            );
+        };
+
+        const handlePasswordExpired = () => {
+            // Stop loading state immediately (tabId is captured from outer closure)
+            set((state) => ({
+                tabExecuting: { ...state.tabExecuting, [tabId]: false }
+            }));
+            get().addToast({
+                type: 'error',
+                message: 'Password expired. Please update your password in SQL Server.',
+                duration: 8000
+            });
+        };
+
         const executeWithRetry = async (retryCount = 0): Promise<QueryResult[] | null> => {
             try {
                 const activeTab = get().tabs.find(t => t.id === tabId);
@@ -134,9 +154,24 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
                     maxRows
                 );
 
+                // Check results for embedded password-expired errors
+                // (happens in batch execution where error is returned inside QueryResult, not as exception)
+                for (const result of results) {
+                    if (result.error && isPasswordExpiredError(result.error)) {
+                        handlePasswordExpired();
+                    }
+                }
+
                 return results;
             } catch (error: any) {
                 const errorMessage = String(error?.message || error || '');
+
+                // Do NOT attempt reconnection for password-expired errors
+                if (isPasswordExpiredError(errorMessage)) {
+                    handlePasswordExpired();
+                    return null;
+                }
+
                 const isConnectionError =
                     errorMessage.includes('Transport level error') ||
                     errorMessage.includes('Connection reset') ||
@@ -254,6 +289,26 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
             tabExecuting: { ...state.tabExecuting, [tabId]: true }
         }));
 
+        const isPasswordExpiredError = (errorMessage: string): boolean => {
+            return (
+                errorMessage.toLowerCase().includes('password expired') ||
+                errorMessage.toLowerCase().includes('password must be changed') ||
+                errorMessage.toLowerCase().includes('password change required')
+            );
+        };
+
+        const handlePasswordExpired = () => {
+            // Stop loading state immediately
+            set((state) => ({
+                tabExecuting: { ...state.tabExecuting, [tabId]: false }
+            }));
+            get().addToast({
+                type: 'error',
+                message: 'Password expired. Please update your password in SQL Server.',
+                duration: 8000
+            });
+        };
+
         const executeWithRetry = async (retryCount = 0): Promise<QueryResult[] | null> => {
             try {
                 const activeTab = get().tabs.find(t => t.id === tabId);
@@ -269,9 +324,24 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
                     selectedText,
                     maxRows
                 );
+
+                // Check results for embedded password-expired errors
+                for (const result of newResults) {
+                    if (result.error && isPasswordExpiredError(result.error)) {
+                        handlePasswordExpired();
+                    }
+                }
+
                 return newResults;
             } catch (error: any) {
                 const errorMessage = String(error?.message || error || '');
+
+                // Do NOT attempt reconnection for password-expired errors
+                if (isPasswordExpiredError(errorMessage)) {
+                    handlePasswordExpired();
+                    return null;
+                }
+
                 const isConnectionError =
                     errorMessage.includes('Transport level error') ||
                     errorMessage.includes('Connection reset') ||
