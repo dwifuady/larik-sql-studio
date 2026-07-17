@@ -138,6 +138,10 @@ export function useGutterNotes({ editor, model, tabId, enabled, theme }: UseGutt
         const line = e.target.position?.lineNumber;
         if (!line) return;
 
+        // Guard: skip this gutter click if the popup was just closed by the
+        // backdrop (within 50ms) — prevents the close→reopen "blink" bug.
+        if (Date.now() - lastCloseRef.current < 50) return;
+
         const existingNote = notesRef.current.find((n) => n.line_number === line);
         if (existingNote) {
           // Toggle popup for this note
@@ -247,10 +251,17 @@ export function useGutterNotes({ editor, model, tabId, enabled, theme }: UseGutt
     removeNote(tabId, noteId);
   }, [tabId, removeNote]);
 
-  // Close popup handler
+  // Close popup handler — records close time for the blink guard
   const handleClosePopup = useCallback(() => {
+    lastCloseRef.current = Date.now();
     setActivePopup(null);
   }, []);
+
+  // Guard: when the backdrop closes the popup, the same physical click can
+  // land on Monaco's gutter glyph margin and re-open the popup instantly
+  // (the "blink" bug). We record the close timestamp and skip the next
+  // gutter mousedown within 50ms.
+  const lastCloseRef = useRef(0);
 
   // Cleanup on unmount
   useEffect(() => {

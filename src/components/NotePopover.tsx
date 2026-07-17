@@ -61,29 +61,6 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
     }
   }, [content, isMinimized]);
 
-  // Click outside to close
-  useEffect(() => {
-    const handleMouseDown = (e: MouseEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
-        // Flush content before closing
-        if (content !== note.content || color !== note.color || isMinimized !== note.minimized) {
-          onChange(note.id, { content, color, minimized: isMinimized });
-        }
-        onClose();
-      }
-    };
-
-    // Delay to avoid the same click that opened the popup
-    const timer = setTimeout(() => {
-      document.addEventListener('mousedown', handleMouseDown);
-    }, 0);
-
-    return () => {
-      clearTimeout(timer);
-      document.removeEventListener('mousedown', handleMouseDown);
-    };
-  }, [content, color, isMinimized, note.id, note.content, note.color, note.minimized, onChange, onClose]);
-
   // Close on Escape
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -141,35 +118,74 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
     minWidth: isMinimized ? '180px' : '240px',
   };
 
+  const handleCloseWithFlush = useCallback(() => {
+    if (content !== note.content || color !== note.color || isMinimized !== note.minimized) {
+      onChange(note.id, { content, color, minimized: isMinimized });
+    }
+    onClose();
+  }, [content, color, isMinimized, note.id, note.content, note.color, note.minimized, onChange, onClose]);
+
   if (isMinimized) {
     return (
-      <div
-        ref={popoverRef}
-        style={popoverStyle}
-        className="larik-note-popover select-none cursor-pointer"
-        onClick={(e) => {
-          e.stopPropagation();
-          handleToggleMinimize();
-        }}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center gap-2 px-3 py-1.5">
-          <span className="truncate text-xs font-medium flex-1" style={{ color: fgColor }}>
-            {content || '(Empty note)'}
-          </span>
-          <Maximize2 size={12} style={{ color: fgColor, opacity: 0.6 }} />
+      <>
+        {/* Transparent backdrop — catches clicks outside the popover */}
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 999,
+            background: 'transparent',
+          }}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            handleCloseWithFlush();
+          }}
+        />
+        <div
+          ref={popoverRef}
+          style={{ ...popoverStyle, zIndex: 1000, position: 'fixed' }}
+          className="larik-note-popover select-none cursor-pointer"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleToggleMinimize();
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center gap-2 px-3 py-1.5">
+            <span className="truncate text-xs font-medium flex-1" style={{ color: fgColor }}>
+              {content || '(Empty note)'}
+            </span>
+            <Maximize2 size={12} style={{ color: fgColor, opacity: 0.6 }} />
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   return (
-    <div
-      ref={popoverRef}
-      style={popoverStyle}
-      className="larik-note-popover"
-      onMouseDown={(e) => e.stopPropagation()}
-    >
+    <>
+      {/* Transparent backdrop — catches clicks outside the popover */}
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 999,
+          background: 'transparent',
+        }}
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          handleCloseWithFlush();
+        }}
+      />
+      {/* The actual popover card */}
+      <div
+        ref={popoverRef}
+        style={{ ...popoverStyle, zIndex: 1000, position: 'fixed' }}
+        className="larik-note-popover"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
       {/* Header / Toolbar */}
       <div
         className="flex items-center justify-between px-2 py-1 border-b"
@@ -264,6 +280,7 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
           onMouseDown={(e) => e.stopPropagation()}
         />
       </div>
-    </div>
+      </div>
+    </>
   );
 };
