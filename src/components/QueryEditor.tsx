@@ -427,6 +427,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   const { StickyNotesRenderer } = useStickyNotes({
     editor: editorRef.current,
     model: editorRef.current?.getModel() || null,
+    theme: effectiveTheme as 'dark' | 'light',
     enabled: enableStickyNotes,
     onContentChange: (newContent) => {
       if (editorRef.current) {
