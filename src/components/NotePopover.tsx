@@ -75,16 +75,31 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [content, color, isMinimized, note.id, note.content, note.color, note.minimized, onChange, onClose]);
 
-  const handleColorChange = useCallback((newColor: string) => {
-    setColor(newColor);
-    onChange(note.id, { color: newColor, minimized: isMinimized, content });
-  }, [note.id, content, isMinimized, onChange]);
+  // Deferred store sync — local state changes are instant, but the actual
+  // store update (which triggers parent re-render and DOM reconciliation) is
+  // deferred to the next macrotask. This ensures the browser's native click
+  // event (mousedown + mouseup on same element) completes without the button
+  // being removed/recreated mid-cycle, which would swallow the click event.
+  const deferOnChange = useCallback(
+    (updates: Partial<StickyNote>) => {
+      setTimeout(() => onChange(note.id, updates), 0);
+    },
+    [note.id, onChange],
+  );
+
+  const handleColorChange = useCallback(
+    (newColor: string) => {
+      setColor(newColor);
+      deferOnChange({ color: newColor, minimized: isMinimized, content });
+    },
+    [content, isMinimized, deferOnChange],
+  );
 
   const handleToggleMinimize = useCallback(() => {
     const newState = !isMinimized;
     setIsMinimized(newState);
-    onChange(note.id, { minimized: newState, content, color });
-  }, [note.id, content, color, isMinimized, onChange]);
+    deferOnChange({ minimized: newState, content, color });
+  }, [content, color, isMinimized, deferOnChange]);
 
   const handleDelete = useCallback(() => {
     onDelete(note.id);
@@ -120,10 +135,10 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
 
   const handleCloseWithFlush = useCallback(() => {
     if (content !== note.content || color !== note.color || isMinimized !== note.minimized) {
-      onChange(note.id, { content, color, minimized: isMinimized });
+      deferOnChange({ content, color, minimized: isMinimized });
     }
     onClose();
-  }, [content, color, isMinimized, note.id, note.content, note.color, note.minimized, onChange, onClose]);
+  }, [content, color, isMinimized, note.id, note.content, note.color, note.minimized, deferOnChange, onClose]);
 
   if (isMinimized) {
     return (
