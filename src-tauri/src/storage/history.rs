@@ -562,6 +562,14 @@ impl DatabaseManager {
         })
     }
 
+    /// Permanently delete ALL archived tabs (purge everything)
+    pub fn purge_all_archived_tabs(&self) -> StorageResult<usize> {
+        self.with_connection(|conn| {
+            let affected = conn.execute("DELETE FROM archived_tabs", [])?;
+            Ok(affected)
+        })
+    }
+
     /// Update last_accessed_at timestamp for a tab
     pub fn touch_tab(&self, tab_id: &str) -> StorageResult<bool> {
         self.with_connection(|conn| {

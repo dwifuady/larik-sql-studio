@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../store';
 
 interface SettingsDialogProps {
@@ -8,6 +8,8 @@ interface SettingsDialogProps {
 
 export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
     const dialogRef = useRef<HTMLDivElement>(null);
+    const [purgeMessage, setPurgeMessage] = useState<string | null>(null);
+    const [confirmPurgeAll, setConfirmPurgeAll] = useState(false);
 
     const {
         enableStickyNotes,
@@ -22,6 +24,12 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
         setValidationShowInfo,
         autoArchiveSettings,
         updateAutoArchiveSettings,
+        historyRetentionDays,
+        loadHistoryRetentionDays,
+        updateHistoryRetentionDays,
+        purgeArchivedTabsNow,
+        purgeAllArchivedTabs,
+        purging,
     } = useAppStore();
 
     // Close on Escape
@@ -66,6 +74,40 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
             dialogRef.current.focus();
         }
     }, [isOpen]);
+
+    // Load history retention days when dialog opens
+    useEffect(() => {
+        if (isOpen) {
+            loadHistoryRetentionDays();
+            setPurgeMessage(null);
+            setConfirmPurgeAll(false);
+        }
+    }, [isOpen, loadHistoryRetentionDays]);
+
+    // Handle purge expired
+    const handlePurgeExpired = async () => {
+        setPurgeMessage(null);
+        try {
+            const count = await purgeArchivedTabsNow();
+            setPurgeMessage(count > 0
+                ? `Purged ${count} expired archived tab${count > 1 ? 's' : ''}.`
+                : 'No expired archived tabs found.');
+        } catch {
+            setPurgeMessage('Failed to purge expired tabs.');
+        }
+    };
+
+    // Handle purge all (with confirmation)
+    const handlePurgeAll = async () => {
+        setConfirmPurgeAll(false);
+        setPurgeMessage(null);
+        try {
+            const count = await purgeAllArchivedTabs();
+            setPurgeMessage(`Permanently deleted ${count} archived tab${count !== 1 ? 's' : ''}.`);
+        } catch {
+            setPurgeMessage('Failed to purge all archived tabs.');
+        }
+    };
 
     if (!isOpen) return null;
 
@@ -170,6 +212,81 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
                                     className="w-24 px-3 py-1.5 bg-[var(--bg-primary)] border border-white/10 rounded-lg text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                                 />
                             </div>
+                        </div>
+                    </div>
+
+                    <div className="h-px bg-white/5" />
+
+                    {/* History Retention & Purge Settings */}
+                    <div>
+                        <h3 className="text-sm font-medium text-[var(--text-secondary)] uppercase tracking-wider mb-4">History Retention & Purge</h3>
+                        <div className="space-y-4">
+                            {/* Retention Days Input */}
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <label className="text-sm font-medium text-[var(--text-primary)]">Retention Days</label>
+                                    <p className="text-xs text-[var(--text-muted)] mt-1">
+                                        Archived tabs are automatically deleted after this many days.
+                                    </p>
+                                </div>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    max="3650"
+                                    value={historyRetentionDays}
+                                    onChange={(e) => {
+                                        const days = parseInt(e.target.value) || 90;
+                                        updateHistoryRetentionDays(days);
+                                    }}
+                                    className="w-24 px-3 py-1.5 bg-[var(--bg-primary)] border border-white/10 rounded-lg text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                                />
+                            </div>
+
+                            {/* Purge Buttons */}
+                            <div className="flex items-center gap-3 pt-1">
+                                <button
+                                    onClick={handlePurgeExpired}
+                                    disabled={purging}
+                                    className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-[var(--accent-color)] hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {purging ? 'Purging...' : 'Purge Expired Now'}
+                                </button>
+                                <button
+                                    onClick={() => setConfirmPurgeAll(true)}
+                                    disabled={purging}
+                                    className="px-3 py-1.5 rounded-lg text-sm font-medium text-red-300 bg-red-500/20 hover:bg-red-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Purge All
+                                </button>
+                            </div>
+
+                            {/* Purge result message */}
+                            {purgeMessage && (
+                                <p className="text-xs text-[var(--text-muted)] mt-1">{purgeMessage}</p>
+                            )}
+
+                            {/* Confirmation dialog for Purge All */}
+                            {confirmPurgeAll && (
+                                <div className="flex items-center gap-3 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+                                    <p className="text-sm text-red-300 flex-1">
+                                        Permanently delete <strong>ALL</strong> archived tabs? This cannot be undone.
+                                    </p>
+                                    <button
+                                        onClick={handlePurgeAll}
+                                        disabled={purging}
+                                        className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50"
+                                    >
+                                        Yes, Delete All
+                                    </button>
+                                    <button
+                                        onClick={() => setConfirmPurgeAll(false)}
+                                        disabled={purging}
+                                        className="px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--text-muted)] bg-white/5 hover:bg-white/10 transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
 

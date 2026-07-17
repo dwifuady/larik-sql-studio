@@ -156,6 +156,10 @@ pub fn run() {
             commands::touch_tab,
             commands::get_auto_archive_settings,
             commands::update_auto_archive_settings,
+            commands::get_history_retention_days,
+            commands::update_history_retention_days,
+            commands::purge_archived_tabs_now,
+            commands::purge_all_archived_tabs,
             // App Settings commands
             commands::get_app_settings,
             commands::update_app_settings,

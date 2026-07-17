@@ -1271,6 +1271,46 @@ pub fn update_auto_archive_settings(
         .map_err(|e| e.to_string())
 }
 
+/// Get history retention days setting
+#[command]
+pub fn get_history_retention_days(
+    state: State<'_, AppState>,
+) -> Result<i32, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.get_history_retention_days().map_err(|e| e.to_string())
+}
+
+/// Update history retention days setting
+#[command]
+pub fn update_history_retention_days(
+    state: State<'_, AppState>,
+    days: i32,
+) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.set_setting("history_retention_days", &days.to_string())
+        .map_err(|e| e.to_string())
+}
+
+/// Purge archived tabs that are older than the retention period (manual trigger)
+#[command]
+pub fn purge_archived_tabs_now(
+    state: State<'_, AppState>,
+) -> Result<usize, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let retention_days = db.get_history_retention_days().map_err(|e| e.to_string())?;
+    db.cleanup_old_archived_tabs(retention_days)
+        .map_err(|e| e.to_string())
+}
+
+/// Permanently delete ALL archived tabs (regardless of retention period)
+#[command]
+pub fn purge_all_archived_tabs(
+    state: State<'_, AppState>,
+) -> Result<usize, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.purge_all_archived_tabs().map_err(|e| e.to_string())
+}
+
 // ============================================================================
 // App Settings Commands
 // ============================================================================

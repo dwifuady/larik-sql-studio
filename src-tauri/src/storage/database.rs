@@ -37,6 +37,14 @@ impl DatabaseManager {
         // Enable foreign keys
         connection.execute_batch("PRAGMA foreign_keys = ON;")?;
 
+        // Performance optimizations
+        connection.execute_batch(r#"
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
+            PRAGMA cache_size = -64000;    -- 64MB cache
+            PRAGMA busy_timeout = 5000;    -- 5s busy timeout
+        "#)?;
+
         let manager = Self {
             connection: Mutex::new(connection),
             db_path,
