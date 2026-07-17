@@ -259,6 +259,18 @@ export interface TableInfo {
   columns: SchemaColumnInfo[];
 }
 
+/** Foreign key relationship metadata for join suggestions */
+export interface SchemaRelationshipInfo {
+  constraint_name: string;
+  ordinal_position: number;
+  source_schema_name: string;
+  source_table_name: string;
+  source_column_name: string;
+  target_schema_name: string;
+  target_table_name: string;
+  target_column_name: string;
+}
+
 /** Parameter information for stored procedures/functions */
 export interface ParameterInfo {
   name: string;
@@ -285,6 +297,7 @@ export interface SchemaInfo {
   database_name: string;
   schemas: string[];
   tables: TableInfo[];
+  relationships: SchemaRelationshipInfo[];
   routines: RoutineInfo[];
   fetched_at: string;
 }

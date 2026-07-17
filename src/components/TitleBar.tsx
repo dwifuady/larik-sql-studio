@@ -4,17 +4,18 @@ import { GlobalSearch } from './GlobalSearch';
 import { useState, useEffect } from 'react';
 import { PanelLeft } from 'lucide-react';
 import { DatabaseSelector } from './DatabaseSelector';
+import { useAppStore } from '../store';
 
 interface TitleBarProps {
-  spaceColor?: string;
   sidebarWidth?: number;
   sidebarHidden?: boolean;
   onToggleSidebar?: () => void;
 }
 
-export function TitleBar({ spaceColor = '#6366f1', sidebarWidth = 280, sidebarHidden = false, onToggleSidebar }: TitleBarProps) {
+export function TitleBar({ sidebarWidth = 280, sidebarHidden = false, onToggleSidebar }: TitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false);
   const appWindow = getCurrentWindow();
+  const appInfo = useAppStore(s => s.appInfo);
 
   // Check if window is maximized on mount
   useEffect(() => {
@@ -49,26 +50,27 @@ export function TitleBar({ spaceColor = '#6366f1', sidebarWidth = 280, sidebarHi
   };
 
   const currentSidebarWidth = sidebarHidden ? 0 : sidebarWidth;
+  const titleText = appInfo.name ? `${appInfo.name}${appInfo.version ? ` v${appInfo.version}` : ''}` : 'Larik SQL Studio';
 
   return (
-    <div className="flex items-center h-8 select-none relative" style={{ background: `${spaceColor}40` }}>
+    <div className="flex items-center h-7 select-none relative" style={{ background: 'var(--bg-secondary)' }}>
       {/* Left section - Above sidebar or floating toggle when hidden */}
       <div
         className="relative h-full flex items-center transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
         style={{
           width: sidebarHidden ? 'auto' : `${currentSidebarWidth}px`,
-          paddingLeft: sidebarHidden ? '8px' : '0',
-          gap: '8px'
+          paddingLeft: sidebarHidden ? '6px' : '0',
+          gap: '6px'
         }}
       >
         {/* Sidebar Toggle Button */}
-        <div className={`flex items-center h-full relative z-10 ${!sidebarHidden ? 'px-2' : ''}`}>
+        <div className={`flex items-center h-full relative z-10 ${!sidebarHidden ? 'px-1.5' : ''}`}>
           <button
             onClick={onToggleSidebar}
-            className="p-1.5 rounded-md hover:bg-black/10 dark:hover:bg-white/10 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-all group flex items-center gap-2"
+            className="p-1 rounded-md hover:bg-black/10 dark:hover:bg-white/10 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-all group flex items-center gap-1.5"
             title="Toggle Sidebar (Ctrl+Shift+S)"
           >
-            <PanelLeft className="w-3.5 h-3.5" />
+            <PanelLeft className="w-3 h-3" />
           </button>
         </div>
 
@@ -85,12 +87,16 @@ export function TitleBar({ spaceColor = '#6366f1', sidebarWidth = 280, sidebarHi
       {/* Right section - Above main content area (draggable) */}
       <div
         data-tauri-drag-region
-        className="flex-1 h-full"
-      />
+        className="flex-1 h-full min-w-0 flex items-center px-3 pr-28"
+      >
+        <div className="min-w-0 truncate text-[11px] font-medium text-[var(--text-muted)]">
+          {titleText}
+        </div>
 
-      {/* Center Search Bar - Absolute positioned to be centered in window */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
-        <GlobalSearch />
+        {/* Search Bar - aligned with content flow */}
+        <div className="ml-auto mr-2 pointer-events-auto shrink-0 min-w-[12rem] max-w-md">
+          <GlobalSearch />
+        </div>
       </div>
 
       {/* Window controls - Absolute positioned on the right */}
@@ -99,7 +105,7 @@ export function TitleBar({ spaceColor = '#6366f1', sidebarWidth = 280, sidebarHi
         <button
           type="button"
           onClick={handleMinimize}
-          className="h-full px-4 flex items-center justify-center hover:bg-white/5 transition-colors group"
+          className="h-full px-3 flex items-center justify-center hover:bg-white/5 transition-colors group"
           title="Minimize"
         >
           <svg
@@ -121,7 +127,7 @@ export function TitleBar({ spaceColor = '#6366f1', sidebarWidth = 280, sidebarHi
         <button
           type="button"
           onClick={handleMaximize}
-          className="h-full px-4 flex items-center justify-center hover:bg-white/5 transition-colors group"
+          className="h-full px-3 flex items-center justify-center hover:bg-white/5 transition-colors group"
           title={isMaximized ? 'Restore' : 'Maximize'}
         >
           {isMaximized ? (
@@ -159,7 +165,7 @@ export function TitleBar({ spaceColor = '#6366f1', sidebarWidth = 280, sidebarHi
         <button
           type="button"
           onClick={handleClose}
-          className="h-full px-4 flex items-center justify-center hover:bg-red-600 hover:text-white transition-colors group"
+          className="h-full px-3 flex items-center justify-center hover:bg-red-600 hover:text-white transition-colors group"
           title="Close"
         >
           <svg
