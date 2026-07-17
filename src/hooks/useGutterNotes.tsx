@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
 import { useAppStore } from '../store';
@@ -22,9 +23,37 @@ interface ActivePopup {
   left: number;
 }
 
+/**
+ * Compute the pixel offset from the editor's left edge to where the
+ * glyph-margin icon is rendered. We measure the actual Monaco margin
+ * DOM so the popover sits right next to the icon instead of using a
+ * hardcoded 40 px.
+ */
+function getGlyphMarginOffset(editor: editor.IStandaloneCodeEditor): number {
+  const dom = editor.getDomNode();
+  if (!dom) return 0;
+  const editorRect = dom.getBoundingClientRect();
+  // The margin-view-overlays contains line numbers + glyph margin.
+  // We want the right edge of the glyph margin specifically, which is
+  // the left portion of the margin view. Measure the glyph margin element
+  // directly, or fall back to the margin overlay width.
+  const glyphMargin = dom.querySelector('.glyph-margin') as HTMLElement | null;
+  if (glyphMargin) {
+    const glyphRect = glyphMargin.getBoundingClientRect();
+    return glyphRect.right - editorRect.left;
+  }
+  // Fallback: use the full margin overlay width
+  const margin = dom.querySelector('.margin-view-overlays') as HTMLElement | null;
+  if (margin) {
+    return margin.getBoundingClientRect().right - editorRect.left;
+  }
+  return 0;
+}
+
 export function useGutterNotes({ editor, model, tabId, enabled, theme }: UseGutterNotesArgs) {
   const [activePopup, setActivePopup] = useState<ActivePopup | null>(null);
   const decorationsRef = useRef<string[]>([]);
+  const hoverDecorationRef = useRef<string[]>([]);
   const disposablesRef = useRef<IDisposable[]>([]);
 
   const notesByTab = useAppStore((s) => s.notesByTab);
@@ -34,6 +63,34 @@ export function useGutterNotes({ editor, model, tabId, enabled, theme }: UseGutt
   const removeNote = useAppStore((s) => s.removeNote);
 
   const notes: StickyNote[] = useMemo(() => notesByTab[tabId] ?? [], [notesByTab, tabId]);
+
+  // ── Refs for stable event handlers ──────────────────────────────────────
+  // These let us keep Monaco event listeners attached without re-creating
+  // them on every `notes` change. Handlers read `.current` at call-time.
+  const notesRef = useRef(notes);
+  notesRef.current = notes;
+
+  const addNoteAtLineRef = useRef<(line: number) => Promise<void>>(async () => {});
+  const addNoteAtLine = useCallback(async (line: number) => {
+    if (!enabled || !tabId) return;
+    const newNote = await addNote(tabId, line);
+    if (newNote && editor) {
+      const pos = editor.getScrolledVisiblePosition({ lineNumber: line, column: 1 });
+      if (pos) {
+        const editorDom = editor.getDomNode();
+        const rect = editorDom?.getBoundingClientRect();
+        if (rect) {
+          const glyphOffset = getGlyphMarginOffset(editor);
+          setActivePopup({
+            noteId: newNote.id,
+            top: rect.top + pos.top,
+            left: rect.left + glyphOffset,
+          });
+        }
+      }
+    }
+  }, [enabled, tabId, addNote, editor]);
+  addNoteAtLineRef.current = addNoteAtLine;
 
   // Fetch notes from DB when tab changes
   useEffect(() => {
@@ -67,36 +124,87 @@ export function useGutterNotes({ editor, model, tabId, enabled, theme }: UseGutt
     decorationsRef.current = editor.deltaDecorations(decorationsRef.current, newDecorations);
   }, [editor, model, notes, enabled]);
 
-  // Gutter click handler + context menu + scroll listener
+  // ── Gutter interactions: click, hover "+", scroll, context menu ────────
+  // Depends only on [editor, enabled] — uses refs for notes data so
+  // listeners aren't re-created on every note change.
   useEffect(() => {
     if (!editor || !enabled) return;
 
+    let currentHoverLine: number | null = null;
+
+    // Click on gutter glyph margin
     const mouseDownDisposable = editor.onMouseDown((e: editor.IEditorMouseEvent) => {
       if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) {
         const line = e.target.position?.lineNumber;
         if (!line) return;
 
-        // Check if a note exists at this line
-        const existingNote = notes.find((n) => n.line_number === line);
+        const existingNote = notesRef.current.find((n) => n.line_number === line);
         if (existingNote) {
           // Toggle popup for this note
-          const pos = editor.getScrolledVisiblePosition({
-            lineNumber: line,
-            column: 1,
-          });
+          const pos = editor.getScrolledVisiblePosition({ lineNumber: line, column: 1 });
           if (pos) {
             const editorDom = editor.getDomNode();
             const rect = editorDom?.getBoundingClientRect();
             if (rect) {
+              const glyphOffset = getGlyphMarginOffset(editor);
               setActivePopup({
                 noteId: existingNote.id,
                 top: rect.top + pos.top,
-                left: rect.left + pos.left + 40, // offset past the gutter
+                left: rect.left + glyphOffset,
               });
             }
           }
         } else {
-          // No note at this line — could add one via context menu
+          // No note at this line — create one
+          addNoteAtLineRef.current(line);
+        }
+      }
+    });
+
+    // Mouse move — show "+" decoration on lines without a note
+    const mouseMoveDisposable = editor.onMouseMove((e: editor.IEditorMouseEvent) => {
+      if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) {
+        const line = e.target.position?.lineNumber;
+        if (line && line !== currentHoverLine) {
+          currentHoverLine = line;
+          const hasNote = notesRef.current.some((n) => n.line_number === line);
+          if (!hasNote) {
+            hoverDecorationRef.current = editor.deltaDecorations(hoverDecorationRef.current, [
+              {
+                range: new monaco.Range(line, 1, line, 1),
+                options: {
+                  isWholeLine: false,
+                  glyphMarginClassName: 'larik-gutter-note-add-icon',
+                  stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+                },
+              },
+            ]);
+          } else {
+            // Line has a note — remove hover decoration
+            if (hoverDecorationRef.current.length > 0) {
+              hoverDecorationRef.current = editor.deltaDecorations(hoverDecorationRef.current, []);
+            }
+          }
+        }
+      }
+    });
+
+    // Mouse leave — clear hover decoration
+    const mouseLeaveDisposable = editor.onMouseLeave(() => {
+      currentHoverLine = null;
+      if (hoverDecorationRef.current.length > 0) {
+        hoverDecorationRef.current = editor.deltaDecorations(hoverDecorationRef.current, []);
+      }
+    });
+
+    // Context menu (right-click) on gutter — also adds a note
+    const contextMenuDisposable = editor.onContextMenu((e: editor.IEditorMouseEvent) => {
+      if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) {
+        const line = e.target.position?.lineNumber;
+        if (!line) return;
+        const existingNote = notesRef.current.find((n) => n.line_number === line);
+        if (!existingNote) {
+          addNoteAtLineRef.current(line);
         }
       }
     });
@@ -106,33 +214,26 @@ export function useGutterNotes({ editor, model, tabId, enabled, theme }: UseGutt
       setActivePopup(null);
     });
 
-    disposablesRef.current.push(mouseDownDisposable, scrollDisposable);
+    disposablesRef.current.push(
+      mouseDownDisposable,
+      mouseMoveDisposable,
+      mouseLeaveDisposable,
+      contextMenuDisposable,
+      scrollDisposable,
+    );
 
     return () => {
       mouseDownDisposable.dispose();
+      mouseMoveDisposable.dispose();
+      mouseLeaveDisposable.dispose();
+      contextMenuDisposable.dispose();
       scrollDisposable.dispose();
-    };
-  }, [editor, enabled, notes]);
-
-  // Add note at a specific line
-  const addNoteAtLine = useCallback(async (line: number) => {
-    if (!enabled || !tabId) return;
-    const newNote = await addNote(tabId, line);
-    if (newNote && editor) {
-      const pos = editor.getScrolledVisiblePosition({ lineNumber: line, column: 1 });
-      if (pos) {
-        const editorDom = editor.getDomNode();
-        const rect = editorDom?.getBoundingClientRect();
-        if (rect) {
-          setActivePopup({
-            noteId: newNote.id,
-            top: rect.top + pos.top,
-            left: rect.left + pos.left + 40,
-          });
-        }
+      // Clear hover decorations on cleanup
+      if (hoverDecorationRef.current.length > 0) {
+        hoverDecorationRef.current = editor.deltaDecorations(hoverDecorationRef.current, []);
       }
-    }
-  }, [enabled, tabId, addNote, editor]);
+    };
+  }, [editor, enabled]);
 
   // Handle note content/property changes from popup
   const handleNoteChange = useCallback((noteId: string, updates: Partial<StickyNote>) => {
@@ -146,6 +247,11 @@ export function useGutterNotes({ editor, model, tabId, enabled, theme }: UseGutt
     removeNote(tabId, noteId);
   }, [tabId, removeNote]);
 
+  // Close popup handler
+  const handleClosePopup = useCallback(() => {
+    setActivePopup(null);
+  }, []);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -157,20 +263,26 @@ export function useGutterNotes({ editor, model, tabId, enabled, theme }: UseGutt
   // The active popup note object
   const activeNote = activePopup ? notes.find((n) => n.id === activePopup.noteId) : null;
 
-  // Renderer component for popups (rendered via portal-like fixed positioning)
+  // ── Portal renderer ─────────────────────────────────────────────────────
+  // Render NotePopover via ReactDOM.createPortal into document.body so it
+  // sits OUTSIDE Monaco's DOM tree. Monaco captures mouse events in its
+  // container, which prevents clicks on buttons rendered inside the editor's
+  // DOM hierarchy from reaching React handlers. By portaling to document.body,
+  // the popover is in the top-level DOM and events flow normally.
   const GutterNotesRenderer = useCallback(() => {
     if (!activePopup || !activeNote) return null;
-    return (
+    return createPortal(
       <NotePopover
         note={activeNote}
         position={{ top: activePopup.top, left: activePopup.left }}
         theme={theme}
         onChange={handleNoteChange}
         onDelete={handleNoteDelete}
-        onClose={() => setActivePopup(null)}
-      />
+        onClose={handleClosePopup}
+      />,
+      document.body,
     );
-  }, [activePopup, activeNote, theme, handleNoteChange, handleNoteDelete]);
+  }, [activePopup, activeNote, theme, handleNoteChange, handleNoteDelete, handleClosePopup]);
 
   return { GutterNotesRenderer, addNoteAtLine, notes };
 }
