@@ -423,7 +423,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   const [contextMenu, setContextMenu] = useState<{ position: { x: number; y: number } } | null>(null);
 
   // Sticky Notes v2 — Gutter icon approach
-  const { GutterNotesRenderer, addNoteAtLine } = useGutterNotes({
+  const { gutterNotesPortal, addNoteAtLine } = useGutterNotes({
     editor: editorRef.current,
     model: editorRef.current?.getModel() || null,
     tabId: tab.id,
@@ -2105,7 +2105,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
   return (
     <div className="query-editor-container flex-1 flex flex-col min-h-0">
-      <GutterNotesRenderer />
+      {gutterNotesPortal}
       {/* Arc-style editor toolbar */}
       <div className="flex items-center justify-between px-2 py-1 backdrop-blur-sm border-b border-[var(--border-color)]" style={{
         background: `linear-gradient(135deg, ${spaceColor}06 0%, transparent 50%, ${spaceColor}06 100%)`

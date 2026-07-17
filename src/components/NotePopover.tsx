@@ -75,31 +75,19 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [content, color, isMinimized, note.id, note.content, note.color, note.minimized, onChange, onClose]);
 
-  // Deferred store sync — local state changes are instant, but the actual
-  // store update (which triggers parent re-render and DOM reconciliation) is
-  // deferred to the next macrotask. This ensures the browser's native click
-  // event (mousedown + mouseup on same element) completes without the button
-  // being removed/recreated mid-cycle, which would swallow the click event.
-  const deferOnChange = useCallback(
-    (updates: Partial<StickyNote>) => {
-      setTimeout(() => onChange(note.id, updates), 0);
-    },
-    [note.id, onChange],
-  );
-
   const handleColorChange = useCallback(
     (newColor: string) => {
       setColor(newColor);
-      deferOnChange({ color: newColor, minimized: isMinimized, content });
+      onChange(note.id, { color: newColor, minimized: isMinimized, content });
     },
-    [content, isMinimized, deferOnChange],
+    [content, isMinimized, note.id, onChange],
   );
 
   const handleToggleMinimize = useCallback(() => {
     const newState = !isMinimized;
     setIsMinimized(newState);
-    deferOnChange({ minimized: newState, content, color });
-  }, [content, color, isMinimized, deferOnChange]);
+    onChange(note.id, { minimized: newState, content, color });
+  }, [content, color, isMinimized, note.id, onChange]);
 
   const handleDelete = useCallback(() => {
     onDelete(note.id);
@@ -129,16 +117,21 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
     border: `1px solid ${theme === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)'}`,
     fontFamily: '-apple-system, BlinkMacSystemFont, \'SF Pro Display\', \'Segoe UI\', Roboto, sans-serif',
     animation: 'larik-note-popover-in 150ms cubic-bezier(0.4, 0, 0.2, 1)',
-    maxWidth: '320px',
-    minWidth: isMinimized ? '180px' : '240px',
+    // Wider default; drag the bottom-right corner to resize (vertical height
+    // still auto-grows with content).
+    width: isMinimized ? undefined : 380,
+    minWidth: isMinimized ? '180px' : '260px',
+    maxWidth: isMinimized ? '320px' : '760px',
+    resize: isMinimized ? undefined : 'horizontal',
+    overflow: isMinimized ? undefined : 'hidden',
   };
 
   const handleCloseWithFlush = useCallback(() => {
     if (content !== note.content || color !== note.color || isMinimized !== note.minimized) {
-      deferOnChange({ content, color, minimized: isMinimized });
+      onChange(note.id, { content, color, minimized: isMinimized });
     }
     onClose();
-  }, [content, color, isMinimized, note.id, note.content, note.color, note.minimized, deferOnChange, onClose]);
+  }, [content, color, isMinimized, note.id, note.content, note.color, note.minimized, onChange, onClose]);
 
   if (isMinimized) {
     return (

@@ -138,10 +138,6 @@ export function useGutterNotes({ editor, model, tabId, enabled, theme }: UseGutt
         const line = e.target.position?.lineNumber;
         if (!line) return;
 
-        // Guard: skip this gutter click if the popup was just closed by the
-        // backdrop (within 50ms) — prevents the close→reopen "blink" bug.
-        if (Date.now() - lastCloseRef.current < 50) return;
-
         const existingNote = notesRef.current.find((n) => n.line_number === line);
         if (existingNote) {
           // Toggle popup for this note
@@ -251,17 +247,10 @@ export function useGutterNotes({ editor, model, tabId, enabled, theme }: UseGutt
     removeNote(tabId, noteId);
   }, [tabId, removeNote]);
 
-  // Close popup handler — records close time for the blink guard
+  // Close popup handler
   const handleClosePopup = useCallback(() => {
-    lastCloseRef.current = Date.now();
     setActivePopup(null);
   }, []);
-
-  // Guard: when the backdrop closes the popup, the same physical click can
-  // land on Monaco's gutter glyph margin and re-open the popup instantly
-  // (the "blink" bug). We record the close timestamp and skip the next
-  // gutter mousedown within 50ms.
-  const lastCloseRef = useRef(0);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -274,26 +263,35 @@ export function useGutterNotes({ editor, model, tabId, enabled, theme }: UseGutt
   // The active popup note object
   const activeNote = activePopup ? notes.find((n) => n.id === activePopup.noteId) : null;
 
-  // ── Portal renderer ─────────────────────────────────────────────────────
+  // ── Portal element ──────────────────────────────────────────────────────
   // Render NotePopover via ReactDOM.createPortal into document.body so it
   // sits OUTSIDE Monaco's DOM tree. Monaco captures mouse events in its
   // container, which prevents clicks on buttons rendered inside the editor's
   // DOM hierarchy from reaching React handlers. By portaling to document.body,
   // the popover is in the top-level DOM and events flow normally.
-  const GutterNotesRenderer = useCallback(() => {
-    if (!activePopup || !activeNote) return null;
-    return createPortal(
-      <NotePopover
-        note={activeNote}
-        position={{ top: activePopup.top, left: activePopup.left }}
-        theme={theme}
-        onChange={handleNoteChange}
-        onDelete={handleNoteDelete}
-        onClose={handleClosePopup}
-      />,
-      document.body,
-    );
-  }, [activePopup, activeNote, theme, handleNoteChange, handleNoteDelete, handleClosePopup]);
+  //
+  // IMPORTANT: this must be returned as a plain React *element*, NOT a
+  // memoized component rendered as `<GutterNotesRenderer />`. A useCallback
+  // component changes identity whenever its deps change, and rendering a
+  // changed component *type* makes React unmount + remount the whole subtree
+  // — which tore down NotePopover on every store update (the "blink" bug that
+  // made buttons feel unclickable). Returning an element lets React reconcile
+  // NotePopover by position and merely update its props.
+  const gutterNotesPortal =
+    activePopup && activeNote
+      ? createPortal(
+          <NotePopover
+            key={activeNote.id}
+            note={activeNote}
+            position={{ top: activePopup.top, left: activePopup.left }}
+            theme={theme}
+            onChange={handleNoteChange}
+            onDelete={handleNoteDelete}
+            onClose={handleClosePopup}
+          />,
+          document.body,
+        )
+      : null;
 
-  return { GutterNotesRenderer, addNoteAtLine, notes };
+  return { gutterNotesPortal, addNoteAtLine, notes };
 }
