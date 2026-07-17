@@ -15,6 +15,7 @@ use crate::storage::{
     TabFolder, CreateFolderInput, UpdateFolderInput,
     Snippet, CreateSnippetInput, UpdateSnippetInput,
     ArchivedTab, ArchiveSearchResult, AutoArchiveSettings, AppSettings,
+    StickyNote,
 };
 
 use crate::db::{
@@ -1325,4 +1326,61 @@ pub fn import_database(
     source: String,
 ) -> Result<(), String> {
     import_db(&app_handle, &state, &source)
+}
+
+// ============================================================================
+// Sticky Notes Commands (v2 — gutter icon + DB storage)
+// ============================================================================
+
+/// Get all sticky notes for a tab
+#[command]
+pub fn get_tab_notes(
+    state: State<'_, AppState>,
+    tab_id: String,
+) -> Result<Vec<StickyNote>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.get_tab_notes(&tab_id).map_err(|e| e.to_string())
+}
+
+/// Save (insert or replace) a sticky note
+#[command]
+pub fn save_note(
+    state: State<'_, AppState>,
+    note: StickyNote,
+) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.save_note(&note).map_err(|e| e.to_string())
+}
+
+/// Delete a single sticky note
+#[command]
+pub fn delete_note(
+    state: State<'_, AppState>,
+    note_id: String,
+    tab_id: String,
+) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.delete_note(&note_id, &tab_id).map_err(|e| e.to_string())
+}
+
+/// Move a sticky note to a new line number
+#[command]
+pub fn move_note(
+    state: State<'_, AppState>,
+    note_id: String,
+    tab_id: String,
+    new_line: i32,
+) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.move_note(&note_id, &tab_id, new_line).map_err(|e| e.to_string())
+}
+
+/// Clear all sticky notes for a tab
+#[command]
+pub fn clear_tab_notes(
+    state: State<'_, AppState>,
+    tab_id: String,
+) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.delete_tab_notes(&tab_id).map_err(|e| e.to_string())
 }

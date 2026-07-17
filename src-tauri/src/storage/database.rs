@@ -283,6 +283,24 @@ impl DatabaseManager {
             )?;
         }
 
+        // Migration: Create sticky_notes table (v2 — gutter icon approach)
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS sticky_notes (
+                id TEXT PRIMARY KEY,
+                tab_id TEXT NOT NULL,
+                line_number INTEGER NOT NULL,
+                content TEXT NOT NULL DEFAULT '',
+                color TEXT NOT NULL DEFAULT 'yellow',
+                minimized INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_sticky_notes_tab_id ON sticky_notes(tab_id);
+            "#
+        )?;
+
         // Migration: Create FTS5 virtual table for full-text search
         let has_fts: bool = conn.query_row(
             "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='archived_tabs_fts'",
