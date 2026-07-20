@@ -2221,26 +2221,53 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
               </svg>
             </button>
           ) : (
-            <button
-              onClick={handleExecuteQuery}
-              disabled={!hasConnection}
-               className="p-1 text-white rounded-md transition-all hover:brightness-110 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{
-                backgroundColor: hasConnection ? spaceColor : 'transparent',
-                color: hasConnection ? getReadableTextColor(spaceColor) : 'var(--text-muted)',
-              }}
-              title={
-                !hasConnection
-                  ? "Configure a connection first"
-                  : hasSelection
-                    ? "Execute selected text (Ctrl+Enter)"
-                    : "Execute query (Ctrl+Enter)"
-              }
-            >
-              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M8 5v14l11-7z" />
-              </svg>
-            </button>
+            <>
+              {/* Run in new result tab (Ctrl+\) */}
+              <button
+                onClick={handleExecuteQueryAppend}
+                disabled={!hasConnection}
+                className="p-[5px] rounded-md transition-all hover:brightness-110 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed relative"
+                style={{
+                  backgroundColor: hasConnection ? `${spaceColor}18` : 'transparent',
+                  color: hasConnection ? spaceColor : 'var(--text-muted)',
+                }}
+                title={
+                  !hasConnection
+                    ? 'Configure a connection first'
+                    : 'Execute query in new result tab (Ctrl+\\)'
+                }
+              >
+                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+                <svg className="w-2 h-2 absolute -top-[1px] -right-[1px] text-white"
+                  fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={4}>
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+              </button>
+
+              {/* Run in current tab (Ctrl+Enter) */}
+              <button
+                onClick={handleExecuteQuery}
+                disabled={!hasConnection}
+                className="p-1 text-white rounded-md transition-all hover:brightness-110 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{
+                  backgroundColor: hasConnection ? spaceColor : 'transparent',
+                  color: hasConnection ? getReadableTextColor(spaceColor) : 'var(--text-muted)',
+                }}
+                title={
+                  !hasConnection
+                    ? 'Configure a connection first'
+                    : hasSelection
+                      ? 'Execute selected text (Ctrl+Enter)'
+                      : 'Execute query (Ctrl+Enter)'
+                }
+              >
+                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </button>
+            </>
           )}
         </div>
       </div>
