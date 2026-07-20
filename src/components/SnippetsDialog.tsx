@@ -63,6 +63,24 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
     return matchesSearch && matchesCategory;
   });
 
+  // Insert text at cursor position in a textarea by id
+  const insertAtCursor = (textareaId: string, text: string) => {
+    const el = document.getElementById(textareaId) as HTMLTextAreaElement | null;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const before = formContent.slice(0, start);
+    const after = formContent.slice(end);
+    const newContent = before + text + after;
+    setFormContent(newContent);
+    // Restore cursor after the inserted text on next tick
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = start + text.length;
+      el.setSelectionRange(pos, pos);
+    });
+  };
+
   // Reset form
   const resetForm = useCallback(() => {
     setFormTrigger('');
@@ -470,17 +488,59 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
                   <div className="flex-1">
                     <label className="block text-xs font-medium text-[var(--text-muted)] mb-1.5">
                       Content <span className="text-red-400">*</span>
-                      <span className="ml-2 font-normal text-[var(--text-muted)]">
-                        Use $&#123;cursor&#125; for cursor position, $&#123;1:placeholder&#125; for tab stops
-                      </span>
                     </label>
+
+                    {/* Placeholder Pill Toolbar */}
+                    <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+                      <span className="text-[10px] text-[var(--text-muted)] font-medium mr-1">
+                        Insert:
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => insertAtCursor('formContentTextarea', '${cursor}')}
+                        className="px-2 py-1 bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 rounded-md text-[11px] font-mono font-medium transition-colors"
+                        title="Cursor position — snippet expansion puts the cursor here"
+                      >
+                        {'${cursor}'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const text = prompt('Tab stop index (e.g. 1):', '1');
+                          if (!text) return;
+                          const placeholder = prompt('Optional placeholder text (leave empty for none):', '');
+                          insertAtCursor('formContentTextarea', placeholder ? `\${${text}:${placeholder}}` : `\${${text}}`);
+                        }}
+                        className="px-2 py-1 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 rounded-md text-[11px] font-mono font-medium transition-colors"
+                        title="Tab stop — user presses Tab to jump to this position"
+                      >
+                        {'${N:text}'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => insertAtCursor('formContentTextarea', '${paste}')}
+                        className="px-2 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 rounded-md text-[11px] font-mono font-medium transition-colors"
+                        title="Paste — auto-pastes clipboard content when snippet is triggered"
+                      >
+                        {'${paste}'}
+                      </button>
+                    </div>
+
                     <textarea
+                      id="formContentTextarea"
                       value={formContent}
                       onChange={(e) => setFormContent(e.target.value)}
-                      placeholder="SELECT * FROM ${cursor}"
+                      placeholder={`SELECT * FROM ${'${cursor}'}\nWHERE id = ${'${1:id}'}`}
                       rows={12}
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-indigo-500/50 font-mono resize-none"
                     />
+
+                    {/* Info tip */}
+                    <p className="text-[10px] text-[var(--text-muted)] mt-1.5 leading-relaxed">
+                      <span className="text-indigo-300">{'${cursor}'}</span> = cursor position after expansion &nbsp;•&nbsp;
+                      <span className="text-emerald-300">{'${1:text}'}</span> = Tab stop with placeholder &nbsp;•&nbsp;
+                      <span className="text-amber-300">{'${paste}'}</span> = auto-paste clipboard content
+                    </p>
                   </div>
                 </div>
 

@@ -1920,16 +1920,19 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
           .map(snippet => {
             // Convert ${cursor} placeholder to Monaco snippet format $0
             // Also convert ${1:placeholder} style to Monaco format
+            // Handle ${paste} — replace with unique marker, post-process via command
+            const hasPaste = /\$\{paste\}/i.test(snippet.content);
             let insertText = snippet.content
               .replace(/\$\{cursor\}/gi, '$0')
-              .replace(/\$\{(\d+):([^}]+)\}/g, '${$1:$2}');
+              .replace(/\$\{(\d+):([^}]+)\}/g, '${$1:$2}')
+              .replace(/\$\{paste\}/gi, '__LARIK_PASTE__');
 
-            return {
+            const item: languages.CompletionItem = {
               label: snippet.trigger,
               kind: monaco.languages.CompletionItemKind.Snippet,
               detail: snippet.name,
               documentation: {
-                value: `**${snippet.name}**${snippet.description ? `\n\n${snippet.description}` : ''}\n\n\`\`\`sql\n${snippet.content}\n\`\`\`${snippet.category ? `\n\n*Category: ${snippet.category}*` : ''}`,
+                value: `**${snippet.name}**${snippet.description ? `\n\n${snippet.description}` : ''}\n\n\`\`\`sql\n${snippet.content}\n\`\`\`${snippet.category ? `\n\n*Category: ${snippet.category}*` : ''}${hasPaste ? '\n\n*📋 Auto-pastes clipboard content*' : ''}`,
                 isTrusted: true,
               },
               insertText: insertText,
@@ -1938,6 +1941,16 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
               sortText: `00_${snippet.trigger}`,
               range,
             };
+
+            // If snippet uses ${paste}, add a post-insertion command to read clipboard
+            if (hasPaste) {
+              item.command = {
+                id: 'larik-snippet-paste',
+                title: 'Paste clipboard content into snippet',
+              };
+            }
+
+            return item;
           });
 
         return { suggestions };
@@ -2037,6 +2050,39 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       contextMenuOrder: 1,
       run: () => {
         formatQueryRef.current?.();
+      },
+    });
+
+    // Handle ${paste} from snippet expansion — replace unique marker with clipboard content
+    editor.addAction({
+      id: 'larik-snippet-paste',
+      label: 'Paste Clipboard Content into Snippet',
+      // No keybinding — this is triggered programmatically via snippet completion command
+      run: async () => {
+        const ed = editorRef.current;
+        if (!ed) return;
+        const model = ed.getModel();
+        if (!model) return;
+        try {
+          const clipboardText = await navigator.clipboard.readText();
+          const fullText = model.getValue();
+          const marker = '__LARIK_PASTE__';
+          if (!fullText.includes(marker)) return;
+          const newText = fullText.replace(marker, clipboardText ?? '');
+          // Use pushEditOperations to preserve undo stack
+          ed.pushUndoStop();
+          model.setValue(newText);
+          ed.pushUndoStop();
+        } catch {
+          // Clipboard access denied or no permission — clean up marker
+          const fullText = model.getValue();
+          const marker = '__LARIK_PASTE__';
+          if (!fullText.includes(marker)) return;
+          const newText = fullText.replace(marker, '');
+          ed.pushUndoStop();
+          model.setValue(newText);
+          ed.pushUndoStop();
+        }
       },
     });
 
