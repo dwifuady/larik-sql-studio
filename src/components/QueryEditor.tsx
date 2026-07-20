@@ -438,10 +438,17 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     const monaco = monacoRef.current;
     const editor = editorRef.current;
 
-    // Register global command (idempotent-ish)
+    // Register global commands (idempotent-ish)
     try {
       monaco.editor.registerCommand('larik.runQuery', (_, args: { tabId: string, sql: string }) => {
-        window.dispatchEvent(new CustomEvent(EVENT_RUN_QUERY_CODELENS, { detail: args }));
+        window.dispatchEvent(new CustomEvent(EVENT_RUN_QUERY_CODELENS, { detail: { ...args, mode: 'replace' } }));
+      });
+    } catch (e) {
+      // Command likely already registered
+    }
+    try {
+      monaco.editor.registerCommand('larik.runQueryAppend', (_, args: { tabId: string, sql: string }) => {
+        window.dispatchEvent(new CustomEvent(EVENT_RUN_QUERY_CODELENS, { detail: { ...args, mode: 'append' } }));
       });
     } catch (e) {
       // Command likely already registered
@@ -478,7 +485,15 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
                 range,
                 command: {
                   id: 'larik.runQuery',
-                  title: 'Run Query',
+                  title: '\u25B6',
+                  arguments: [{ tabId: tab.id, sql: stmt.statement }]
+                }
+              },
+              {
+                range,
+                command: {
+                  id: 'larik.runQueryAppend',
+                  title: '\u25B6+',
                   arguments: [{ tabId: tab.id, sql: stmt.statement }]
                 }
               }
@@ -593,26 +608,33 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   // Handle Run Query from CodeLens
   useEffect(() => {
     const handleRunQuery = (e: any) => {
-      const { tabId, sql } = e.detail || {};
-      if (tabId === tab.id && sql && hasConnection) {
-        // Also need to track recent tables for this specific statement
-        const referencedTables = extractReferencedTables(sql);
-        referencedTables.forEach(t => trackRecentTable(t.schema, t.table));
-        setLastExecutedQuery(sql);
+      const { tabId, sql, mode } = e.detail || {};
+      if (tabId !== tab.id || !sql) return;
 
-        // Use full content for context, but execute specific SQL
-        const model = editorRef.current?.getModel();
-        const fullContent = model ? model.getValue() : sql;
-
-        executeQuery(tab.id, fullContent, sql);
-      } else if (tabId === tab.id && !hasConnection) {
+      if (!hasConnection) {
         alert('Please configure a database connection for this space');
+        return;
+      }
+
+      // Track recent tables for this specific statement
+      const referencedTables = extractReferencedTables(sql);
+      referencedTables.forEach(t => trackRecentTable(t.schema, t.table));
+      setLastExecutedQuery(sql);
+
+      // Use full content for context, but execute specific SQL
+      const model = editorRef.current?.getModel();
+      const fullContent = model ? model.getValue() : sql;
+
+      if (mode === 'append') {
+        executeQueryAppend(tab.id, fullContent, sql);
+      } else {
+        executeQuery(tab.id, fullContent, sql);
       }
     };
 
     window.addEventListener(EVENT_RUN_QUERY_CODELENS, handleRunQuery);
     return () => window.removeEventListener(EVENT_RUN_QUERY_CODELENS, handleRunQuery);
-  }, [tab.id, hasConnection, executeQuery]);
+  }, [tab.id, hasConnection, executeQuery, executeQueryAppend]);
 
 
   // Context Menu Items
