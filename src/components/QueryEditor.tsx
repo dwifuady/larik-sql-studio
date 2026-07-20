@@ -396,7 +396,6 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   const effectiveTheme = theme === 'system'
     ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
     : theme;
-  const monacoTheme = effectiveTheme === 'dark' ? 'vs-dark' : 'vs';
 
   // Get per-tab query results and executing state - using selectors to ensure reactivity
   const queryResults = useAppStore(s => s.tabQueryResults[tab.id] ?? null);
@@ -600,6 +599,26 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   // Get space color for theming
   const activeSpace = spaces.find(s => s.id === activeSpaceId);
   const spaceColor = activeSpace?.color || '#6366f1';
+
+  // Custom Monaco theme with space-colored CodeLens
+  const larikTheme = `larik-${effectiveTheme}-${spaceColor}`;
+  useEffect(() => {
+    const monaco = monacoRef.current;
+    if (!monaco || !editorReady) return;
+    const base = effectiveTheme === 'dark' ? 'vs-dark' : 'vs';
+    try {
+      monaco.editor.defineTheme(larikTheme, {
+        base,
+        inherit: true,
+        rules: [],
+        colors: {
+          'editorCodeLens.foreground': spaceColor,
+        },
+      });
+    } catch {
+      // Monaco might throw if called before editor is fully initialized
+    }
+  }, [larikTheme, editorReady]);
 
   // Check connection status (1:1 model)
   const hasConnection = activeSpace ? spaceHasConnection(activeSpace) : false;
@@ -2299,7 +2318,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         <Editor
           height="100%"
           language="sql"
-          theme={monacoTheme}
+          theme={larikTheme}
           defaultValue={tab.content || ''}
           onChange={handleChange}
           onMount={handleEditorMount}
