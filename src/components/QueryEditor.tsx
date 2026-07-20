@@ -453,6 +453,36 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       // Command likely already registered
     }
 
+    // Register snippet paste command — replaces __LARIK_PASTE__ marker with clipboard content
+    try {
+      monaco.editor.registerCommand('larik-snippet-paste', async () => {
+        const ed = editor;
+        const model = ed.getModel();
+        if (!model) return;
+        try {
+          const clipboardText = await navigator.clipboard.readText();
+          const fullText = model.getValue();
+          const marker = '__LARIK_PASTE__';
+          if (!fullText.includes(marker)) return;
+          const newText = fullText.replace(marker, clipboardText ?? '');
+          ed.pushUndoStop();
+          model.setValue(newText);
+          ed.pushUndoStop();
+        } catch {
+          // Clipboard access denied — clean up marker
+          const fullText = model.getValue();
+          const marker = '__LARIK_PASTE__';
+          if (!fullText.includes(marker)) return;
+          const newText = fullText.replace(marker, '');
+          ed.pushUndoStop();
+          model.setValue(newText);
+          ed.pushUndoStop();
+        }
+      });
+    } catch (e) {
+      // Command likely already registered
+    }
+
     // Register CodeLens Provider
     if (codeLensProviderRef.current) {
       codeLensProviderRef.current.dispose();
@@ -1961,16 +1991,19 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
           .map(snippet => {
             // Convert ${cursor} placeholder to Monaco snippet format $0
             // Also convert ${1:placeholder} style to Monaco format
+            // Handle ${paste} — replace with unique marker, post-process via command
+            const hasPaste = /\$\{paste\}/i.test(snippet.content);
             let insertText = snippet.content
               .replace(/\$\{cursor\}/gi, '$0')
-              .replace(/\$\{(\d+):([^}]+)\}/g, '${$1:$2}');
+              .replace(/\$\{(\d+):([^}]+)\}/g, '${$1:$2}')
+              .replace(/\$\{paste\}/gi, '__LARIK_PASTE__');
 
-            return {
+            const item: languages.CompletionItem = {
               label: snippet.trigger,
               kind: monaco.languages.CompletionItemKind.Snippet,
               detail: snippet.name,
               documentation: {
-                value: `**${snippet.name}**${snippet.description ? `\n\n${snippet.description}` : ''}\n\n\`\`\`sql\n${snippet.content}\n\`\`\`${snippet.category ? `\n\n*Category: ${snippet.category}*` : ''}`,
+                value: `**${snippet.name}**${snippet.description ? `\n\n${snippet.description}` : ''}\n\n\`\`\`sql\n${snippet.content}\n\`\`\`${snippet.category ? `\n\n*Category: ${snippet.category}*` : ''}${hasPaste ? '\n\n*📋 Auto-pastes clipboard content*' : ''}`,
                 isTrusted: true,
               },
               insertText: insertText,
@@ -1979,6 +2012,16 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
               sortText: `00_${snippet.trigger}`,
               range,
             };
+
+            // If snippet uses ${paste}, add a post-insertion command to read clipboard
+            if (hasPaste) {
+              item.command = {
+                id: 'larik-snippet-paste',
+                title: 'Paste clipboard content into snippet',
+              };
+            }
+
+            return item;
           });
 
         return { suggestions };
