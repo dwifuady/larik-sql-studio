@@ -588,40 +588,14 @@ textarea:focus {
 /*
  * Monaco renders glyph-margin decorations as `.cgmr` cells inside
  * `.glyph-margin-widgets`. Each cell has `display: flex; align-items: center;
- * justify-content: center` (set by Monaco's glyphMargin.css). We let the
- * flex layout center the icons instead of using absolute positioning.
+ * justify-content: center` (set by Monaco's glyphMargin.css). We let
+ * Monaco auto-size the glyph margin — the `glyphMargin: true` editor option
+ * already allocates enough width (≈ lineHeight) to fit a 14 px icon.
  *
- * The glyph margin is auto-sized by Monaco's layout engine as
- * `lineHeight × laneCount` (~18 px with 12 px font). We widen it to give
- * icons breathing room, then push line numbers right to match.
+ * No CSS width overrides here — Monaco's layout engine calculates the
+ * correct widths dynamically. Forcing widths with !important creates
+ * layout issues and wastes editor space.
  */
-
-/* Widen the glyph margin background to give icons breathing room.
-   Monaco sets this via JS (style.width), so we need !important. */
-.monaco-editor .glyph-margin {
-  width: 28px !important;
-}
-
-/* Widen each individual glyph decoration cell to match.
-   Monaco's FastDomNode.setWidth sets inline style, overridden here.
-   justify-content: flex-end pushes the icon to the right edge
-   so it sits right next to the line numbers (minimal gap). */
-.monaco-editor .glyph-margin-widgets .cgmr {
-  width: 28px !important;
-  justify-content: flex-end !important;
-}
-
-/* Push the line numbers overlay to the right to match the wider margin.
-   Monaco renders line numbers with an inline `style="left:Xpx"` attribute. */
-.monaco-editor .margin-view-overlays .line-numbers {
-  left: 28px !important;
-}
-
-/* Widen the margin-view-overlays container so line numbers aren't clipped.
-   Monaco uses `setWidth(this._contentLeft)` on this element in JS. */
-.monaco-editor .margin-view-overlays {
-  width: 89px !important;
-}
 
 /* ── Note icon (visible on lines that have a note) ── */
 .larik-gutter-note-icon {
