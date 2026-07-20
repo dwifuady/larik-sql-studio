@@ -447,6 +447,36 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       // Command likely already registered
     }
 
+    // Register snippet paste command — replaces __LARIK_PASTE__ marker with clipboard content
+    try {
+      monaco.editor.registerCommand('larik-snippet-paste', async () => {
+        const ed = editor;
+        const model = ed.getModel();
+        if (!model) return;
+        try {
+          const clipboardText = await navigator.clipboard.readText();
+          const fullText = model.getValue();
+          const marker = '__LARIK_PASTE__';
+          if (!fullText.includes(marker)) return;
+          const newText = fullText.replace(marker, clipboardText ?? '');
+          ed.pushUndoStop();
+          model.setValue(newText);
+          ed.pushUndoStop();
+        } catch {
+          // Clipboard access denied — clean up marker
+          const fullText = model.getValue();
+          const marker = '__LARIK_PASTE__';
+          if (!fullText.includes(marker)) return;
+          const newText = fullText.replace(marker, '');
+          ed.pushUndoStop();
+          model.setValue(newText);
+          ed.pushUndoStop();
+        }
+      });
+    } catch (e) {
+      // Command likely already registered
+    }
+
     // Register CodeLens Provider
     if (codeLensProviderRef.current) {
       codeLensProviderRef.current.dispose();
@@ -2050,39 +2080,6 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       contextMenuOrder: 1,
       run: () => {
         formatQueryRef.current?.();
-      },
-    });
-
-    // Handle ${paste} from snippet expansion — replace unique marker with clipboard content
-    editor.addAction({
-      id: 'larik-snippet-paste',
-      label: 'Paste Clipboard Content into Snippet',
-      // No keybinding — this is triggered programmatically via snippet completion command
-      run: async () => {
-        const ed = editorRef.current;
-        if (!ed) return;
-        const model = ed.getModel();
-        if (!model) return;
-        try {
-          const clipboardText = await navigator.clipboard.readText();
-          const fullText = model.getValue();
-          const marker = '__LARIK_PASTE__';
-          if (!fullText.includes(marker)) return;
-          const newText = fullText.replace(marker, clipboardText ?? '');
-          // Use pushEditOperations to preserve undo stack
-          ed.pushUndoStop();
-          model.setValue(newText);
-          ed.pushUndoStop();
-        } catch {
-          // Clipboard access denied or no permission — clean up marker
-          const fullText = model.getValue();
-          const marker = '__LARIK_PASTE__';
-          if (!fullText.includes(marker)) return;
-          const newText = fullText.replace(marker, '');
-          ed.pushUndoStop();
-          model.setValue(newText);
-          ed.pushUndoStop();
-        }
       },
     });
 
