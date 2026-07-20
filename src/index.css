@@ -603,9 +603,12 @@ textarea:focus {
 }
 
 /* Widen each individual glyph decoration cell to match.
-   Monaco's FastDomNode.setWidth sets inline style, overridden here. */
+   Monaco's FastDomNode.setWidth sets inline style, overridden here.
+   justify-content: flex-end pushes the icon to the right edge
+   so it sits right next to the line numbers (minimal gap). */
 .monaco-editor .glyph-margin-widgets .cgmr {
   width: 28px !important;
+  justify-content: flex-end !important;
 }
 
 /* Push the line numbers overlay to the right to match the wider margin.
