@@ -585,44 +585,65 @@ textarea:focus {
 
 /* ===== Sticky Notes v2 — Gutter Icon ===== */
 
-/* Monaco's glyph margin defaults to a narrow 18 px which crowds icons
-   against the left edge. Widen it so the icons have room to breathe. */
+/*
+ * Monaco renders glyph-margin decorations as `.cgmr` cells inside
+ * `.glyph-margin-widgets`. Each cell has `display: flex; align-items: center;
+ * justify-content: center` (set by Monaco's glyphMargin.css). We let the
+ * flex layout center the icons instead of using absolute positioning.
+ *
+ * The glyph margin is auto-sized by Monaco's layout engine as
+ * `lineHeight × laneCount` (~18 px with 12 px font). We widen it to give
+ * icons breathing room, then push line numbers right to match.
+ */
+
+/* Widen the glyph margin background to give icons breathing room.
+   Monaco sets this via JS (style.width), so we need !important. */
 .monaco-editor .glyph-margin {
-  width: 24px !important;
+  width: 28px !important;
 }
 
-/* Push the line numbers overlay to the right to match the wider glyph margin.
-   Monaco uses an inline `left` — override with the same 24 px. */
+/* Widen each individual glyph decoration cell to match.
+   Monaco's FastDomNode.setWidth sets inline style, overridden here. */
+.monaco-editor .glyph-margin-widgets .cgmr {
+  width: 28px !important;
+}
+
+/* Push the line numbers overlay to the right to match the wider margin.
+   Monaco renders line numbers with an inline `style="left:Xpx"` attribute. */
 .monaco-editor .margin-view-overlays .line-numbers {
-  left: 24px !important;
+  left: 28px !important;
 }
 
+/* Widen the margin-view-overlays container so line numbers aren't clipped.
+   Monaco uses `setWidth(this._contentLeft)` on this element in JS. */
+.monaco-editor .margin-view-overlays {
+  width: 89px !important;
+}
+
+/* ── Note icon (visible on lines that have a note) ── */
 .larik-gutter-note-icon {
-  position: relative;
   cursor: pointer;
   opacity: 0.7;
   transition: opacity 0.15s ease;
 }
 
+/* The parent .cgmr has display:flex; align-items:center; justify-content:center.
+   By using display:inline-block (instead of position:absolute) the ::after
+   participates in flex layout and is automatically centered. */
 .larik-gutter-note-icon::after {
   content: '';
-  position: absolute;
-  right: 2px;
-  top: 50%;
-  transform: translateY(-50%);
+  display: inline-block;
   width: 14px;
   height: 14px;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23facc15' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z'/%3E%3Cpath d='M15 3v6h6'/%3E%3C/svg%3E") center no-repeat;
-  background-size: contain;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23facc15' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z'/%3E%3Cpath d='M15 3v6h6'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
 .larik-gutter-note-icon:hover {
   opacity: 1;
 }
 
-/* Hover "+" icon for adding a new note (shown when no note exists on the line) */
+/* ── Add-note icon (shown on hover when line has no note) ── */
 .larik-gutter-note-add-icon {
-  position: relative;
   cursor: pointer;
   opacity: 0.4;
   transition: opacity 0.15s ease;
@@ -630,14 +651,10 @@ textarea:focus {
 
 .larik-gutter-note-add-icon::after {
   content: '';
-  position: absolute;
-  right: 2px;
-  top: 50%;
-  transform: translateY(-50%);
+  display: inline-block;
   width: 12px;
   height: 12px;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 5v14'/%3E%3Cpath d='M5 12h14'/%3E%3C/svg%3E") center no-repeat;
-  background-size: contain;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 5v14'/%3E%3Cpath d='M5 12h14'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
 .larik-gutter-note-add-icon:hover {
