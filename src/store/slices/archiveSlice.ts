@@ -11,6 +11,8 @@ export interface ArchiveSlice {
     archivedTabsCount: number;
     archiveModalOpen: boolean;
     autoArchiveSettings: AutoArchiveSettings;
+    historyRetentionDays: number;
+    purging: boolean;
 
     loadArchivedTabs: (spaceId?: string | null) => Promise<void>;
     searchArchive: (query: string) => Promise<void>;
@@ -21,6 +23,10 @@ export interface ArchiveSlice {
     setArchiveModalOpen: (open: boolean) => void;
     loadAutoArchiveSettings: () => Promise<void>;
     updateAutoArchiveSettings: (enabled: boolean, days: number) => Promise<void>;
+    loadHistoryRetentionDays: () => Promise<void>;
+    updateHistoryRetentionDays: (days: number) => Promise<void>;
+    purgeArchivedTabsNow: () => Promise<number>;
+    purgeAllArchivedTabs: () => Promise<number>;
     touchActiveTab: () => Promise<void>;
 }
 
@@ -32,6 +38,8 @@ export const createArchiveSlice: StateCreator<AppState, [], [], ArchiveSlice> = 
     archivedTabsCount: 0,
     archiveModalOpen: false,
     autoArchiveSettings: { enabled: true, days_inactive: 14 },
+    historyRetentionDays: 90,
+    purging: false,
 
     loadArchivedTabs: async (spaceId) => {
         set({ archivedTabsLoading: true });
@@ -146,6 +154,55 @@ export const createArchiveSlice: StateCreator<AppState, [], [], ArchiveSlice> = 
             set({ autoArchiveSettings: { enabled, days_inactive: days } });
         } catch (error) {
             console.error('Failed to update auto-archive settings:', error);
+        }
+    },
+
+    loadHistoryRetentionDays: async () => {
+        try {
+            const days = await api.getHistoryRetentionDays();
+            set({ historyRetentionDays: days });
+        } catch (error) {
+            console.error('Failed to load history retention days:', error);
+        }
+    },
+
+    updateHistoryRetentionDays: async (days) => {
+        try {
+            await api.updateHistoryRetentionDays(days);
+            set({ historyRetentionDays: days });
+        } catch (error) {
+            console.error('Failed to update history retention days:', error);
+        }
+    },
+
+    purgeArchivedTabsNow: async () => {
+        set({ purging: true });
+        try {
+            const count = await api.purgeArchivedTabsNow();
+            // Refresh archive data after purge
+            await get().loadArchiveCount();
+            await get().loadArchivedTabs(get().activeSpaceId);
+            set({ purging: false });
+            return count;
+        } catch (error) {
+            console.error('Failed to purge expired archived tabs:', error);
+            set({ purging: false });
+            return 0;
+        }
+    },
+
+    purgeAllArchivedTabs: async () => {
+        set({ purging: true });
+        try {
+            const count = await api.purgeAllArchivedTabs();
+            // Refresh archive data after purge
+            set({ archivedTabs: [], archivedTabsCount: 0, archiveSearchResults: null });
+            set({ purging: false });
+            return count;
+        } catch (error) {
+            console.error('Failed to purge all archived tabs:', error);
+            set({ purging: false });
+            return 0;
         }
     },
 

@@ -611,6 +611,26 @@ export async function updateAutoArchiveSettings(
   return invoke<void>('update_auto_archive_settings', { enabled, daysInactive });
 }
 
+/** Get history retention days (how long archived tabs are kept before auto-purge) */
+export async function getHistoryRetentionDays(): Promise<number> {
+  return invoke<number>('get_history_retention_days');
+}
+
+/** Update history retention days setting */
+export async function updateHistoryRetentionDays(days: number): Promise<void> {
+  return invoke<void>('update_history_retention_days', { days });
+}
+
+/** Purge archived tabs that are older than the retention period (manual trigger) */
+export async function purgeArchivedTabsNow(): Promise<number> {
+  return invoke<number>('purge_archived_tabs_now');
+}
+
+/** Permanently delete ALL archived tabs (regardless of retention period) */
+export async function purgeAllArchivedTabs(): Promise<number> {
+  return invoke<number>('purge_all_archived_tabs');
+}
+
 // ============================================================================
 // App Settings API
 // ============================================================================
