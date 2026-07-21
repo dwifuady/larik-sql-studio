@@ -256,7 +256,14 @@ export function DatabaseExplorer() {
                              */}
                             {node.icon}
                         </div>
-                        <span className="truncate text-[var(--text-primary)] group-hover:translate-x-0.5 transition-transform duration-200">{node.label}</span>
+                        <div className="overflow-hidden min-w-0 animate-marquee-hover">
+                          <span
+                            className="marquee-content truncate text-[var(--text-primary)] group-hover:translate-x-0.5 transition-transform duration-200"
+                            title={node.label}
+                          >
+                            {node.label}
+                          </span>
+                        </div>
                     </div>
 
                     {hasChildren && isExpanded && (

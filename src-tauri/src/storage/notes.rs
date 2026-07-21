@@ -17,6 +17,9 @@ pub struct StickyNote {
     /// Semantic color key: "yellow", "blue", "green", "orange", "pink", "purple"
     pub color: String,
     pub minimized: bool,
+    /// Persisted popover width in pixels (None = use default).
+    #[serde(default)]
+    pub width: Option<i32>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -26,7 +29,7 @@ impl DatabaseManager {
     pub fn get_tab_notes(&self, tab_id: &str) -> StorageResult<Vec<StickyNote>> {
         self.with_connection(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, tab_id, line_number, content, color, minimized, created_at, updated_at
+                "SELECT id, tab_id, line_number, content, color, minimized, width, created_at, updated_at
                  FROM sticky_notes
                  WHERE tab_id = ?1
                  ORDER BY line_number ASC",
@@ -42,8 +45,9 @@ impl DatabaseManager {
                         content: row.get(3)?,
                         color: row.get(4)?,
                         minimized: minimized != 0,
-                        created_at: row.get(6)?,
-                        updated_at: row.get(7)?,
+                        width: row.get(6)?,
+                        created_at: row.get(7)?,
+                        updated_at: row.get(8)?,
                     })
                 })?
                 .filter_map(|r| r.ok())
@@ -58,9 +62,9 @@ impl DatabaseManager {
         self.with_connection(|conn| {
             conn.execute(
                 "INSERT OR REPLACE INTO sticky_notes
-                    (id, tab_id, line_number, content, color, minimized, created_at, updated_at)
+                    (id, tab_id, line_number, content, color, minimized, width, created_at, updated_at)
                  VALUES
-                    (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     note.id,
                     note.tab_id,
@@ -68,6 +72,7 @@ impl DatabaseManager {
                     note.content,
                     note.color,
                     note.minimized as i32,
+                    note.width,
                     note.created_at,
                     note.updated_at,
                 ],

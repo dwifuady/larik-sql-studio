@@ -585,25 +585,55 @@ textarea:focus {
 
 /* ===== Sticky Notes v2 — Gutter Icon ===== */
 
+/*
+ * Monaco renders glyph-margin decorations as `.cgmr` cells inside
+ * `.glyph-margin-widgets`. Each cell has `display: flex; align-items: center;
+ * justify-content: center` (set by Monaco's glyphMargin.css), so the icons
+ * center themselves without any width/position overrides.
+ *
+ * We deliberately do NOT override the glyph-margin / line-numbers /
+ * margin-view-overlays widths here. Monaco computes them from the editor
+ * options (glyphMargin, lineNumbersMinChars, lineDecorationsWidth) and keeps
+ * line numbers, the glyph margin, and the note icons in sync. The default
+ * glyph margin (~lineHeight) already fits the 14px note icon, and
+ * getGlyphMarginOffset() measures the real DOM so the popover tracks it.
+ */
+
+/* ── Note icon (visible on lines that have a note) ── */
 .larik-gutter-note-icon {
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23facc15' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z'/%3E%3Cpath d='M15 3v6h6'/%3E%3C/svg%3E") center no-repeat;
-  background-size: 16px;
   cursor: pointer;
   opacity: 0.7;
   transition: opacity 0.15s ease;
+}
+
+/* The parent .cgmr has display:flex; align-items:center; justify-content:center.
+   By using display:inline-block (instead of position:absolute) the ::after
+   participates in flex layout and is automatically centered. */
+.larik-gutter-note-icon::after {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23facc15' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z'/%3E%3Cpath d='M15 3v6h6'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
 .larik-gutter-note-icon:hover {
   opacity: 1;
 }
 
-/* Hover "+" icon for adding a new note (shown when no note exists on the line) */
+/* ── Add-note icon (shown on hover when line has no note) ── */
 .larik-gutter-note-add-icon {
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 5v14'/%3E%3Cpath d='M5 12h14'/%3E%3C/svg%3E") center no-repeat;
-  background-size: 14px;
   cursor: pointer;
   opacity: 0.4;
   transition: opacity 0.15s ease;
+}
+
+.larik-gutter-note-add-icon::after {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 5v14'/%3E%3Cpath d='M5 12h14'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
 .larik-gutter-note-add-icon:hover {

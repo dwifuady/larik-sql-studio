@@ -438,10 +438,17 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     const monaco = monacoRef.current;
     const editor = editorRef.current;
 
-    // Register global command (idempotent-ish)
+    // Register global commands (idempotent-ish)
     try {
       monaco.editor.registerCommand('larik.runQuery', (_, args: { tabId: string, sql: string }) => {
-        window.dispatchEvent(new CustomEvent(EVENT_RUN_QUERY_CODELENS, { detail: args }));
+        window.dispatchEvent(new CustomEvent(EVENT_RUN_QUERY_CODELENS, { detail: { ...args, mode: 'replace' } }));
+      });
+    } catch (e) {
+      // Command likely already registered
+    }
+    try {
+      monaco.editor.registerCommand('larik.runQueryAppend', (_, args: { tabId: string, sql: string }) => {
+        window.dispatchEvent(new CustomEvent(EVENT_RUN_QUERY_CODELENS, { detail: { ...args, mode: 'append' } }));
       });
     } catch (e) {
       // Command likely already registered
@@ -508,7 +515,15 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
                 range,
                 command: {
                   id: 'larik.runQuery',
-                  title: 'Run Query',
+                  title: '\u25B6',
+                  arguments: [{ tabId: tab.id, sql: stmt.statement }]
+                }
+              },
+              {
+                range,
+                command: {
+                  id: 'larik.runQueryAppend',
+                  title: '\u25B6+',
                   arguments: [{ tabId: tab.id, sql: stmt.statement }]
                 }
               }
@@ -623,26 +638,33 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   // Handle Run Query from CodeLens
   useEffect(() => {
     const handleRunQuery = (e: any) => {
-      const { tabId, sql } = e.detail || {};
-      if (tabId === tab.id && sql && hasConnection) {
-        // Also need to track recent tables for this specific statement
-        const referencedTables = extractReferencedTables(sql);
-        referencedTables.forEach(t => trackRecentTable(t.schema, t.table));
-        setLastExecutedQuery(sql);
+      const { tabId, sql, mode } = e.detail || {};
+      if (tabId !== tab.id || !sql) return;
 
-        // Use full content for context, but execute specific SQL
-        const model = editorRef.current?.getModel();
-        const fullContent = model ? model.getValue() : sql;
-
-        executeQuery(tab.id, fullContent, sql);
-      } else if (tabId === tab.id && !hasConnection) {
+      if (!hasConnection) {
         alert('Please configure a database connection for this space');
+        return;
+      }
+
+      // Track recent tables for this specific statement
+      const referencedTables = extractReferencedTables(sql);
+      referencedTables.forEach(t => trackRecentTable(t.schema, t.table));
+      setLastExecutedQuery(sql);
+
+      // Use full content for context, but execute specific SQL
+      const model = editorRef.current?.getModel();
+      const fullContent = model ? model.getValue() : sql;
+
+      if (mode === 'append') {
+        executeQueryAppend(tab.id, fullContent, sql);
+      } else {
+        executeQuery(tab.id, fullContent, sql);
       }
     };
 
     window.addEventListener(EVENT_RUN_QUERY_CODELENS, handleRunQuery);
     return () => window.removeEventListener(EVENT_RUN_QUERY_CODELENS, handleRunQuery);
-  }, [tab.id, hasConnection, executeQuery]);
+  }, [tab.id, hasConnection, executeQuery, executeQueryAppend]);
 
 
   // Context Menu Items
@@ -2264,26 +2286,53 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
               </svg>
             </button>
           ) : (
-            <button
-              onClick={handleExecuteQuery}
-              disabled={!hasConnection}
-               className="p-1 text-white rounded-md transition-all hover:brightness-110 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{
-                backgroundColor: hasConnection ? spaceColor : 'transparent',
-                color: hasConnection ? getReadableTextColor(spaceColor) : 'var(--text-muted)',
-              }}
-              title={
-                !hasConnection
-                  ? "Configure a connection first"
-                  : hasSelection
-                    ? "Execute selected text (Ctrl+Enter)"
-                    : "Execute query (Ctrl+Enter)"
-              }
-            >
-              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M8 5v14l11-7z" />
-              </svg>
-            </button>
+            <>
+              {/* Run in new result tab (Ctrl+\) */}
+              <button
+                onClick={handleExecuteQueryAppend}
+                disabled={!hasConnection}
+                className="p-[5px] rounded-md transition-all hover:brightness-110 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed relative"
+                style={{
+                  backgroundColor: hasConnection ? `${spaceColor}18` : 'transparent',
+                  color: hasConnection ? spaceColor : 'var(--text-muted)',
+                }}
+                title={
+                  !hasConnection
+                    ? 'Configure a connection first'
+                    : 'Execute query in new result tab (Ctrl+\\)'
+                }
+              >
+                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+                <svg className="w-2 h-2 absolute -top-[1px] -right-[1px] text-white"
+                  fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={4}>
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+              </button>
+
+              {/* Run in current tab (Ctrl+Enter) */}
+              <button
+                onClick={handleExecuteQuery}
+                disabled={!hasConnection}
+                className="p-1 text-white rounded-md transition-all hover:brightness-110 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{
+                  backgroundColor: hasConnection ? spaceColor : 'transparent',
+                  color: hasConnection ? getReadableTextColor(spaceColor) : 'var(--text-muted)',
+                }}
+                title={
+                  !hasConnection
+                    ? 'Configure a connection first'
+                    : hasSelection
+                      ? 'Execute selected text (Ctrl+Enter)'
+                      : 'Execute query (Ctrl+Enter)'
+                }
+              >
+                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -2303,6 +2352,9 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
             fontLigatures: true,
             minimap: { enabled: false },
             lineNumbers: 'on',
+            lineNumbersMinChars: 2,
+            lineDecorationsWidth: 8,
+            folding: false,
             glyphMargin: true,
             renderLineHighlight: 'line',
             scrollBeyondLastLine: false,
