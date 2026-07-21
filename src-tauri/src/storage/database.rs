@@ -301,6 +301,20 @@ impl DatabaseManager {
             "#
         )?;
 
+        // Migration: Add width column to sticky_notes (persist resized popover width)
+        let has_note_width: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('sticky_notes') WHERE name = 'width'",
+            [],
+            |row| row.get(0),
+        )?;
+
+        if !has_note_width {
+            conn.execute(
+                "ALTER TABLE sticky_notes ADD COLUMN width INTEGER",
+                [],
+            )?;
+        }
+
         // Migration: Create FTS5 virtual table for full-text search
         let has_fts: bool = conn.query_row(
             "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='archived_tabs_fts'",

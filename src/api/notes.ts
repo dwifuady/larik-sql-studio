@@ -8,6 +8,8 @@ export interface StickyNote {
   content: string;
   color: string;
   minimized: boolean;
+  /** Persisted popover width in pixels (null/undefined = use default). */
+  width?: number | null;
   created_at: string;
   updated_at: string;
 }

@@ -43,8 +43,26 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
   const [content, setContent] = useState(note.content);
   const [color, setColor] = useState(note.color);
   const [isMinimized, setIsMinimized] = useState(note.minimized);
+  // Persisted resizable width. Kept in state (not just the DOM) so it survives
+  // re-renders — otherwise typing would snap the popover back to the default.
+  const [width, setWidth] = useState<number>(note.width ?? 380);
   const popoverRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Track user resize (CSS `resize: horizontal`) and mirror it into state.
+  useEffect(() => {
+    const el = popoverRef.current;
+    if (!el || isMinimized || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      // Use offsetWidth (layout border-box), NOT getBoundingClientRect —
+      // the latter includes the entry `scale()` transform, which would make
+      // the saved width shrink a little on every open/close cycle.
+      const w = el.offsetWidth;
+      if (w > 0) setWidth(w);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isMinimized]);
 
   // Focus the textarea on mount
   useEffect(() => {
@@ -65,29 +83,29 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (content !== note.content || color !== note.color || isMinimized !== note.minimized) {
-          onChange(note.id, { content, color, minimized: isMinimized });
+        if (content !== note.content || color !== note.color || isMinimized !== note.minimized || width !== note.width) {
+          onChange(note.id, { content, color, minimized: isMinimized, width });
         }
         onClose();
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [content, color, isMinimized, note.id, note.content, note.color, note.minimized, onChange, onClose]);
+  }, [content, color, isMinimized, width, note.id, note.content, note.color, note.minimized, note.width, onChange, onClose]);
 
   const handleColorChange = useCallback(
     (newColor: string) => {
       setColor(newColor);
-      onChange(note.id, { color: newColor, minimized: isMinimized, content });
+      onChange(note.id, { color: newColor, minimized: isMinimized, content, width });
     },
-    [content, isMinimized, note.id, onChange],
+    [content, isMinimized, width, note.id, onChange],
   );
 
   const handleToggleMinimize = useCallback(() => {
     const newState = !isMinimized;
     setIsMinimized(newState);
-    onChange(note.id, { minimized: newState, content, color });
-  }, [content, color, isMinimized, note.id, onChange]);
+    onChange(note.id, { minimized: newState, content, color, width });
+  }, [content, color, isMinimized, width, note.id, onChange]);
 
   const handleDelete = useCallback(() => {
     onDelete(note.id);
@@ -99,8 +117,8 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
   }, []);
 
   const handleContentBlur = useCallback(() => {
-    onChange(note.id, { content, color, minimized: isMinimized });
-  }, [content, color, isMinimized, note.id, onChange]);
+    onChange(note.id, { content, color, minimized: isMinimized, width });
+  }, [content, color, isMinimized, width, note.id, onChange]);
 
   const bgColor = getNoteColorBg(color, theme);
   const fgColor = getReadableTextColor(bgColor);
@@ -117,9 +135,9 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
     border: `1px solid ${theme === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)'}`,
     fontFamily: '-apple-system, BlinkMacSystemFont, \'SF Pro Display\', \'Segoe UI\', Roboto, sans-serif',
     animation: 'larik-note-popover-in 150ms cubic-bezier(0.4, 0, 0.2, 1)',
-    // Wider default; drag the bottom-right corner to resize (vertical height
+    // Persisted width; drag the right edge to resize (vertical height
     // still auto-grows with content).
-    width: isMinimized ? undefined : 380,
+    width: isMinimized ? undefined : width,
     minWidth: isMinimized ? '180px' : '260px',
     maxWidth: isMinimized ? '320px' : '760px',
     resize: isMinimized ? undefined : 'horizontal',
@@ -127,11 +145,11 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
   };
 
   const handleCloseWithFlush = useCallback(() => {
-    if (content !== note.content || color !== note.color || isMinimized !== note.minimized) {
-      onChange(note.id, { content, color, minimized: isMinimized });
+    if (content !== note.content || color !== note.color || isMinimized !== note.minimized || width !== note.width) {
+      onChange(note.id, { content, color, minimized: isMinimized, width });
     }
     onClose();
-  }, [content, color, isMinimized, note.id, note.content, note.color, note.minimized, onChange, onClose]);
+  }, [content, color, isMinimized, width, note.id, note.content, note.color, note.minimized, note.width, onChange, onClose]);
 
   if (isMinimized) {
     return (
@@ -256,8 +274,8 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              if (content !== note.content || color !== note.color || isMinimized !== note.minimized) {
-                onChange(note.id, { content, color, minimized: isMinimized });
+              if (content !== note.content || color !== note.color || isMinimized !== note.minimized || width !== note.width) {
+                onChange(note.id, { content, color, minimized: isMinimized, width });
               }
               onClose();
             }}
@@ -272,18 +290,28 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
       </div>
 
       {/* Content textarea */}
-      <div className="p-2.5">
+      <div>
         <textarea
           ref={textareaRef}
           value={content}
           onChange={handleContentChange}
           onBlur={handleContentBlur}
           placeholder="Write a note..."
-          className="w-full bg-transparent border-none resize-none focus:outline-none text-sm leading-relaxed"
+          className="w-full bg-transparent resize-none focus:outline-none text-sm leading-relaxed"
           style={{
             color: fgColor,
             minHeight: '60px',
             fontFamily: 'inherit',
+            // Padding lives on the textarea itself so the text always sits
+            // inset from the note edges (the global `textarea` rule in
+            // index.css strips padding, so we set it explicitly here).
+            padding: '12px 16px',
+            margin: 0,
+            border: 'none',
+            outline: 'none',
+            background: 'transparent',
+            boxSizing: 'border-box',
+            display: 'block',
           }}
           onMouseDown={(e) => e.stopPropagation()}
         />
