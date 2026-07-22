@@ -4,6 +4,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { save } from '@tauri-apps/plugin-dialog';
 import { exportToCsv, exportToJson, exportToString } from '../api';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import type { QueryResult, ExportOptions, ExportProgress } from '../types';
 
 interface ExportDialogProps {
@@ -79,7 +80,7 @@ export function ExportDialog({ isOpen, onClose, result, spaceColor }: ExportDial
       setError(null);
 
       const exportedString = await exportToString(format, result.columns, result.rows, options);
-      await navigator.clipboard.writeText(exportedString);
+      await writeText(exportedString);
 
       setProgress({
         rows_exported: result.rows.length,

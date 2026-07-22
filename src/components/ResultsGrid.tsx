@@ -10,6 +10,7 @@ import { useAppStore } from '../store';
 import type { QueryResult, ColumnInfo, CellValue } from '../types';
 import { formatExecutionTime } from '../utils/formatters';
 import { getReadableTextColor } from '../utils/color';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 interface ResultsGridProps {
   result: QueryResult;
@@ -761,7 +762,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     }
 
     try {
-      await navigator.clipboard.writeText(textValue);
+      await writeText(textValue);
       setCopiedCell({ row: rowIdx, col: colIdx });
       setCopiedSelection(null);
       setTimeout(() => setCopiedCell(null), 1500);
@@ -800,7 +801,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     }
 
     try {
-      await navigator.clipboard.writeText(lines.join('\n'));
+      await writeText(lines.join('\n'));
       setCopiedSelection(sel);
       setCopiedCell(null);
       setTimeout(() => setCopiedSelection(null), 1500);
@@ -838,7 +839,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     const insertValues = `VALUES ${valueRows.join(',\n       ')}`;
 
     try {
-      await navigator.clipboard.writeText(insertValues);
+      await writeText(insertValues);
       setCopiedSelection(sel);
       setCopiedCell(null);
       setTimeout(() => setCopiedSelection(null), 1500);
@@ -875,7 +876,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     const inClause = `IN (${values.join(', ')})`;
 
     try {
-      await navigator.clipboard.writeText(inClause);
+      await writeText(inClause);
       setCopiedSelection(sel);
       setCopiedCell(null);
       setTimeout(() => setCopiedSelection(null), 1500);
@@ -971,7 +972,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     });
 
     try {
-      await navigator.clipboard.writeText(JSON.stringify(rowObj, null, 2));
+      await writeText(JSON.stringify(rowObj, null, 2));
       setCopiedCell({ row: rowIdx, col: -1 }); // Special col index for full row
       setTimeout(() => setCopiedCell(null), 1500);
     } catch (err) {

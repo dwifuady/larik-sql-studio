@@ -24,6 +24,7 @@ import { extractAllStatements } from '../utils/queryExtractor';
 import { getResultStatementLabel } from '../utils/sql';
 import { getReadableTextColor } from '../utils/color';
 import { ContextMenu, ContextMenuItem } from './ContextMenu';
+import { writeText, readText } from '@tauri-apps/plugin-clipboard-manager';
 
 interface QueryEditorProps {
   tab: Tab;
@@ -461,7 +462,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         const model = ed.getModel();
         if (!model) return;
         try {
-          const clipboardText = await navigator.clipboard.readText();
+          const clipboardText = await readText();
           const fullText = model.getValue();
           const marker = '__LARIK_PASTE__';
           if (!fullText.includes(marker)) return;
@@ -556,15 +557,18 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     if (!editor) return;
 
     const selection = editor.getSelection();
-    if (!selection || selection.isEmpty()) return;
+    if (!selection) return;
 
     const model = editor.getModel();
     if (!model) return;
 
-    const text = model.getValueInRange(selection);
+    // With no selection, copy the whole current line (matches default editor behavior)
+    const text = selection.isEmpty()
+      ? model.getLineContent(selection.startLineNumber) + '\n'
+      : model.getValueInRange(selection);
 
     try {
-      await navigator.clipboard.writeText(text);
+      await writeText(text);
       editor.focus();
     } catch (err) {
       console.error('Failed to copy:', err);
@@ -572,26 +576,33 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   }, []);
 
   // Custom Cut Handler
-  // Custom Cut Handler
   const handleCut = useCallback(async () => {
     const editor = editorRef.current;
-    if (!editor) return;
+    const monaco = monacoRef.current;
+    if (!editor || !monaco) return;
 
     const selection = editor.getSelection();
-    if (!selection || selection.isEmpty()) return;
+    if (!selection) return;
 
     const model = editor.getModel();
     if (!model) return;
 
-    const text = model.getValueInRange(selection);
+    // With no selection, cut the whole current line (matches default editor behavior)
+    const isEmpty = selection.isEmpty();
+    const text = isEmpty
+      ? model.getLineContent(selection.startLineNumber) + '\n'
+      : model.getValueInRange(selection);
+    const range = isEmpty
+      ? new monaco.Range(selection.startLineNumber, 1, selection.startLineNumber + 1, 1)
+      : selection;
 
     try {
       // Copy to clipboard
-      await navigator.clipboard.writeText(text);
+      await writeText(text);
 
-      // Delete selection
+      // Delete selection (or current line)
       editor.executeEdits('cut', [{
-        range: selection,
+        range,
         text: '',
         forceMoveMarkers: true
       }]);
@@ -609,7 +620,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
     try {
       // Use Clipboard API for reliable paste
-      const text = await navigator.clipboard.readText();
+      const text = await readText();
       if (!text) return;
 
       const selection = editor.getSelection();
@@ -2032,6 +2043,20 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     formatQueryRef.current = handleFormatSql;
   }, [handleFormatSql]);
 
+  // Keep refs updated with the latest clipboard handlers (used by editor keybindings)
+  const copyRef = useRef(handleCopy);
+  useEffect(() => {
+    copyRef.current = handleCopy;
+  }, [handleCopy]);
+  const cutRef = useRef(handleCut);
+  useEffect(() => {
+    cutRef.current = handleCut;
+  }, [handleCut]);
+  const pasteRef = useRef(handlePaste);
+  useEffect(() => {
+    pasteRef.current = handlePaste;
+  }, [handlePaste]);
+
   // SQL Validation - real-time syntax and schema validation
   useSqlValidation({
     editor: editorRef.current,
@@ -2115,6 +2140,34 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       precondition: 'editorHasSelection',
       run: () => {
         executeQueryRef.current?.();
+      },
+    });
+
+    // Override Ctrl+C / Ctrl+X / Ctrl+V so the editor uses the Tauri clipboard plugin
+    // (arboard) instead of Monaco's built-in WebView copy. This makes editor copies
+    // appear in the OS clipboard history (Win+V), matching the results grid.
+    editor.addAction({
+      id: 'clipboard-copy',
+      label: 'Copy',
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyC],
+      run: () => {
+        copyRef.current?.();
+      },
+    });
+    editor.addAction({
+      id: 'clipboard-cut',
+      label: 'Cut',
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyX],
+      run: () => {
+        cutRef.current?.();
+      },
+    });
+    editor.addAction({
+      id: 'clipboard-paste',
+      label: 'Paste',
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyV],
+      run: () => {
+        pasteRef.current?.();
       },
     });
 
