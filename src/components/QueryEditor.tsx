@@ -24,6 +24,7 @@ import { extractAllStatements } from '../utils/queryExtractor';
 import { getResultStatementLabel } from '../utils/sql';
 import { getReadableTextColor } from '../utils/color';
 import { ContextMenu, ContextMenuItem } from './ContextMenu';
+import { writeText, readText } from '@tauri-apps/plugin-clipboard-manager';
 
 interface QueryEditorProps {
   tab: Tab;
@@ -461,7 +462,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         const model = ed.getModel();
         if (!model) return;
         try {
-          const clipboardText = await navigator.clipboard.readText();
+          const clipboardText = await readText();
           const fullText = model.getValue();
           const marker = '__LARIK_PASTE__';
           if (!fullText.includes(marker)) return;
@@ -564,7 +565,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     const text = model.getValueInRange(selection);
 
     try {
-      await navigator.clipboard.writeText(text);
+      await writeText(text);
       editor.focus();
     } catch (err) {
       console.error('Failed to copy:', err);
@@ -587,7 +588,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
     try {
       // Copy to clipboard
-      await navigator.clipboard.writeText(text);
+      await writeText(text);
 
       // Delete selection
       editor.executeEdits('cut', [{
@@ -609,7 +610,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
     try {
       // Use Clipboard API for reliable paste
-      const text = await navigator.clipboard.readText();
+      const text = await readText();
       if (!text) return;
 
       const selection = editor.getSelection();

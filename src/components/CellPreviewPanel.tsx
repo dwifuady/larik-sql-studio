@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { MonacoPreview } from './MonacoPreview';
 import { formatCellContent } from '../utils/cellFormatter';
 import { type CellValue } from '../types';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 interface CellPreviewPanelProps {
   visible: boolean;
@@ -190,7 +191,7 @@ export function CellPreviewPanel({
   // Copy to clipboard
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(content);
+      await writeText(content);
       // TODO: Show toast notification
       console.log('Content copied to clipboard');
     } catch (error) {
