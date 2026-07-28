@@ -537,7 +537,9 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
   const setCellPreviewWidth = useAppStore(s => s.setCellPreviewWidth);
   const setCellPreviewWidthImmediate = useAppStore(s => s.setCellPreviewWidthImmediate);
   const setCellPreviewFormatter = useAppStore(s => s.setCellPreviewFormatter);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const resizeRafRef = useRef<number | null>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const [containerHeight, setContainerHeight] = useState(300);
@@ -664,11 +666,26 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     scrollPositionRef.current = storedScrollPosition ?? { top: 0, left: 0 };
   }, [tabId, resultIndex, result.query_id, storedScrollPosition]);
 
-  // Measure container size with throttling for performance
-  useEffect(() => {
-    if (!containerRef.current) return;
+  // Measure container size with throttling for performance.
+  // Uses a callback ref (not a one-shot effect) so the observer re-attaches
+  // whenever the grid div remounts — e.g. after an error view replaces the
+  // grid and a subsequent successful query brings it back. A fixed effect
+  // would keep observing the stale/detached node and leave containerHeight
+  // frozen at its last value.
+  const setContainerNode = useCallback((node: HTMLDivElement | null) => {
+    // Tear down any observer bound to the previous node
+    if (resizeObserverRef.current) {
+      resizeObserverRef.current.disconnect();
+      resizeObserverRef.current = null;
+    }
+    if (resizeRafRef.current !== null) {
+      cancelAnimationFrame(resizeRafRef.current);
+      resizeRafRef.current = null;
+    }
 
-    let rafId: number | null = null;
+    containerRef.current = node;
+    if (!node) return;
+
     let lastUpdate = 0;
     const THROTTLE_MS = 16; // ~60fps for height, width is debounced separately
 
@@ -677,12 +694,13 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
 
       // Throttle updates during rapid resize
       if (now - lastUpdate < THROTTLE_MS) {
-        if (rafId) cancelAnimationFrame(rafId);
-        rafId = requestAnimationFrame(() => {
+        if (resizeRafRef.current !== null) cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = requestAnimationFrame(() => {
           for (const entry of entries) {
             setContainerHeight(entry.contentRect.height - HEADER_HEIGHT);
           }
           lastUpdate = Date.now();
+          resizeRafRef.current = null;
         });
         return;
       }
@@ -693,11 +711,8 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
       lastUpdate = now;
     });
 
-    resizeObserver.observe(containerRef.current);
-    return () => {
-      if (rafId) cancelAnimationFrame(rafId);
-      resizeObserver.disconnect();
-    };
+    resizeObserver.observe(node);
+    resizeObserverRef.current = resizeObserver;
   }, []);
 
   // Sync horizontal scroll between header and body
@@ -1378,7 +1393,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     <div className="flex h-full">
       {/* Main grid area */}
       <div
-        ref={containerRef}
+        ref={setContainerNode}
         className="flex flex-col flex-1 min-w-0 overflow-hidden outline-none"
         tabIndex={0}
         data-allow-select-all
