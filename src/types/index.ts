@@ -271,6 +271,35 @@ export interface SchemaRelationshipInfo {
   target_column_name: string;
 }
 
+/**
+ * A user-defined ("virtual") foreign key: a column pointed at a lookup table by
+ * hand, for schemas that model the relationship without declaring a constraint.
+ * Stored in Larik's local database, never in the target server.
+ */
+export interface VirtualReference {
+  id: string;
+  connection_id: string;
+  database_name: string;
+  source_schema: string;
+  source_table: string;
+  source_column: string;
+  target_schema: string;
+  target_table: string;
+  target_column: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Fields needed to create or replace a virtual reference */
+export interface CreateVirtualReferenceInput {
+  sourceSchema: string;
+  sourceTable: string;
+  sourceColumn: string;
+  targetSchema: string;
+  targetTable: string;
+  targetColumn: string;
+}
+
 /** Parameter information for stored procedures/functions */
 export interface ParameterInfo {
   name: string;

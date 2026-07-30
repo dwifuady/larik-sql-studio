@@ -1,4 +1,4 @@
-import type { SchemaInfo, SchemaRelationshipInfo, TableInfo } from '../types';
+import type { SchemaInfo, SchemaRelationshipInfo, TableInfo, VirtualReference } from '../types';
 import { extractReferencedTables } from './sqlAstExtractor';
 
 /** One column of a foreign key constraint. */
@@ -7,9 +7,10 @@ export interface ReferenceColumnPair {
   targetColumn: string;
 }
 
-/** A resolved foreign key for a single result-set column. */
+/** A resolved reference for a single result-set column. */
 export interface ForeignKeyReference {
-  constraintName: string;
+  /** Constraint name for a real FK; null for a user-defined reference. */
+  constraintName: string | null;
   sourceSchema: string;
   sourceTable: string;
   targetSchema: string;
@@ -18,6 +19,10 @@ export interface ForeignKeyReference {
   columnPairs: ReferenceColumnPair[];
   /** The referenced column that the clicked grid column maps to. */
   targetColumn: string;
+  /** True when this came from a user-defined reference, not the database. */
+  isVirtual: boolean;
+  /** Id of the backing virtual reference, so the UI can edit or remove it. */
+  virtualReferenceId?: string;
 }
 
 function eq(a: string | undefined, b: string | undefined): boolean {
@@ -133,49 +138,106 @@ export function findForeignKeyForColumn(
       sourceColumn: rel.source_column_name,
       targetColumn: rel.target_column_name,
     })),
+    isVirtual: false,
   };
 }
 
-/** Resolve the reference (if any) for a single result column. */
-export function findColumnReference(
-  sql: string | null | undefined,
-  columnName: string,
-  schemaInfo: SchemaInfo | null
+/** Find the user-defined reference for a column, if one is configured. */
+export function findVirtualReferenceForColumn(
+  virtualReferences: VirtualReference[] | null | undefined,
+  source: { schema: string; table: string },
+  columnName: string
 ): ForeignKeyReference | null {
-  const source = resolveColumnSourceTable(sql, columnName, schemaInfo);
-  if (!source) return null;
-  return findForeignKeyForColumn(schemaInfo, source, columnName);
+  if (!virtualReferences || virtualReferences.length === 0) return null;
+
+  const match = virtualReferences.find(
+    (reference) =>
+      eq(reference.source_schema, source.schema) &&
+      eq(reference.source_table, source.table) &&
+      eq(reference.source_column, columnName)
+  );
+  if (!match) return null;
+
+  return {
+    constraintName: null,
+    sourceSchema: match.source_schema,
+    sourceTable: match.source_table,
+    targetSchema: match.target_schema,
+    targetTable: match.target_table,
+    targetColumn: match.target_column,
+    columnPairs: [{ sourceColumn: match.source_column, targetColumn: match.target_column }],
+    isVirtual: true,
+    virtualReferenceId: match.id,
+  };
 }
 
 /**
- * Build a colIndex -> reference map for a result set. The statement is parsed
+ * Resolve the reference (if any) for a single result column. A real foreign key
+ * always wins over a user-defined one for the same column.
+ */
+export function findColumnReference(
+  sql: string | null | undefined,
+  columnName: string,
+  schemaInfo: SchemaInfo | null,
+  virtualReferences?: VirtualReference[] | null
+): ForeignKeyReference | null {
+  const source = resolveColumnSourceTable(sql, columnName, schemaInfo);
+  if (!source) return null;
+  return (
+    findForeignKeyForColumn(schemaInfo, source, columnName) ??
+    findVirtualReferenceForColumn(virtualReferences, source, columnName)
+  );
+}
+
+/** Per-column resolution for a result set. */
+export interface ColumnReferenceIndex {
+  /** Owning table per column index — present even when there is no reference,
+   *  so the UI can offer to define one. */
+  sources: Map<number, { schema: string; table: string }>;
+  /** Real or user-defined reference per column index. */
+  references: Map<number, ForeignKeyReference>;
+}
+
+/**
+ * Build the per-column reference index for a result set. The statement is parsed
  * once and duplicate column names reuse the first resolution, so this stays
  * cheap even for wide results.
  */
-export function buildColumnReferenceMap(
+export function buildColumnReferenceIndex(
   sql: string | null | undefined,
   columns: Array<{ name: string }>,
-  schemaInfo: SchemaInfo | null
-): Map<number, ForeignKeyReference> {
-  const map = new Map<number, ForeignKeyReference>();
-  if (!sql || !schemaInfo || columns.length === 0) return map;
-  if (schemaInfo.relationships.length === 0) return map;
+  schemaInfo: SchemaInfo | null,
+  virtualReferences?: VirtualReference[] | null
+): ColumnReferenceIndex {
+  const index: ColumnReferenceIndex = { sources: new Map(), references: new Map() };
+  if (!sql || !schemaInfo || columns.length === 0) return index;
 
   const knownTables = resolveKnownTables(sql, schemaInfo);
-  if (knownTables.length === 0) return map;
+  if (knownTables.length === 0) return index;
 
-  const cache = new Map<string, ForeignKeyReference | null>();
+  const sourceCache = new Map<string, { schema: string; table: string } | null>();
+  const referenceCache = new Map<string, ForeignKeyReference | null>();
 
-  columns.forEach((column, index) => {
+  columns.forEach((column, position) => {
     const key = column.name.toLowerCase();
-    let reference = cache.get(key);
-    if (reference === undefined) {
-      const source = pickSourceTable(knownTables, column.name);
-      reference = source ? findForeignKeyForColumn(schemaInfo, source, column.name) : null;
-      cache.set(key, reference);
+
+    let source = sourceCache.get(key);
+    if (source === undefined) {
+      source = pickSourceTable(knownTables, column.name);
+      sourceCache.set(key, source);
     }
-    if (reference) map.set(index, reference);
+    if (!source) return;
+    index.sources.set(position, source);
+
+    let reference = referenceCache.get(key);
+    if (reference === undefined) {
+      reference =
+        findForeignKeyForColumn(schemaInfo, source, column.name) ??
+        findVirtualReferenceForColumn(virtualReferences, source, column.name);
+      referenceCache.set(key, reference);
+    }
+    if (reference) index.references.set(position, reference);
   });
 
-  return map;
+  return index;
 }

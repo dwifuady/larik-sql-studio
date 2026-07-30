@@ -34,6 +34,8 @@ export interface ReferencePreviewState {
     target: { schema: string; table: string } | null;
     keyColumn: string | null;
     constraintName: string | null;
+    /** The resolved reference behind this preview (real FK or user-defined). */
+    reference: ForeignKeyReference | null;
     value: CellValue;
     filters: ReferenceFilter[];
     skippedColumns: string[];
@@ -71,6 +73,7 @@ const initialReferencePreview: ReferencePreviewState = {
     target: null,
     keyColumn: null,
     constraintName: null,
+    reference: null,
     value: null,
     filters: [],
     skippedColumns: [],
@@ -419,6 +422,7 @@ export const createReferencePreviewSlice: StateCreator<AppState, [], [], Referen
                     target: { schema: reference.targetSchema, table: reference.targetTable },
                     keyColumn: reference.targetColumn,
                     constraintName: reference.constraintName,
+                    reference,
                     value: request.value,
                     filters: request.filters,
                     skippedColumns: request.skippedColumns,

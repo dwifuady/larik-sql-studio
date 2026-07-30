@@ -5,6 +5,7 @@ import type { Space, Tab, ConnectionInfo, QueryResult, QueryInfo, CreateSpaceInp
 import type { TabFolder } from '../types';
 import type { Snippet, CreateSnippetInput, UpdateSnippetInput } from '../types';
 import type { ArchivedTab, ArchiveSearchResult, AutoArchiveSettings, AppSettings } from '../types';
+import type { VirtualReference, CreateVirtualReferenceInput } from '../types';
 
 // ============================================================================
 // Space API (with integrated connection - 1:1 model)
@@ -364,6 +365,41 @@ export async function getTableColumns(
 /** Force refresh schema cache for a connection/database */
 export async function refreshSchema(connectionId: string, database?: string | null): Promise<void> {
   return invoke<void>('refresh_schema', { connectionId, database });
+}
+
+// ============================================================================
+// Virtual Reference API (user-defined foreign keys)
+// ============================================================================
+
+/** Get user-defined references for a connection/database */
+export async function getVirtualReferences(
+  connectionId: string,
+  database: string
+): Promise<VirtualReference[]> {
+  return invoke<VirtualReference[]>('get_virtual_references', { connectionId, database });
+}
+
+/** Create or replace the user-defined reference for a source column */
+export async function saveVirtualReference(
+  connectionId: string,
+  database: string,
+  input: CreateVirtualReferenceInput
+): Promise<VirtualReference> {
+  return invoke<VirtualReference>('save_virtual_reference', {
+    connectionId,
+    database,
+    sourceSchema: input.sourceSchema,
+    sourceTable: input.sourceTable,
+    sourceColumn: input.sourceColumn,
+    targetSchema: input.targetSchema,
+    targetTable: input.targetTable,
+    targetColumn: input.targetColumn,
+  });
+}
+
+/** Delete a user-defined reference */
+export async function deleteVirtualReference(id: string): Promise<boolean> {
+  return invoke<boolean>('delete_virtual_reference', { id });
 }
 
 // ============================================================================

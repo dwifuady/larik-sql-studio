@@ -18,6 +18,8 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
         setMaxResultRows,
         referencePreviewRowLimit,
         setReferencePreviewRowLimit,
+        virtualReferences,
+        removeVirtualReference,
         validationEnabled,
         setValidationEnabled,
         validationShowWarnings,
@@ -210,6 +212,45 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
                                 />
                             </div>
                         </div>
+                    </div>
+
+                    <div className="h-px bg-white/5" />
+
+                    {/* Custom (virtual) references */}
+                    <div>
+                        <h3 className="text-sm font-medium text-[var(--text-secondary)] uppercase tracking-wider mb-4">Custom References</h3>
+                        <p className="text-xs text-[var(--text-muted)] mb-3">
+                            Columns you pointed at a lookup table by hand, for the current database. These are stored
+                            in Larik only — the database itself has no foreign key for them.
+                        </p>
+                        {virtualReferences.length === 0 ? (
+                            <p className="text-xs text-[var(--text-muted)]">
+                                None yet. Right-click a result cell and choose "Set Custom Reference…".
+                            </p>
+                        ) : (
+                            <div className="space-y-1">
+                                {virtualReferences.map((reference) => (
+                                    <div
+                                        key={reference.id}
+                                        className="flex items-center justify-between gap-3 px-3 py-2 bg-[var(--bg-primary)] border border-white/10 rounded-lg"
+                                    >
+                                        <span className="text-xs font-mono text-[var(--text-secondary)] truncate">
+                                            {reference.source_schema}.{reference.source_table}.
+                                            <span className="text-[var(--text-primary)]">{reference.source_column}</span>
+                                            {' → '}
+                                            {reference.target_schema}.{reference.target_table}.
+                                            <span className="text-[var(--text-primary)]">{reference.target_column}</span>
+                                        </span>
+                                        <button
+                                            onClick={() => void removeVirtualReference(reference.id)}
+                                            className="shrink-0 px-2 py-1 text-xs rounded-md text-[var(--text-muted)] hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                        >
+                                            Remove
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     <div className="h-px bg-white/5" />

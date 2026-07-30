@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, RefreshCw, Search, TriangleAlert } from 'lucide-react';
+import { ExternalLink, Pencil, RefreshCw, Search, Trash2, TriangleAlert } from 'lucide-react';
 import { useAppStore } from '../store';
 import type { CellValue } from '../types';
 
@@ -31,6 +31,8 @@ export function ReferencePreviewPanel() {
     const loadListAnyway = useAppStore((s) => s.loadReferenceListAnyway);
     const openInTab = useAppStore((s) => s.openReferenceInTab);
     const rowLimit = useAppStore((s) => s.referencePreviewRowLimit);
+    const openReferenceEditor = useAppStore((s) => s.openReferenceEditor);
+    const removeReference = useAppStore((s) => s.removeVirtualReference);
 
     const [filterText, setFilterText] = useState('');
     const matchedRowRef = useRef<HTMLTableRowElement | null>(null);
@@ -81,6 +83,7 @@ export function ReferencePreviewPanel() {
     }
 
     const targetLabel = `${target.schema}.${target.table}`;
+    const isCustom = preview.reference?.isVirtual ?? false;
     const matchedRow = matchedRowIndex !== null ? result?.rows[matchedRowIndex] ?? null : null;
 
     return (
@@ -96,8 +99,19 @@ export function ReferencePreviewPanel() {
                             <span className="text-[12px] font-medium text-[var(--text-primary)] truncate" title={targetLabel}>
                                 {targetLabel}
                             </span>
+                            {isCustom && (
+                                <span
+                                    className="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-medium uppercase tracking-wide bg-[var(--warning-color)]/15 text-[var(--warning-color)]"
+                                    title="Defined by you in Larik — the database has no foreign key for this column"
+                                >
+                                    custom
+                                </span>
+                            )}
                         </div>
-                        <div className="mt-0.5 text-[10px] text-[var(--text-muted)] truncate" title={preview.constraintName ?? undefined}>
+                        <div
+                            className="mt-0.5 text-[10px] text-[var(--text-muted)] truncate"
+                            title={preview.constraintName ?? (isCustom ? 'User-defined reference' : undefined)}
+                        >
                             {preview.keyColumn}
                             {preview.estimatedRows !== null && (
                                 <> · ~{preview.estimatedRows.toLocaleString()} rows</>
@@ -108,6 +122,43 @@ export function ReferencePreviewPanel() {
                     </div>
 
                     <div className="flex items-center gap-1 shrink-0">
+                        {isCustom && (
+                            <>
+                                <button
+                                    onClick={() => {
+                                        const reference = preview.reference;
+                                        if (!reference?.virtualReferenceId) return;
+                                        openReferenceEditor(
+                                            {
+                                                schema: reference.sourceSchema,
+                                                table: reference.sourceTable,
+                                                column: reference.columnPairs[0]?.sourceColumn ?? '',
+                                            },
+                                            {
+                                                id: reference.virtualReferenceId,
+                                                schema: reference.targetSchema,
+                                                table: reference.targetTable,
+                                                column: reference.targetColumn,
+                                            }
+                                        );
+                                    }}
+                                    className="p-1.5 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                                    title="Edit this custom reference"
+                                >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        const id = preview.reference?.virtualReferenceId;
+                                        if (id) void removeReference(id);
+                                    }}
+                                    className="p-1.5 rounded hover:bg-red-500/15 text-[var(--text-muted)] hover:text-red-400 transition-colors"
+                                    title="Remove this custom reference"
+                                >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                            </>
+                        )}
                         <button
                             onClick={() => void reload()}
                             disabled={loading}

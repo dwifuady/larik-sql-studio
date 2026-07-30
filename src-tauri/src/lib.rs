@@ -173,6 +173,10 @@ pub fn run() {
             commands::delete_note,
             commands::move_note,
             commands::clear_tab_notes,
+            // Virtual reference commands (user-defined foreign keys)
+            commands::get_virtual_references,
+            commands::save_virtual_reference,
+            commands::delete_virtual_reference,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

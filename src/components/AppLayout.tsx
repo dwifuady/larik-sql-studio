@@ -15,6 +15,7 @@ import { DatabaseSelector } from './DatabaseSelector';
 import { ToastContainer } from './Toast';
 import { ArchiveModal } from './ArchiveModal';
 import { PeekPanel } from './PeekPanel';
+import { SetReferenceDialog } from './SetReferenceDialog';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { spaceHasConnection } from '../types';
 import * as api from '../api';
@@ -990,6 +991,9 @@ export function AppLayout() {
 
       {/* Explorer peek popup (Arc-style) */}
       <PeekPanel />
+
+      {/* Custom (virtual) reference editor */}
+      <SetReferenceDialog />
     </div >
   );
 }

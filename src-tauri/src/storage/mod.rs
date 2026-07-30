@@ -11,6 +11,7 @@ pub mod snippets;
 pub mod spaces;
 pub mod state;
 pub mod tabs;
+pub mod virtual_references;
 
 pub use database::{get_default_db_path, DatabaseManager, StorageError, StorageResult};
 pub use folders::{CreateFolderInput, TabFolder, UpdateFolderInput};
@@ -20,3 +21,4 @@ pub use snippets::{CreateSnippetInput, Snippet, UpdateSnippetInput};
 pub use spaces::{CreateSpaceInput, Space, UpdateSpaceInput};
 pub use state::{AppSettings, AutoArchiveSettings};
 pub use tabs::{CreateTabInput, Tab, TabType, UpdateTabInput};
+pub use virtual_references::VirtualReference;

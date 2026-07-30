@@ -15,7 +15,7 @@ use crate::storage::{
     TabFolder, CreateFolderInput, UpdateFolderInput,
     Snippet, CreateSnippetInput, UpdateSnippetInput,
     ArchivedTab, ArchiveSearchResult, AutoArchiveSettings, AppSettings,
-    StickyNote,
+    StickyNote, VirtualReference,
 };
 
 use crate::db::{
@@ -1425,4 +1425,65 @@ pub fn clear_tab_notes(
 ) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.delete_tab_notes(&tab_id).map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// Virtual Reference Commands (user-defined foreign keys)
+// ============================================================================
+
+/// Get all user-defined references for a connection + database
+#[command]
+pub fn get_virtual_references(
+    state: State<'_, AppState>,
+    connection_id: String,
+    database: String,
+) -> Result<Vec<VirtualReference>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.get_virtual_references(&connection_id, &database)
+        .map_err(|e| e.to_string())
+}
+
+/// Create or replace the user-defined reference for a source column
+#[command]
+#[allow(clippy::too_many_arguments)]
+pub fn save_virtual_reference(
+    state: State<'_, AppState>,
+    connection_id: String,
+    database: String,
+    source_schema: String,
+    source_table: String,
+    source_column: String,
+    target_schema: String,
+    target_table: String,
+    target_column: String,
+) -> Result<VirtualReference, String> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let reference = VirtualReference {
+        id: uuid::Uuid::new_v4().to_string(),
+        connection_id,
+        database_name: database,
+        source_schema,
+        source_table,
+        source_column,
+        target_schema,
+        target_table,
+        target_column,
+        created_at: now.clone(),
+        updated_at: now,
+    };
+
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.save_virtual_reference(&reference)
+        .map_err(|e| e.to_string())?;
+    Ok(reference)
+}
+
+/// Delete a user-defined reference by id
+#[command]
+pub fn delete_virtual_reference(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<bool, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.delete_virtual_reference(&id).map_err(|e| e.to_string())
 }

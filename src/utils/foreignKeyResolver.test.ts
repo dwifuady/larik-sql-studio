@@ -1,11 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildColumnReferenceMap,
+  buildColumnReferenceIndex,
   findColumnReference,
   resolveColumnSourceTable,
 } from './foreignKeyResolver';
 import { formatSqlLiteral, qualifiedName, quoteIdentifier } from './sqlLiteral';
-import type { SchemaColumnInfo, SchemaInfo, SchemaRelationshipInfo, TableInfo } from '../types';
+import type {
+  SchemaColumnInfo,
+  SchemaInfo,
+  SchemaRelationshipInfo,
+  TableInfo,
+  VirtualReference,
+} from '../types';
 
 function column(name: string, dataType = 'int'): SchemaColumnInfo {
   return {
@@ -118,20 +124,92 @@ describe('findColumnReference', () => {
   });
 });
 
-describe('buildColumnReferenceMap', () => {
-  it('maps only the columns that reference another table', () => {
-    const map = buildColumnReferenceMap(
+describe('buildColumnReferenceIndex', () => {
+  it('maps only the columns that reference another table, but sources them all', () => {
+    const { sources, references } = buildColumnReferenceIndex(
       'SELECT Id, Status, Amount FROM dbo.[Transaction]',
       [{ name: 'Id' }, { name: 'Status' }, { name: 'Amount' }],
       schemaInfo
     );
-    expect(Array.from(map.keys())).toEqual([1]);
-    expect(map.get(1)!.targetTable).toBe('TransactionStatus');
+    expect(Array.from(references.keys())).toEqual([1]);
+    expect(references.get(1)!.targetTable).toBe('TransactionStatus');
+    expect(references.get(1)!.isVirtual).toBe(false);
+    // Every traceable column has a source so the UI can offer a custom reference
+    expect(Array.from(sources.keys())).toEqual([0, 1, 2]);
+    expect(sources.get(2)).toEqual({ schema: 'dbo', table: 'Transaction' });
   });
 
   it('is empty when there is no schema metadata', () => {
-    const map = buildColumnReferenceMap('SELECT Status FROM dbo.[Transaction]', [{ name: 'Status' }], null);
-    expect(map.size).toBe(0);
+    const { sources, references } = buildColumnReferenceIndex(
+      'SELECT Status FROM dbo.[Transaction]',
+      [{ name: 'Status' }],
+      null
+    );
+    expect(references.size).toBe(0);
+    expect(sources.size).toBe(0);
+  });
+});
+
+describe('virtual (user-defined) references', () => {
+  const virtualReference = (
+    sourceColumn: string,
+    targetTable: string,
+    targetColumn: string
+  ): VirtualReference => ({
+    id: `v-${sourceColumn}`,
+    connection_id: 'space1',
+    database_name: 'AppDb',
+    source_schema: 'dbo',
+    source_table: 'Transaction',
+    source_column: sourceColumn,
+    target_schema: 'dbo',
+    target_table: targetTable,
+    target_column: targetColumn,
+    created_at: '2026-07-30T00:00:00Z',
+    updated_at: '2026-07-30T00:00:00Z',
+  });
+
+  it('resolves a column that has no database foreign key', () => {
+    const reference = findColumnReference('SELECT * FROM dbo.[Transaction]', 'Amount', schemaInfo, [
+      virtualReference('Amount', 'TransactionStatus', 'Code'),
+    ]);
+    expect(reference).not.toBeNull();
+    expect(reference!.isVirtual).toBe(true);
+    expect(reference!.constraintName).toBeNull();
+    expect(reference!.virtualReferenceId).toBe('v-Amount');
+    expect(reference!.columnPairs).toEqual([{ sourceColumn: 'Amount', targetColumn: 'Code' }]);
+  });
+
+  it('matches source identifiers case-insensitively', () => {
+    const reference = findColumnReference('SELECT * FROM dbo.[Transaction]', 'Amount', schemaInfo, [
+      virtualReference('amount', 'TransactionStatus', 'Code'),
+    ]);
+    expect(reference?.isVirtual).toBe(true);
+  });
+
+  it('lets a real foreign key win over a user-defined one on the same column', () => {
+    const reference = findColumnReference('SELECT * FROM dbo.[Transaction]', 'Status', schemaInfo, [
+      virtualReference('Status', 'User', 'Id'),
+    ]);
+    expect(reference!.isVirtual).toBe(false);
+    expect(reference!.targetTable).toBe('TransactionStatus');
+    expect(reference!.constraintName).toBe('FK_Transaction_Status');
+  });
+
+  it('ignores references defined for another table', () => {
+    const other: VirtualReference = { ...virtualReference('Amount', 'User', 'Id'), source_table: 'Audit' };
+    expect(findColumnReference('SELECT * FROM dbo.[Transaction]', 'Amount', schemaInfo, [other])).toBeNull();
+  });
+
+  it('surfaces user-defined references through the column index', () => {
+    const { references } = buildColumnReferenceIndex(
+      'SELECT Id, Amount FROM dbo.[Transaction]',
+      [{ name: 'Id' }, { name: 'Amount' }],
+      schemaInfo,
+      [virtualReference('Amount', 'TransactionStatus', 'Code')]
+    );
+    expect(references.get(1)!.isVirtual).toBe(true);
+    expect(references.get(1)!.targetTable).toBe('TransactionStatus');
   });
 });
 

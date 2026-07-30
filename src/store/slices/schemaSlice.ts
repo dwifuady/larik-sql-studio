@@ -85,6 +85,8 @@ export const createSchemaSlice: StateCreator<AppState, [], [], SchemaSlice> = (s
         try {
             const schema = await api.getSchemaInfo(spaceId, targetDb);
             set({ schemaInfo: schema, schemaLoading: false });
+            // User-defined references are scoped to the same space + database.
+            void get().loadVirtualReferences(targetDb);
         } catch (error) {
             console.error('Failed to load schema:', error);
             set({
@@ -112,6 +114,7 @@ export const createSchemaSlice: StateCreator<AppState, [], [], SchemaSlice> = (s
             // Fetch fresh data
             const schema = await api.getSchemaInfo(spaceId, targetDb);
             set({ schemaInfo: schema, schemaLoading: false });
+            void get().loadVirtualReferences(targetDb);
         } catch (error) {
             console.error('Failed to refresh schema:', error);
             set({

@@ -251,6 +251,28 @@ impl DatabaseManager {
             "#
         )?;
 
+        // Migration: Create virtual_references table (user-defined foreign keys)
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS virtual_references (
+                id TEXT PRIMARY KEY,
+                connection_id TEXT NOT NULL,
+                database_name TEXT NOT NULL,
+                source_schema TEXT NOT NULL,
+                source_table TEXT NOT NULL,
+                source_column TEXT NOT NULL,
+                target_schema TEXT NOT NULL,
+                target_table TEXT NOT NULL,
+                target_column TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_virtual_references_scope
+                ON virtual_references(connection_id, database_name);
+            "#
+        )?;
+
         // Migration: Add folder_id column to pinned_tabs
         let has_folder_id: bool = conn.query_row(
             "SELECT COUNT(*) > 0 FROM pragma_table_info('pinned_tabs') WHERE name = 'folder_id'",

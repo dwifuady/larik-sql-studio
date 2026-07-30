@@ -328,9 +328,16 @@ export function CellPreviewPanel({
                 ? 'bg-[var(--bg-active)] text-[var(--text-primary)]'
                 : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
             }`}
-            title={`Preview referenced data in ${referenceLabel} (Shift+Space)`}
+            title={
+              reference.reference.isVirtual
+                ? `Preview custom reference to ${referenceLabel} — defined in Larik, not a database foreign key (Shift+Space)`
+                : `Preview referenced data in ${referenceLabel} (Shift+Space)`
+            }
           >
             Reference · {reference.reference.targetTable}
+            {reference.reference.isVirtual && (
+              <span className="ml-1 text-[var(--warning-color)]" aria-label="custom reference">*</span>
+            )}
           </button>
         </div>
       )}

@@ -10,7 +10,7 @@ import { useAppStore } from '../store';
 import type { QueryResult, ColumnInfo, CellValue } from '../types';
 import { formatExecutionTime } from '../utils/formatters';
 import { getReadableTextColor } from '../utils/color';
-import { buildColumnReferenceMap } from '../utils/foreignKeyResolver';
+import { buildColumnReferenceIndex } from '../utils/foreignKeyResolver';
 import type { CellPreviewTab } from '../store/slices/queriesSlice';
 import type { ReferenceFilter, ReferenceRequest } from '../store/slices/referencePreviewSlice';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
@@ -538,6 +538,9 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
   const cellPreviewActiveTab = useAppStore(s => s.cellPreviewPanel.activeTab);
   const setCellPreviewTab = useAppStore(s => s.setCellPreviewTab);
   const schemaInfo = useAppStore(s => s.schemaInfo);
+  const virtualReferences = useAppStore(s => s.virtualReferences);
+  const openReferenceEditor = useAppStore(s => s.openReferenceEditor);
+  const removeVirtualReference = useAppStore(s => s.removeVirtualReference);
   const showCellPreview = useAppStore(s => s.showCellPreview);
   const hideCellPreview = useAppStore(s => s.hideCellPreview);
   const setCellPreviewWidth = useAppStore(s => s.setCellPreviewWidth);
@@ -613,12 +616,12 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     return null;
   }, [queryText, result.statement_text]);
 
-  // Foreign key references per result column, resolved from cached schema metadata.
-  // Columns that can't be traced to exactly one source table are simply left out.
-  const columnReferences = useMemo(() => {
+  // Per-column source tables and references (real foreign keys plus the user's
+  // own). Columns that can't be traced to exactly one source table are left out.
+  const { sources: columnSources, references: columnReferences } = useMemo(() => {
     const stmt = result.statement_text || queryText;
-    return buildColumnReferenceMap(stmt, result.columns, schemaInfo);
-  }, [result.statement_text, queryText, result.columns, schemaInfo]);
+    return buildColumnReferenceIndex(stmt, result.columns, schemaInfo, virtualReferences);
+  }, [result.statement_text, queryText, result.columns, schemaInfo, virtualReferences]);
 
   // Build the lookup request for a cell: the FK's column pairs filled in from
   // this row. Composite keys whose sibling columns aren't in the result set are
@@ -1518,23 +1521,40 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
                               <span className={`font-medium text-[var(--text-primary)] truncate transition-all duration-200 ${hoverColumnIdx === origIdx ? 'text-[10px]' : 'text-xs'}`}>
                                 {col.name}
                               </span>
-                              {/* Foreign key indicator — click to preview the referenced table */}
-                              {columnReferences.has(origIdx) && (
-                                <button
-                                  onMouseDown={(e) => e.stopPropagation()}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const row = selectedCell?.col === origIdx ? selectedCell.row : 0;
-                                    handlePreviewCell(row, origIdx, 'reference');
-                                  }}
-                                  className="shrink-0 text-[var(--accent-color)] opacity-60 hover:opacity-100 transition-opacity"
-                                  title={`References ${columnReferences.get(origIdx)!.targetSchema}.${columnReferences.get(origIdx)!.targetTable} — Shift+Space to preview`}
-                                >
-                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m4.5-4.5l1.5-1.5a4 4 0 015.656 5.656l-3 3a4 4 0 01-5.656 0" />
-                                  </svg>
-                                </button>
-                              )}
+                              {/* Reference indicator — click to preview the referenced table.
+                                  Solid accent link = real foreign key, dashed amber = custom. */}
+                              {columnReferences.has(origIdx) && (() => {
+                                const reference = columnReferences.get(origIdx)!;
+                                const target = `${reference.targetSchema}.${reference.targetTable}`;
+                                return (
+                                  <button
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const row = selectedCell?.col === origIdx ? selectedCell.row : 0;
+                                      handlePreviewCell(row, origIdx, 'reference');
+                                    }}
+                                    className={`shrink-0 opacity-60 hover:opacity-100 transition-opacity ${
+                                      reference.isVirtual ? 'text-[var(--warning-color)]' : 'text-[var(--accent-color)]'
+                                    }`}
+                                    title={
+                                      reference.isVirtual
+                                        ? `Custom reference to ${target} (defined in Larik, not a database foreign key) — Shift+Space to preview`
+                                        : `References ${target} — Shift+Space to preview`
+                                    }
+                                  >
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        strokeDasharray={reference.isVirtual ? '3 2' : undefined}
+                                        d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m4.5-4.5l1.5-1.5a4 4 0 015.656 5.656l-3 3a4 4 0 01-5.656 0"
+                                      />
+                                    </svg>
+                                  </button>
+                                );
+                              })()}
                             </span>
                             <span className={`${getTypeColor(col.data_type)} shrink-0 transition-all duration-200 ${hoverColumnIdx === origIdx ? 'text-[10px] opacity-100' : 'text-[10px] opacity-0 hidden'}`}>
                               {col.data_type}
@@ -1681,7 +1701,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
             items={[
               ...(contextMenu && columnReferences.has(contextMenu.col) ? [{
                 id: 'preview-reference',
-                label: `Preview ${columnReferences.get(contextMenu.col)!.targetTable}`,
+                label: `Preview ${columnReferences.get(contextMenu.col)!.targetTable}${columnReferences.get(contextMenu.col)!.isVirtual ? ' (custom)' : ''}`,
                 icon: (
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m4.5-4.5l1.5-1.5a4 4 0 015.656 5.656l-3 3a4 4 0 01-5.656 0" />
@@ -1690,6 +1710,44 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
                 shortcut: 'Shift+Space',
                 action: () => handlePreviewCell(contextMenu.row, contextMenu.col, 'reference'),
               }] : []),
+              // Define / edit / remove a user-defined reference. Only offered
+              // for columns we can trace to a table, and never over a real FK.
+              ...(contextMenu && columnSources.has(contextMenu.col) && !columnReferences.get(contextMenu.col)?.constraintName ? [
+                {
+                  id: 'set-custom-reference',
+                  label: columnReferences.has(contextMenu.col) ? 'Edit Custom Reference…' : 'Set Custom Reference…',
+                  icon: (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m4.5-4.5l1.5-1.5a4 4 0 015.656 5.656l-3 3a4 4 0 01-5.656 0" strokeDasharray="3 2" />
+                    </svg>
+                  ),
+                  action: () => {
+                    const source = columnSources.get(contextMenu.col)!;
+                    const existing = columnReferences.get(contextMenu.col);
+                    openReferenceEditor(
+                      { schema: source.schema, table: source.table, column: result.columns[contextMenu.col]?.name ?? '' },
+                      existing?.virtualReferenceId
+                        ? {
+                          id: existing.virtualReferenceId,
+                          schema: existing.targetSchema,
+                          table: existing.targetTable,
+                          column: existing.targetColumn,
+                        }
+                        : null
+                    );
+                  },
+                },
+                ...(columnReferences.get(contextMenu.col)?.virtualReferenceId ? [{
+                  id: 'remove-custom-reference',
+                  label: 'Remove Custom Reference',
+                  icon: (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  ),
+                  action: () => void removeVirtualReference(columnReferences.get(contextMenu.col)!.virtualReferenceId!),
+                }] : []),
+              ] : []),
               ...(!selection && contextMenu ? [
                 {
                   id: 'copy-cell-headers',
