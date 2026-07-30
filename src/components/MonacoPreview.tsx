@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import Editor from '@monaco-editor/react';
+import Editor, { type OnMount } from '@monaco-editor/react';
 import { useAppStore } from '../store';
 
 interface MonacoPreviewProps {
@@ -10,6 +10,16 @@ interface MonacoPreviewProps {
 export function MonacoPreview({ content, language }: MonacoPreviewProps) {
   const theme = useAppStore((state) => state.theme);
   const [isLoading, setIsLoading] = useState(true);
+  // Monaco measures its container when the editor is created. When the preview
+  // panel mounts during a tab or result-tab switch that measurement lands
+  // before the surrounding layout has settled, so the editor collapses to 5x5
+  // and paints nothing — the panel just looks blank. One synchronous layout()
+  // here re-measures against the settled container; automaticLayout below then
+  // keeps it right while the panel is dragged wider.
+  const handleMount: OnMount = (editor) => {
+    setIsLoading(false);
+    editor.layout();
+  };
 
   // Resolve theme to Monaco theme
   const resolvedTheme = theme === 'system'
@@ -33,6 +43,7 @@ export function MonacoPreview({ content, language }: MonacoPreviewProps) {
         value={content}
         options={{
           readOnly: true,
+          automaticLayout: true,
           minimap: { enabled: false },
           wordWrap: 'on',
           scrollBeyondLastLine: false,
@@ -49,7 +60,7 @@ export function MonacoPreview({ content, language }: MonacoPreviewProps) {
             horizontalScrollbarSize: 10
           }
         }}
-        onMount={() => setIsLoading(false)}
+        onMount={handleMount}
       />
     </div>
   );
