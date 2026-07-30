@@ -34,6 +34,7 @@ export function ReferencePreviewPanel() {
 
     const [filterText, setFilterText] = useState('');
     const matchedRowRef = useRef<HTMLTableRowElement | null>(null);
+    const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
     const { result, matchedRowIndex, mode, target, loading, error } = preview;
 
@@ -42,10 +43,23 @@ export function ReferencePreviewPanel() {
         setFilterText('');
     }, [preview.requestKey]);
 
-    // Bring the highlighted row into view once rows arrive.
+    // Centre the highlighted row once rows arrive.
+    //
+    // Deliberately NOT scrollIntoView: that scrolls every scrollable ancestor,
+    // and the app root / results pane are overflow:hidden — they scroll
+    // programmatically, shifting the whole UI up with no scrollbar to undo it.
+    // Adjusting this container's own scrollTop can't affect anything else.
     useEffect(() => {
         if (matchedRowIndex === null) return;
-        matchedRowRef.current?.scrollIntoView({ block: 'center' });
+        const container = scrollContainerRef.current;
+        const row = matchedRowRef.current;
+        if (!container || !row) return;
+
+        const containerRect = container.getBoundingClientRect();
+        const rowRect = row.getBoundingClientRect();
+        const delta = rowRect.top - containerRect.top - (container.clientHeight - rowRect.height) / 2;
+        // The browser clamps the assignment to the valid scroll range.
+        container.scrollTop += delta;
     }, [matchedRowIndex, result, filterText]);
 
     const visibleRows = useMemo(() => {
@@ -218,7 +232,7 @@ export function ReferencePreviewPanel() {
                         </div>
                     </div>
 
-                    <div className="flex-1 min-h-0 overflow-auto">
+                    <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-auto">
                         <table className="w-full text-[11px] border-collapse">
                             <thead className="sticky top-0 z-10">
                                 <tr className="bg-[var(--bg-tertiary)]">
