@@ -28,7 +28,27 @@ const useTestStore = create<any>((set, get, api) => ({
     loadFolders: vi.fn(),
     touchActiveTab: vi.fn(),
     saveAppSettings: vi.fn(),
+    openReferencePreview: vi.fn(),
+    clearReferencePreview: vi.fn(),
 }));
+
+/** Minimal reference request for preview tests. */
+const referenceRequest = (tabId: string) => ({
+    tabId,
+    reference: {
+        constraintName: 'FK_Test',
+        sourceSchema: 'dbo',
+        sourceTable: 'Transaction',
+        targetSchema: 'dbo',
+        targetTable: 'TransactionStatus',
+        targetColumn: 'Code',
+        columnPairs: [{ sourceColumn: 'Status', targetColumn: 'Code' }],
+        isVirtual: false,
+    },
+    filters: [{ targetColumn: 'Code', value: 4, dataType: 'int' }],
+    skippedColumns: [],
+    value: 4,
+}) as any;
 
 describe('queriesSlice', () => {
     beforeEach(() => {
@@ -340,5 +360,83 @@ describe('queriesSlice', () => {
 
         expect(useTestStore.getState().tabQueryResults[tabId]).toBeUndefined();
         expect(useTestStore.getState().resultScrollPosition[tabId]).toBeUndefined();
+    });
+
+    describe('cell preview (per tab)', () => {
+        beforeEach(() => {
+            useTestStore.setState({
+                cellPreviewPanel: { width: 500, formatterType: 'auto', byTab: {} },
+            });
+        });
+
+        const show = (tabId: string, options?: Record<string, unknown>) =>
+            useTestStore
+                .getState()
+                .showCellPreview(tabId, 0, 3, 2, 'value', 'Status', 'int', options);
+
+        it('remembers a preview per tab so switching tabs keeps both', () => {
+            show('tab-1');
+            show('tab-2', { queryId: 'q2' });
+
+            const { byTab } = useTestStore.getState().cellPreviewPanel;
+            expect(Object.keys(byTab).sort()).toEqual(['tab-1', 'tab-2']);
+            expect(byTab['tab-1'].selectedCell.tabId).toBe('tab-1');
+            expect(byTab['tab-2'].queryId).toBe('q2');
+        });
+
+        it('closes only the requested tab, leaving other tabs untouched', () => {
+            show('tab-1');
+            show('tab-2');
+
+            useTestStore.getState().hideCellPreview('tab-1');
+
+            const { byTab } = useTestStore.getState().cellPreviewPanel;
+            expect(byTab['tab-1']).toBeUndefined();
+            expect(byTab['tab-2']).toBeDefined();
+        });
+
+        it('drops reference data only when the closed preview was showing it', () => {
+            show('tab-1', { referenceRequest: referenceRequest('tab-1'), tab: 'reference' });
+            show('tab-2');
+
+            useTestStore.getState().hideCellPreview('tab-2');
+            expect(useTestStore.getState().clearReferencePreview).not.toHaveBeenCalled();
+
+            useTestStore.getState().hideCellPreview('tab-1');
+            expect(useTestStore.getState().clearReferencePreview).toHaveBeenCalled();
+        });
+
+        it('keeps the tab on its previous view and falls back when there is no reference', () => {
+            show('tab-1', { referenceRequest: referenceRequest('tab-1'), tab: 'reference' });
+            expect(useTestStore.getState().cellPreviewPanel.byTab['tab-1'].activeTab).toBe('reference');
+
+            // Another foreign key cell in the same tab stays on the reference view
+            show('tab-1', { referenceRequest: referenceRequest('tab-1') });
+            expect(useTestStore.getState().cellPreviewPanel.byTab['tab-1'].activeTab).toBe('reference');
+
+            // A cell with no reference falls back to the value view
+            show('tab-1');
+            expect(useTestStore.getState().cellPreviewPanel.byTab['tab-1'].activeTab).toBe('value');
+        });
+
+        it('refuses to switch to the reference view without a reference', () => {
+            show('tab-1');
+            useTestStore.getState().setCellPreviewTab('tab-1', 'reference');
+            expect(useTestStore.getState().cellPreviewPanel.byTab['tab-1'].activeTab).toBe('value');
+
+            show('tab-1', { referenceRequest: referenceRequest('tab-1') });
+            useTestStore.getState().setCellPreviewTab('tab-1', 'reference');
+            expect(useTestStore.getState().cellPreviewPanel.byTab['tab-1'].activeTab).toBe('reference');
+            expect(useTestStore.getState().openReferencePreview).toHaveBeenCalled();
+        });
+
+        it('closes the preview when the tab results are cleared', () => {
+            show('tab-1');
+            useTestStore.setState({ tabQueryResults: { 'tab-1': [{ query_id: 'q1', rows: [[1]] }] } as any });
+
+            useTestStore.getState().clearQueryResult('tab-1');
+
+            expect(useTestStore.getState().cellPreviewPanel.byTab['tab-1']).toBeUndefined();
+        });
     });
 });

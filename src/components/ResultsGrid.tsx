@@ -531,12 +531,12 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     tabId && resultIndex !== undefined ? state.resultScrollPosition[tabId]?.[resultIndex] ?? null : null
   );
 
-  const cellPreviewVisible = useAppStore(s => s.cellPreviewPanel.visible);
+  // Preview state is kept per tab, so switching tab/space doesn't discard it.
+  const cellPreviewEntry = useAppStore(s => (tabId ? s.cellPreviewPanel.byTab[tabId] ?? null : null));
   const cellPreviewWidth = useAppStore(s => s.cellPreviewPanel.width);
-  const cellPreviewSelectedCell = useAppStore(s => s.cellPreviewPanel.selectedCell);
   const cellPreviewFormatterType = useAppStore(s => s.cellPreviewPanel.formatterType);
-  const cellPreviewActiveTab = useAppStore(s => s.cellPreviewPanel.activeTab);
   const setCellPreviewTab = useAppStore(s => s.setCellPreviewTab);
+  const openReferencePreview = useAppStore(s => s.openReferencePreview);
   const schemaInfo = useAppStore(s => s.schemaInfo);
   const virtualReferences = useAppStore(s => s.virtualReferences);
   const openReferenceEditor = useAppStore(s => s.openReferenceEditor);
@@ -815,13 +815,32 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     };
   }, [result.rows.length, editingCell, tabId, resultIndex, result.query_id]);
 
-  // Close cell preview panel when results change
+  // The preview belongs to one result of one tab. Showing it for a different
+  // result would be stale, so it stays stored but hidden until you come back.
+  const cellPreviewVisible = Boolean(
+    cellPreviewEntry && resultIndex !== undefined && cellPreviewEntry.selectedCell.resultIndex === resultIndex
+  );
+
+  // Close only when *this* result was actually re-executed — a new query_id for
+  // the result the preview is pinned to. Switching tab, space or result tab no
+  // longer discards it.
   useEffect(() => {
-    // Close the preview panel when new results arrive to avoid stale data
-    if (cellPreviewVisible) {
-      hideCellPreview();
+    if (!tabId || resultIndex === undefined) return;
+
+    const entry = useAppStore.getState().cellPreviewPanel.byTab[tabId];
+    if (!entry || entry.selectedCell.resultIndex !== resultIndex) return;
+    if (entry.queryId && entry.queryId !== result.query_id) {
+      hideCellPreview(tabId);
     }
-  }, [result.query_id]); // Use query_id to detect new query results
+  }, [result.query_id, tabId, resultIndex, hideCellPreview]);
+
+  // Reload the referenced rows when returning to a tab that was on the
+  // Reference view. Usually a cache hit, so no query is issued.
+  useEffect(() => {
+    if (!cellPreviewVisible || cellPreviewEntry?.activeTab !== 'reference') return;
+    const request = cellPreviewEntry.selectedCell.referenceRequest;
+    if (request) void openReferencePreview(request);
+  }, [cellPreviewVisible, cellPreviewEntry?.activeTab, cellPreviewEntry?.selectedCell.referenceRequest, openReferencePreview]);
 
   // Copy cell value to clipboard
   const handleCopyCell = useCallback(async (rowIdx: number, colIdx: number, includeHeaders = false) => {
@@ -969,8 +988,9 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     showCellPreview(tabId, resultIndex, row, col, value, columnName, dataType, {
       referenceRequest,
       tab,
+      queryId: result.query_id,
     });
-  }, [tabId, resultIndex, result.rows, result.columns, showCellPreview, buildReferenceRequest]);
+  }, [tabId, resultIndex, result.rows, result.columns, result.query_id, showCellPreview, buildReferenceRequest]);
 
   // Select all cells in the current grid
   const handleSelectAll = useCallback(() => {
@@ -1900,18 +1920,18 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
       </div>
 
       {/* Cell preview panel */}
-      {cellPreviewVisible && (
+      {cellPreviewVisible && cellPreviewEntry && tabId && (
         <CellPreviewPanel
           visible={cellPreviewVisible}
           width={cellPreviewWidth}
-          selectedCell={cellPreviewSelectedCell}
+          selectedCell={cellPreviewEntry.selectedCell}
           formatterType={cellPreviewFormatterType}
-          activeTab={cellPreviewActiveTab}
-          onClose={hideCellPreview}
+          activeTab={cellPreviewEntry.activeTab}
+          onClose={() => hideCellPreview(tabId)}
           onResize={setCellPreviewWidth}
           onResizeImmediate={setCellPreviewWidthImmediate}
           onFormatChange={setCellPreviewFormatter}
-          onTabChange={setCellPreviewTab}
+          onTabChange={(tab) => setCellPreviewTab(tabId, tab)}
         />
       )}
     </div>

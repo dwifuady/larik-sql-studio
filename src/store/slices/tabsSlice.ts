@@ -108,6 +108,7 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
             const { [id]: _removedOrder, ...newResultColumnOrder } = state.resultColumnOrder;
             const { [id]: _removedScroll, ...newResultScrollPosition } = state.resultScrollPosition;
             const { [id]: _removedHidden, ...newResultsHidden } = state.resultsHidden;
+            const { [id]: _removedPreview, ...newCellPreviewByTab } = state.cellPreviewPanel.byTab;
 
             return {
                 tabs: newTabs,
@@ -118,7 +119,8 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
                 resultCustomNames: newResultCustomNames,
                 resultColumnOrder: newResultColumnOrder,
                 resultScrollPosition: newResultScrollPosition,
-                resultsHidden: newResultsHidden
+                resultsHidden: newResultsHidden,
+                cellPreviewPanel: { ...state.cellPreviewPanel, byTab: newCellPreviewByTab }
             };
         });
         // Reload folders to handle auto-cleanup of empty folders
