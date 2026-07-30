@@ -147,7 +147,8 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
             set({
                 validationEnabled: settings.validation_enabled,
                 enableStickyNotes: settings.enable_sticky_notes,
-                maxResultRows: settings.max_result_rows
+                maxResultRows: settings.max_result_rows,
+                referencePreviewRowLimit: settings.reference_preview_row_limit ?? 200
             });
         } catch (error) {
             console.error('Failed to load app settings:', error);
@@ -158,7 +159,8 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
         const {
             validationEnabled,
             enableStickyNotes,
-            maxResultRows
+            maxResultRows,
+            referencePreviewRowLimit
         } = get();
 
         // We also need activeSpaceId and activeTabId from the store, but they are in other slices.
@@ -174,7 +176,8 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
                 activeSpaceId,
                 activeTabId,
                 enableStickyNotes,
-                maxResultRows
+                maxResultRows,
+                referencePreviewRowLimit
             );
         } catch (error) {
             console.error('Failed to save app settings:', error);

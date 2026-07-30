@@ -1333,6 +1333,7 @@ pub fn update_app_settings(
     last_tab_id: Option<String>,
     enable_sticky_notes: bool,
     max_result_rows: i32,
+    reference_preview_row_limit: i32,
 ) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let settings = AppSettings {
@@ -1341,6 +1342,7 @@ pub fn update_app_settings(
         last_tab_id,
         enable_sticky_notes,
         max_result_rows,
+        reference_preview_row_limit,
     };
     db.update_app_settings(&settings).map_err(|e| e.to_string())
 }

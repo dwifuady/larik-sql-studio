@@ -19,6 +19,7 @@ pub struct AppSettings {
     pub last_tab_id: Option<String>,
     pub enable_sticky_notes: bool,
     pub max_result_rows: i32,
+    pub reference_preview_row_limit: i32,
 }
 
 impl DatabaseManager {
@@ -126,6 +127,17 @@ impl DatabaseManager {
         self.set_setting("max_result_rows", &max_rows.to_string())
     }
 
+    /// Get reference (foreign key) preview row limit setting
+    pub fn get_reference_preview_row_limit(&self) -> StorageResult<i32> {
+        let value = self.get_setting("reference_preview_row_limit")?;
+        Ok(value.and_then(|v| v.parse().ok()).unwrap_or(200))
+    }
+
+    /// Set reference (foreign key) preview row limit setting
+    pub fn set_reference_preview_row_limit(&self, row_limit: i32) -> StorageResult<()> {
+        self.set_setting("reference_preview_row_limit", &row_limit.to_string())
+    }
+
     /// Get last opened space ID
     pub fn get_last_space_id(&self) -> StorageResult<Option<String>> {
         self.get_setting("last_space_id")
@@ -170,6 +182,7 @@ impl DatabaseManager {
             last_tab_id: self.get_last_tab_id()?,
             enable_sticky_notes: self.get_enable_sticky_notes()?,
             max_result_rows: self.get_max_result_rows()?,
+            reference_preview_row_limit: self.get_reference_preview_row_limit()?,
         })
     }
 
@@ -180,6 +193,7 @@ impl DatabaseManager {
         self.set_last_tab_id(settings.last_tab_id.as_deref())?;
         self.set_enable_sticky_notes(settings.enable_sticky_notes)?;
         self.set_max_result_rows(settings.max_result_rows)?;
+        self.set_reference_preview_row_limit(settings.reference_preview_row_limit)?;
         Ok(())
     }
 
@@ -202,6 +216,9 @@ impl DatabaseManager {
         }
         if self.get_setting("max_result_rows")?.is_none() {
             self.set_setting("max_result_rows", "5000")?;
+        }
+        if self.get_setting("reference_preview_row_limit")?.is_none() {
+            self.set_setting("reference_preview_row_limit", "200")?;
         }
         Ok(())
     }

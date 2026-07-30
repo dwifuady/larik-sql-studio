@@ -10,6 +10,9 @@ import { useAppStore } from '../store';
 import type { QueryResult, ColumnInfo, CellValue } from '../types';
 import { formatExecutionTime } from '../utils/formatters';
 import { getReadableTextColor } from '../utils/color';
+import { buildColumnReferenceMap } from '../utils/foreignKeyResolver';
+import type { CellPreviewTab } from '../store/slices/queriesSlice';
+import type { ReferenceFilter, ReferenceRequest } from '../store/slices/referencePreviewSlice';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 interface ResultsGridProps {
@@ -532,6 +535,9 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
   const cellPreviewWidth = useAppStore(s => s.cellPreviewPanel.width);
   const cellPreviewSelectedCell = useAppStore(s => s.cellPreviewPanel.selectedCell);
   const cellPreviewFormatterType = useAppStore(s => s.cellPreviewPanel.formatterType);
+  const cellPreviewActiveTab = useAppStore(s => s.cellPreviewPanel.activeTab);
+  const setCellPreviewTab = useAppStore(s => s.setCellPreviewTab);
+  const schemaInfo = useAppStore(s => s.schemaInfo);
   const showCellPreview = useAppStore(s => s.showCellPreview);
   const hideCellPreview = useAppStore(s => s.hideCellPreview);
   const setCellPreviewWidth = useAppStore(s => s.setCellPreviewWidth);
@@ -606,6 +612,54 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     }
     return null;
   }, [queryText, result.statement_text]);
+
+  // Foreign key references per result column, resolved from cached schema metadata.
+  // Columns that can't be traced to exactly one source table are simply left out.
+  const columnReferences = useMemo(() => {
+    const stmt = result.statement_text || queryText;
+    return buildColumnReferenceMap(stmt, result.columns, schemaInfo);
+  }, [result.statement_text, queryText, result.columns, schemaInfo]);
+
+  // Build the lookup request for a cell: the FK's column pairs filled in from
+  // this row. Composite keys whose sibling columns aren't in the result set are
+  // reported so the panel can say the filter is partial.
+  const buildReferenceRequest = useCallback((rowIdx: number, colIdx: number): ReferenceRequest | null => {
+    if (!tabId) return null;
+    const reference = columnReferences.get(colIdx);
+    if (!reference) return null;
+
+    const row = result.rows[rowIdx];
+    if (!row) return null;
+
+    const columnIndexByName = new Map<string, number>();
+    result.columns.forEach((column, index) => columnIndexByName.set(column.name.toLowerCase(), index));
+
+    const filters: ReferenceFilter[] = [];
+    const skippedColumns: string[] = [];
+
+    for (const pair of reference.columnPairs) {
+      const sourceIdx = columnIndexByName.get(pair.sourceColumn.toLowerCase());
+      if (sourceIdx === undefined) {
+        skippedColumns.push(pair.targetColumn);
+        continue;
+      }
+      filters.push({
+        targetColumn: pair.targetColumn,
+        value: row[sourceIdx],
+        dataType: result.columns[sourceIdx]?.data_type ?? '',
+      });
+    }
+
+    if (filters.length === 0) return null;
+
+    return {
+      tabId,
+      reference,
+      filters,
+      skippedColumns,
+      value: row[colIdx],
+    };
+  }, [tabId, columnReferences, result.rows, result.columns]);
 
   // Check if editing is actually possible - allow editing even without table name (will prompt on save)
   // We allow editing UI as long as there are columns (for better UX - can edit, error shown on save)
@@ -901,15 +955,19 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
   }, [result.rows, result.columns, columnOrder]);
 
   // Preview cell handler
-  const handlePreviewCell = useCallback((row: number, col: number) => {
+  const handlePreviewCell = useCallback((row: number, col: number, tab: CellPreviewTab = 'value') => {
     if (!tabId || resultIndex === undefined) return;
 
     const value = result.rows[row]?.[col];
     const columnName = result.columns[col]?.name || '';
     const dataType = result.columns[col]?.data_type || '';
+    const referenceRequest = buildReferenceRequest(row, col);
 
-    showCellPreview(tabId, resultIndex, row, col, value, columnName, dataType);
-  }, [tabId, resultIndex, result.rows, result.columns, showCellPreview]);
+    showCellPreview(tabId, resultIndex, row, col, value, columnName, dataType, {
+      referenceRequest,
+      tab,
+    });
+  }, [tabId, resultIndex, result.rows, result.columns, showCellPreview, buildReferenceRequest]);
 
   // Select all cells in the current grid
   const handleSelectAll = useCallback(() => {
@@ -939,10 +997,12 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
         return;
       }
 
-      // Space key - open cell preview
+      // Space opens the value preview; Shift+Space jumps straight to the
+      // referenced table for foreign key columns.
       if (e.key === ' ' && !e.ctrlKey && !e.metaKey && selectedCell) {
         e.preventDefault();
-        handlePreviewCell(selectedCell.row, selectedCell.col);
+        const wantsReference = e.shiftKey && columnReferences.has(selectedCell.col);
+        handlePreviewCell(selectedCell.row, selectedCell.col, wantsReference ? 'reference' : 'value');
         return;
       }
 
@@ -971,7 +1031,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     // Attach to container instead of window so it only fires when grid has focus
     container.addEventListener('keydown', handleKeyDown);
     return () => container.removeEventListener('keydown', handleKeyDown);
-  }, [selectedCell, selection, editingCell, handleCopyCell, handleCopySelection, handlePreviewCell, handleSelectAll]);
+  }, [selectedCell, selection, editingCell, handleCopyCell, handleCopySelection, handlePreviewCell, handleSelectAll, columnReferences]);
 
   // Copy a single row as JSON, respecting visual column order
   const handleCopyRow = useCallback(async (rowIdx: number) => {
@@ -1454,8 +1514,27 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
                             onMouseEnter={() => setHoverColumnIdx(origIdx)}
                             onMouseLeave={() => setHoverColumnIdx(null)}
                           >
-                            <span className={`font-medium text-[var(--text-primary)] transition-all duration-200 ${hoverColumnIdx === origIdx ? 'text-[10px]' : 'text-xs'}`}>
-                              {col.name}
+                            <span className="flex items-center gap-1 min-w-0">
+                              <span className={`font-medium text-[var(--text-primary)] truncate transition-all duration-200 ${hoverColumnIdx === origIdx ? 'text-[10px]' : 'text-xs'}`}>
+                                {col.name}
+                              </span>
+                              {/* Foreign key indicator — click to preview the referenced table */}
+                              {columnReferences.has(origIdx) && (
+                                <button
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const row = selectedCell?.col === origIdx ? selectedCell.row : 0;
+                                    handlePreviewCell(row, origIdx, 'reference');
+                                  }}
+                                  className="shrink-0 text-[var(--accent-color)] opacity-60 hover:opacity-100 transition-opacity"
+                                  title={`References ${columnReferences.get(origIdx)!.targetSchema}.${columnReferences.get(origIdx)!.targetTable} — Shift+Space to preview`}
+                                >
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m4.5-4.5l1.5-1.5a4 4 0 015.656 5.656l-3 3a4 4 0 01-5.656 0" />
+                                  </svg>
+                                </button>
+                              )}
                             </span>
                             <span className={`${getTypeColor(col.data_type)} shrink-0 transition-all duration-200 ${hoverColumnIdx === origIdx ? 'text-[10px] opacity-100' : 'text-[10px] opacity-0 hidden'}`}>
                               {col.data_type}
@@ -1600,6 +1679,17 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
             position={{ x: contextMenu.x, y: contextMenu.y }}
             onClose={() => setContextMenu(null)}
             items={[
+              ...(contextMenu && columnReferences.has(contextMenu.col) ? [{
+                id: 'preview-reference',
+                label: `Preview ${columnReferences.get(contextMenu.col)!.targetTable}`,
+                icon: (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m4.5-4.5l1.5-1.5a4 4 0 015.656 5.656l-3 3a4 4 0 01-5.656 0" />
+                  </svg>
+                ),
+                shortcut: 'Shift+Space',
+                action: () => handlePreviewCell(contextMenu.row, contextMenu.col, 'reference'),
+              }] : []),
               ...(!selection && contextMenu ? [
                 {
                   id: 'copy-cell-headers',
@@ -1758,10 +1848,12 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
           width={cellPreviewWidth}
           selectedCell={cellPreviewSelectedCell}
           formatterType={cellPreviewFormatterType}
+          activeTab={cellPreviewActiveTab}
           onClose={hideCellPreview}
           onResize={setCellPreviewWidth}
           onResizeImmediate={setCellPreviewWidthImmediate}
           onFormatChange={setCellPreviewFormatter}
+          onTabChange={setCellPreviewTab}
         />
       )}
     </div>

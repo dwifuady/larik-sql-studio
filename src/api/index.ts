@@ -646,13 +646,15 @@ export async function updateAppSettings(
   lastSpaceId: string | null,
   lastTabId: string | null,
   enableStickyNotes: boolean,
-  maxResultRows: number
+  maxResultRows: number,
+  referencePreviewRowLimit: number
 ): Promise<void> {
   return invoke<void>('update_app_settings', {
     validationEnabled,
     lastSpaceId,
     lastTabId,
     enableStickyNotes,
-    maxResultRows
+    maxResultRows,
+    referencePreviewRowLimit
   });
 }

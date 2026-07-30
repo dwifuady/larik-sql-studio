@@ -2,6 +2,10 @@ import { StateCreator } from 'zustand';
 import type { QueryResult, CellValue } from '../../types';
 import * as api from '../../api';
 import type { AppState } from '../index';
+import type { ReferenceRequest } from './referencePreviewSlice';
+
+/** Which tab the cell preview panel is showing. */
+export type CellPreviewTab = 'value' | 'reference';
 
 export interface QueriesSlice {
     tabQueryResults: Record<string, QueryResult[]>;
@@ -29,8 +33,11 @@ export interface QueriesSlice {
             value: CellValue;
             columnName: string;
             dataType: string;
+            /** Foreign key lookup for this cell, when the column references another table. */
+            referenceRequest: ReferenceRequest | null;
         } | null;
         formatterType: 'auto' | 'json' | 'xml' | 'plain';
+        activeTab: CellPreviewTab;
     };
 
     executeQuery: (tabId: string, query: string, selectedText?: string | null, maxRowsOverride?: number) => Promise<QueryResult[] | null>;
@@ -71,12 +78,14 @@ export interface QueriesSlice {
         colIndex: number,
         value: CellValue,
         columnName: string,
-        dataType: string
+        dataType: string,
+        options?: { referenceRequest?: ReferenceRequest | null; tab?: CellPreviewTab }
     ) => void;
     hideCellPreview: () => void;
     setCellPreviewWidth: (width: number) => void;
     setCellPreviewWidthImmediate: (width: number) => void;
     setCellPreviewFormatter: (formatter: 'auto' | 'json' | 'xml' | 'plain') => void;
+    setCellPreviewTab: (tab: CellPreviewTab) => void;
 }
 
 export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = (set, get) => ({
@@ -102,7 +111,8 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
             }
         })(),
         selectedCell: null,
-        formatterType: 'auto'
+        formatterType: 'auto',
+        activeTab: 'value'
     },
 
     executeQuery: async (tabId, query, selectedText, maxRowsOverride) => {
@@ -688,20 +698,33 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
         get().saveAppSettings();
     },
 
-    showCellPreview: (tabId, resultIndex, rowIndex, colIndex, value, columnName, dataType) => {
+    showCellPreview: (tabId, resultIndex, rowIndex, colIndex, value, columnName, dataType, options) => {
+        const referenceRequest = options?.referenceRequest ?? null;
+        // Keep the reference tab only while the new cell can actually show one.
+        const requestedTab = options?.tab;
+        const currentTab = get().cellPreviewPanel.activeTab;
+        const desiredTab: CellPreviewTab = requestedTab ?? currentTab;
+        const activeTab: CellPreviewTab = desiredTab === 'reference' && !referenceRequest ? 'value' : desiredTab;
+
         set((state) => ({
             cellPreviewPanel: {
                 ...state.cellPreviewPanel,
                 visible: true,
-                selectedCell: { tabId, resultIndex, rowIndex, colIndex, value, columnName, dataType }
+                activeTab,
+                selectedCell: { tabId, resultIndex, rowIndex, colIndex, value, columnName, dataType, referenceRequest }
             }
         }));
+
+        if (activeTab === 'reference' && referenceRequest) {
+            void get().openReferencePreview(referenceRequest);
+        }
     },
 
     hideCellPreview: () => {
         set((state) => ({
             cellPreviewPanel: { ...state.cellPreviewPanel, visible: false, selectedCell: null }
         }));
+        get().clearReferencePreview();
     },
 
     setCellPreviewWidth: (width) => {
@@ -725,5 +748,18 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
         set((state) => ({
             cellPreviewPanel: { ...state.cellPreviewPanel, formatterType: formatter }
         }));
+    },
+
+    setCellPreviewTab: (tab) => {
+        const selectedCell = get().cellPreviewPanel.selectedCell;
+        if (tab === 'reference' && !selectedCell?.referenceRequest) return;
+
+        set((state) => ({
+            cellPreviewPanel: { ...state.cellPreviewPanel, activeTab: tab }
+        }));
+
+        if (tab === 'reference' && selectedCell?.referenceRequest) {
+            void get().openReferencePreview(selectedCell.referenceRequest);
+        }
     }
 });

@@ -1,7 +1,10 @@
 import { useEffect, useState, useRef } from 'react';
 import { MonacoPreview } from './MonacoPreview';
+import { ReferencePreviewPanel } from './ReferencePreviewPanel';
 import { formatCellContent } from '../utils/cellFormatter';
 import { type CellValue } from '../types';
+import type { CellPreviewTab } from '../store/slices/queriesSlice';
+import type { ReferenceRequest } from '../store/slices/referencePreviewSlice';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 interface CellPreviewPanelProps {
@@ -15,12 +18,15 @@ interface CellPreviewPanelProps {
     value: CellValue;
     columnName: string;
     dataType: string;
+    referenceRequest: ReferenceRequest | null;
   } | null;
   formatterType: 'auto' | 'json' | 'xml' | 'plain';
+  activeTab: CellPreviewTab;
   onClose: () => void;
   onResize: (width: number) => void;
   onResizeImmediate: (width: number) => void;
   onFormatChange: (formatter: 'auto' | 'json' | 'xml' | 'plain') => void;
+  onTabChange: (tab: CellPreviewTab) => void;
 }
 
 // Reuse getTypeColor from ResultsGrid
@@ -55,10 +61,12 @@ export function CellPreviewPanel({
   width,
   selectedCell,
   formatterType,
+  activeTab,
   onClose,
   onResize,
   onResizeImmediate,
-  onFormatChange
+  onFormatChange,
+  onTabChange
 }: CellPreviewPanelProps) {
   const [isResizing, setIsResizing] = useState(false);
   const [isFormatDropdownOpen, setIsFormatDropdownOpen] = useState(false);
@@ -201,6 +209,13 @@ export function CellPreviewPanel({
 
   const typeColor = getTypeColor(selectedCell.dataType);
 
+  const reference = selectedCell.referenceRequest;
+  // Guard against a stale 'reference' tab on a column that has no FK.
+  const tab: CellPreviewTab = reference ? activeTab : 'value';
+  const referenceLabel = reference
+    ? `${reference.reference.targetSchema}.${reference.reference.targetTable}`
+    : null;
+
   return (
     <div
       ref={panelRef}
@@ -236,8 +251,8 @@ export function CellPreviewPanel({
         </div>
 
         <div className="flex items-center gap-1">
-          {/* Format selector */}
-          <div className="relative" ref={formatDropdownRef}>
+          {/* Format selector (value view only) */}
+          <div className={`relative ${tab === 'value' ? '' : 'hidden'}`} ref={formatDropdownRef}>
             <button
               onClick={() => setIsFormatDropdownOpen(!isFormatDropdownOpen)}
               className="px-2 py-1 text-xs rounded hover:bg-[var(--bg-tertiary)] transition-colors flex items-center gap-1"
@@ -293,7 +308,36 @@ export function CellPreviewPanel({
         </div>
       </div>
 
-      {/* Content area */}
+      {/* View tabs — the reference tab only exists for foreign key columns */}
+      {reference && (
+        <div className="shrink-0 flex items-center gap-1 px-3 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]">
+          <button
+            onClick={() => onTabChange('value')}
+            className={`px-2 py-1 text-[11px] rounded-md transition-colors ${
+              tab === 'value'
+                ? 'bg-[var(--bg-active)] text-[var(--text-primary)]'
+                : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            Value
+          </button>
+          <button
+            onClick={() => onTabChange('reference')}
+            className={`px-2 py-1 text-[11px] rounded-md transition-colors max-w-[60%] truncate ${
+              tab === 'reference'
+                ? 'bg-[var(--bg-active)] text-[var(--text-primary)]'
+                : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+            }`}
+            title={`Preview referenced data in ${referenceLabel} (Shift+Space)`}
+          >
+            Reference · {reference.reference.targetTable}
+          </button>
+        </div>
+      )}
+
+      {/* Content area — unmounted while the reference view is open so Monaco
+          always mounts at its real size (it has no automaticLayout). */}
+      {tab === 'value' && (
       <div className="flex-1 overflow-hidden relative">
         {/* Warning banner for errors */}
         {error && (
@@ -336,6 +380,14 @@ export function CellPreviewPanel({
           </div>
         )}
       </div>
+      )}
+
+      {/* Reference (foreign key) data view */}
+      {tab === 'reference' && (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <ReferencePreviewPanel />
+        </div>
+      )}
     </div>
   );
 }

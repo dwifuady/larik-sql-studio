@@ -454,4 +454,6 @@ export interface AppSettings {
   last_tab_id: string | null;
   enable_sticky_notes: boolean;
   max_result_rows: number;
+  /** Max rows loaded when previewing a referenced (foreign key) table */
+  reference_preview_row_limit: number;
 }

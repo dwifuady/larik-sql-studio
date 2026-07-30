@@ -16,6 +16,8 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
         setEnableStickyNotes,
         maxResultRows,
         setMaxResultRows,
+        referencePreviewRowLimit,
+        setReferencePreviewRowLimit,
         validationEnabled,
         setValidationEnabled,
         validationShowWarnings,
@@ -184,6 +186,26 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
                                     step="1000"
                                     value={maxResultRows}
                                     onChange={(e) => setMaxResultRows(parseInt(e.target.value) || 0)}
+                                    className="w-24 px-3 py-1.5 bg-[var(--bg-primary)] border border-white/10 rounded-lg text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                                />
+                            </div>
+
+                            {/* Reference (foreign key) preview row limit */}
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <label className="text-sm font-medium text-[var(--text-primary)]">Reference Preview Row Limit</label>
+                                    <p className="text-xs text-[var(--text-muted)] mt-1">
+                                        Max rows loaded when previewing a referenced table (Shift+Space). Larger tables
+                                        only fetch the matching row.
+                                    </p>
+                                </div>
+                                <input
+                                    type="number"
+                                    min="10"
+                                    max="5000"
+                                    step="50"
+                                    value={referencePreviewRowLimit}
+                                    onChange={(e) => setReferencePreviewRowLimit(parseInt(e.target.value) || 200)}
                                     className="w-24 px-3 py-1.5 bg-[var(--bg-primary)] border border-white/10 rounded-lg text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                                 />
                             </div>
