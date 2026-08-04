@@ -67,6 +67,7 @@ export const createNotesSlice: StateCreator<AppState, [], [], NotesSlice> = (set
       content: '',
       color: 'yellow',
       minimized: false,
+      pinned: false,
       created_at: nowISO(),
       updated_at: nowISO(),
     };

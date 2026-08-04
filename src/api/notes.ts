@@ -10,6 +10,8 @@ export interface StickyNote {
   minimized: boolean;
   /** Persisted popover width in pixels (null/undefined = use default). */
   width?: number | null;
+  /** When true the popover stays open on outside click. */
+  pinned?: boolean;
   created_at: string;
   updated_at: string;
 }

@@ -20,6 +20,9 @@ pub struct StickyNote {
     /// Persisted popover width in pixels (None = use default).
     #[serde(default)]
     pub width: Option<i32>,
+    /// When true the popover stays open on outside click.
+    #[serde(default)]
+    pub pinned: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -29,7 +32,7 @@ impl DatabaseManager {
     pub fn get_tab_notes(&self, tab_id: &str) -> StorageResult<Vec<StickyNote>> {
         self.with_connection(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, tab_id, line_number, content, color, minimized, width, created_at, updated_at
+                "SELECT id, tab_id, line_number, content, color, minimized, width, pinned, created_at, updated_at
                  FROM sticky_notes
                  WHERE tab_id = ?1
                  ORDER BY line_number ASC",
@@ -38,6 +41,7 @@ impl DatabaseManager {
             let notes = stmt
                 .query_map(params![tab_id], |row| {
                     let minimized: i32 = row.get(5)?;
+                    let pinned: i32 = row.get(7)?;
                     Ok(StickyNote {
                         id: row.get(0)?,
                         tab_id: row.get(1)?,
@@ -46,8 +50,9 @@ impl DatabaseManager {
                         color: row.get(4)?,
                         minimized: minimized != 0,
                         width: row.get(6)?,
-                        created_at: row.get(7)?,
-                        updated_at: row.get(8)?,
+                        pinned: pinned != 0,
+                        created_at: row.get(8)?,
+                        updated_at: row.get(9)?,
                     })
                 })?
                 .filter_map(|r| r.ok())
@@ -62,9 +67,9 @@ impl DatabaseManager {
         self.with_connection(|conn| {
             conn.execute(
                 "INSERT OR REPLACE INTO sticky_notes
-                    (id, tab_id, line_number, content, color, minimized, width, created_at, updated_at)
+                    (id, tab_id, line_number, content, color, minimized, width, pinned, created_at, updated_at)
                  VALUES
-                    (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     note.id,
                     note.tab_id,
@@ -73,6 +78,7 @@ impl DatabaseManager {
                     note.color,
                     note.minimized as i32,
                     note.width,
+                    note.pinned as i32,
                     note.created_at,
                     note.updated_at,
                 ],

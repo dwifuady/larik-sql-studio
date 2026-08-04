@@ -345,6 +345,21 @@ impl DatabaseManager {
             )?;
         }
 
+        // Migration: Add pinned column to sticky_notes (pin popover open so
+        // outside clicks don't close it). Legacy rows default to 0 (unpinned).
+        let has_note_pinned: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('sticky_notes') WHERE name = 'pinned'",
+            [],
+            |row| row.get(0),
+        )?;
+
+        if !has_note_pinned {
+            conn.execute(
+                "ALTER TABLE sticky_notes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
+                [],
+            )?;
+        }
+
         // Migration: Create FTS5 virtual table for full-text search
         let has_fts: bool = conn.query_row(
             "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='archived_tabs_fts'",

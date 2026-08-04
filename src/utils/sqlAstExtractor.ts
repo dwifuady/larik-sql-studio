@@ -438,7 +438,15 @@ export function parseTableAliases(sql: string): Map<string, { schema: string; ta
     const skipWords = new Set(['WHERE', 'ON', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'CROSS', 'ORDER', 'GROUP', 'HAVING', 'UNION', 'SET', 'AND', 'OR', 'AS', 'SELECT', 'FROM', 'INTO', 'VALUES', 'UPDATE', 'DELETE', 'INSERT']);
 
     // Pattern 1: [schema].[table] AS [alias] or [schema].[table] [alias]
-    const pattern1 = /(?:FROM|JOIN|,)\s+\[?(\w+)\]?\.\[?(\w+)\]?\s+(?:AS\s+)?\[?(\w+)\]?(?=\s|$|,|\)|\r|\n)/gi;
+    // NOTE: the negative keyword lookahead before the alias capture is
+    // essential: without it, a SELECT-list column reference such as
+    // `..., [f].[Reinstatements]\nFROM [dbo].[BCApplicationQuotes] q` causes
+    // the regex to anchor on the comma, cross the newline with \s+, and
+    // capture the literal `FROM` keyword as the alias. That match is rejected
+    // by skipWords, but matchAll already advanced past FROM, so the real
+    // FROM-clause alias (`q`) is never captured. The lookahead forces the
+    // regex to fail at the comma position, letting matchAll re-anchor on FROM.
+    const pattern1 = /(?:FROM|JOIN|,)\s+\[?(\w+)\]?\.\[?(\w+)\]?\s+(?:AS\s+)?(?!(?:SELECT|FROM|JOIN|LEFT|RIGHT|INNER|OUTER|CROSS|WHERE|ON|AND|OR|ORDER|GROUP|HAVING|UNION|SET|VALUES|INTO|UPDATE|DELETE|INSERT|AS|BY|WITH|APPLY|TABLE)\b)\[?(\w+)\]?(?=\s|$|,|\)|\r|\n)/gi;
     for (const match of sql.matchAll(pattern1)) {
       const schema = match[1];
       const table = match[2];
@@ -450,7 +458,8 @@ export function parseTableAliases(sql: string): Map<string, { schema: string; ta
     }
 
     // Pattern 2: [table] AS [alias] or [table] [alias] (without schema)
-    const pattern2 = /(?:FROM|JOIN|,)\s+(?!\[?\w+\]?\.)\[?(\w+)\]?\s+(?:AS\s+)?\[?(\w+)\]?(?=\s+(?:ON|WHERE|JOIN|LEFT|RIGHT|INNER|OUTER|CROSS|ORDER|GROUP|HAVING|UNION|,|\)|$|\r|\n))/gi;
+    // Same negative keyword lookahead as pattern1 — see comment above.
+    const pattern2 = /(?:FROM|JOIN|,)\s+(?!\[?\w+\]?\.)\[?(\w+)\]?\s+(?:AS\s+)?(?!(?:SELECT|FROM|JOIN|LEFT|RIGHT|INNER|OUTER|CROSS|WHERE|ON|AND|OR|ORDER|GROUP|HAVING|UNION|SET|VALUES|INTO|UPDATE|DELETE|INSERT|AS|BY|WITH|APPLY|TABLE)\b)\[?(\w+)\]?(?=\s+(?:ON|WHERE|JOIN|LEFT|RIGHT|INNER|OUTER|CROSS|ORDER|GROUP|HAVING|UNION|,|\)|$|\r|\n))/gi;
     for (const match of sql.matchAll(pattern2)) {
       const table = match[1];
       const alias = match[2];

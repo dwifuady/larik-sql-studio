@@ -21,6 +21,7 @@ interface ActivePopup {
   noteId: string;
   top: number;
   left: number;
+  zIndex: number;
 }
 
 /**
@@ -51,7 +52,13 @@ function getGlyphMarginOffset(editor: editor.IStandaloneCodeEditor): number {
 }
 
 export function useGutterNotes({ editor, model, tabId, enabled, theme }: UseGutterNotesArgs) {
-  const [activePopup, setActivePopup] = useState<ActivePopup | null>(null);
+  // Multiple popovers can be open at once — pinned notes coexist; only one
+  // unpinned note is open at a time (new unpinned opens close other unpinned).
+  // `nextZ` starts above the pinned baseline; each bring-to-front bumps it.
+  const BASE_Z = 1000;
+  const [activePopups, setActivePopups] = useState<ActivePopup[]>([]);
+  const nextZRef = useRef(BASE_Z + 1);
+
   const decorationsRef = useRef<string[]>([]);
   const hoverDecorationRef = useRef<string[]>([]);
   const disposablesRef = useRef<IDisposable[]>([]);
@@ -70,6 +77,31 @@ export function useGutterNotes({ editor, model, tabId, enabled, theme }: UseGutt
   const notesRef = useRef(notes);
   notesRef.current = notes;
 
+  // Helper: open or focus a note. Closes other unpinned notes if the newly
+  // opened note is itself unpinned (matches the prior single-popup behavior
+  // for the unpinned case, while pinned notes stack independently).
+  const openOrFocusPopup = useCallback((noteId: string, top: number, left: number) => {
+    setActivePopups((current) => {
+      const existing = current.find((p) => p.noteId === noteId);
+      const z = ++nextZRef.current;
+      if (existing) {
+        // Bring to front.
+        return current.map((p) => (p.noteId === noteId ? { ...p, top, left, zIndex: z } : p));
+      }
+      // Look up the note to decide coexistence.
+      const note = notesRef.current.find((n) => n.id === noteId);
+      const newPopup: ActivePopup = { noteId, top, left, zIndex: z };
+      if (note?.pinned) {
+        return [...current, newPopup];
+      }
+      // New unpinned popover — replace any other unpinned popovers.
+      return [...current.filter((p) => {
+        const n = notesRef.current.find((nn) => nn.id === p.noteId);
+        return n?.pinned;
+      }), newPopup];
+    });
+  }, []);
+
   const addNoteAtLineRef = useRef<(line: number) => Promise<void>>(async () => {});
   const addNoteAtLine = useCallback(async (line: number) => {
     if (!enabled || !tabId) return;
@@ -81,11 +113,7 @@ export function useGutterNotes({ editor, model, tabId, enabled, theme }: UseGutt
         const rect = editorDom?.getBoundingClientRect();
         if (rect) {
           const glyphOffset = getGlyphMarginOffset(editor);
-          setActivePopup({
-            noteId: newNote.id,
-            top: rect.top + pos.top,
-            left: rect.left + glyphOffset,
-          });
+          openOrFocusPopup(newNote.id, rect.top + pos.top, rect.left + glyphOffset);
         }
       }
     }
@@ -140,18 +168,14 @@ export function useGutterNotes({ editor, model, tabId, enabled, theme }: UseGutt
 
         const existingNote = notesRef.current.find((n) => n.line_number === line);
         if (existingNote) {
-          // Toggle popup for this note
+          // Open or focus popup for this note
           const pos = editor.getScrolledVisiblePosition({ lineNumber: line, column: 1 });
           if (pos) {
             const editorDom = editor.getDomNode();
             const rect = editorDom?.getBoundingClientRect();
             if (rect) {
               const glyphOffset = getGlyphMarginOffset(editor);
-              setActivePopup({
-                noteId: existingNote.id,
-                top: rect.top + pos.top,
-                left: rect.left + glyphOffset,
-              });
+              openOrFocusPopup(existingNote.id, rect.top + pos.top, rect.left + glyphOffset);
             }
           }
         } else {
@@ -209,9 +233,16 @@ export function useGutterNotes({ editor, model, tabId, enabled, theme }: UseGutt
       }
     });
 
-    // Close popup on scroll
+    // Close unpinned popovers on scroll (pinned ones stay open)
     const scrollDisposable = editor.onDidScrollChange(() => {
-      setActivePopup(null);
+      setActivePopups((current) => {
+        const remaining: ActivePopup[] = [];
+        for (const p of current) {
+          const n = notesRef.current.find((nn) => nn.id === p.noteId);
+          if (n?.pinned) remaining.push(p);
+        }
+        return remaining;
+      });
     });
 
     disposablesRef.current.push(
@@ -247,9 +278,17 @@ export function useGutterNotes({ editor, model, tabId, enabled, theme }: UseGutt
     removeNote(tabId, noteId);
   }, [tabId, removeNote]);
 
-  // Close popup handler
-  const handleClosePopup = useCallback(() => {
-    setActivePopup(null);
+  // Close a single popover (called by NotePopover's backdrop / X button).
+  const handleClosePopup = useCallback((noteId: string) => {
+    setActivePopups((current) => current.filter((p) => p.noteId !== noteId));
+  }, []);
+
+  // Bring a popover to the front of the stack (most recently accessed on top).
+  const handleFocusPopup = useCallback((noteId: string) => {
+    setActivePopups((current) => {
+      const z = ++nextZRef.current;
+      return current.map((p) => (p.noteId === noteId ? { ...p, zIndex: z } : p));
+    });
   }, []);
 
   // Cleanup on unmount
@@ -260,8 +299,19 @@ export function useGutterNotes({ editor, model, tabId, enabled, theme }: UseGutt
     };
   }, []);
 
-  // The active popup note object
-  const activeNote = activePopup ? notes.find((n) => n.id === activePopup.noteId) : null;
+  // Prune popovers whose underlying note has been deleted from the store.
+  useEffect(() => {
+    setActivePopups((current) => {
+      const live = new Set(notes.map((n) => n.id));
+      const filtered = current.filter((p) => live.has(p.noteId));
+      return filtered.length === current.length ? current : filtered;
+    });
+  }, [notes]);
+
+  // The active popup note objects (one NotePopover per open entry)
+  const activeNotes = activePopups
+    .map((p) => ({ popup: p, note: notes.find((n) => n.id === p.noteId) }))
+    .filter((x) => x.note);
 
   // ── Portal element ──────────────────────────────────────────────────────
   // Render NotePopover via ReactDOM.createPortal into document.body so it
@@ -270,28 +320,29 @@ export function useGutterNotes({ editor, model, tabId, enabled, theme }: UseGutt
   // DOM hierarchy from reaching React handlers. By portaling to document.body,
   // the popover is in the top-level DOM and events flow normally.
   //
-  // IMPORTANT: this must be returned as a plain React *element*, NOT a
-  // memoized component rendered as `<GutterNotesRenderer />`. A useCallback
-  // component changes identity whenever its deps change, and rendering a
-  // changed component *type* makes React unmount + remount the whole subtree
-  // — which tore down NotePopover on every store update (the "blink" bug that
-  // made buttons feel unclickable). Returning an element lets React reconcile
-  // NotePopover by position and merely update its props.
-  const gutterNotesPortal =
-    activePopup && activeNote
-      ? createPortal(
-          <NotePopover
-            key={activeNote.id}
-            note={activeNote}
-            position={{ top: activePopup.top, left: activePopup.left }}
-            theme={theme}
-            onChange={handleNoteChange}
-            onDelete={handleNoteDelete}
-            onClose={handleClosePopup}
-          />,
-          document.body,
-        )
-      : null;
+  // Multiple notes can be open simultaneously (pinned notes coexist; only one
+  // unpinned note is open at a time). The most recently accessed popover is on
+  // top via its zIndex (handled by handleFocusPopup bring-to-front).
+  const gutterNotesPortal = activeNotes.length > 0
+    ? createPortal(
+        <>
+          {activeNotes.map(({ popup, note }) => (
+            <NotePopover
+              key={note!.id}
+              note={note!}
+              position={{ top: popup.top, left: popup.left }}
+              zIndex={popup.zIndex}
+              theme={theme}
+              onChange={handleNoteChange}
+              onDelete={handleNoteDelete}
+              onClose={handleClosePopup}
+              onFocus={handleFocusPopup}
+            />
+          ))}
+        </>,
+        document.body,
+      )
+    : null;
 
   return { gutterNotesPortal, addNoteAtLine, notes };
 }

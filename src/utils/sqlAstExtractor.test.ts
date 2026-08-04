@@ -171,3 +171,50 @@ describe('sqlAstExtractor completion context', () => {
         expect(context.partialWord).toBe('na');
     });
 });
+
+describe('sqlAstExtractor alias resolution on large JOIN queries', () => {
+    // Regression: when a SELECT-list column reference such as
+    // `..., [f].[Reinstatements]\nFROM [dbo].[BCApplicationQuotes] q`
+    // preceded the FROM keyword, pattern1's regex anchored on the comma,
+    // crossed the newline with \s+, and captured the literal `FROM` keyword
+    // as the alias. matchAll then advanced past FROM, so the real FROM-clause
+    // alias (`q`) was never captured and `q.` produced no column suggestions.
+    it('captures FROM-clause alias when a SELECT list ends with a bracketed column ref before the FROM line', () => {
+        const sql = `SELECT q.[ApplicationId], q.[ProductId], p.[Name], [f].[ApplicationQuoteId], f.[CoverageSectionTypeId], cst.[Section], f.[LocationIndex], fi.[QuoteFeeItemTypeId], fit.[Shortname], fi.[Amount], fi.[IsProrated], [f].[Reinstatements]
+FROM [dbo].[BCApplicationQuotes] q
+JOIN [dbo].[BCApplicationQuoteFees] f ON [f].[ApplicationQuoteId] = [q].[Id] AND ISNULL(f.[IsDeleted], 0) = 0
+JOIN [dbo].[BCApplicationQuoteFeeItem] fi ON [fi].[ApplicationQuoteId] = [q].[Id] AND [fi].[QuoteFeesId] = [f].[Id] AND ISNULL(fi.[IsDeleted], 0) = 0
+LEFT JOIN [dbo].[CoverageSectionType] cst ON [cst].[SectionId] = [f].[CoverageSectionTypeId]
+LEFT JOIN [dbo].[BCQuoteFeeItemType] fit ON [fit].[Id] = [fi].[QuoteFeeItemTypeId]
+JOIN [dbo].[Product] p ON [p].[Id] = [q].[ProductId]
+WHERE ISNULL(q.[IsDeleted], 0) = 0 AND q.`;
+
+        const aliases = parseTableAliases(sql);
+
+        expect(aliases.has('q')).toBe(true);
+        expect(aliases.get('q')).toEqual({ schema: 'dbo', table: 'BCApplicationQuotes' });
+        expect(aliases.has('f')).toBe(true);
+        expect(aliases.has('fi')).toBe(true);
+        expect(aliases.has('cst')).toBe(true);
+        expect(aliases.has('fit')).toBe(true);
+        expect(aliases.has('p')).toBe(true);
+    });
+
+    it('reports alias_column context for the trailing q. in a large JOIN WHERE clause', () => {
+        const textBeforeCursor = `SELECT q.[ApplicationId], q.[ProductId], p.[Name], [f].[ApplicationQuoteId], f.[CoverageSectionTypeId], cst.[Section], f.[LocationIndex], fi.[QuoteFeeItemTypeId], fit.[Shortname], fi.[Amount], fi.[IsProrated], [f].[Reinstatements]
+FROM [dbo].[BCApplicationQuotes] q
+JOIN [dbo].[BCApplicationQuoteFees] f ON [f].[ApplicationQuoteId] = [q].[Id] AND ISNULL(f.[IsDeleted], 0) = 0
+JOIN [dbo].[BCApplicationQuoteFeeItem] fi ON [fi].[ApplicationQuoteId] = [q].[Id] AND [fi].[QuoteFeesId] = [f].[Id] AND ISNULL(fi.[IsDeleted], 0) = 0
+LEFT JOIN [dbo].[CoverageSectionType] cst ON [cst].[SectionId] = [f].[CoverageSectionTypeId]
+LEFT JOIN [dbo].[BCQuoteFeeItemType] fit ON [fit].[Id] = [fi].[QuoteFeeItemTypeId]
+JOIN [dbo].[Product] p ON [p].[Id] = [q].[ProductId]
+WHERE ISNULL(q.[IsDeleted], 0) = 0 AND q.`;
+
+        const context = getCompletionContext(textBeforeCursor, textBeforeCursor);
+
+        expect(context.type).toBe('alias_column');
+        if (context.type === 'alias_column') {
+            expect(context.alias).toBe('q');
+        }
+    });
+});

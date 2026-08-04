@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Minimize2, Maximize2, Trash2, X } from 'lucide-react';
+import { Minimize2, Maximize2, Trash2, X, Pin, PinOff } from 'lucide-react';
 import type { StickyNote } from '../api/notes';
 import { getReadableTextColor } from '../utils/color';
 
@@ -26,23 +26,31 @@ export function getNoteColorBg(colorKey: string, theme: 'dark' | 'light'): strin
 export interface NotePopoverProps {
   note: StickyNote;
   position: { top: number; left: number };
+  /** Stack z-index — higher means more recently accessed (on top). */
+  zIndex: number;
   theme: 'dark' | 'light';
   onChange: (noteId: string, updates: Partial<StickyNote>) => void;
   onDelete: (noteId: string) => void;
-  onClose: () => void;
+  /** Close this popover. Receives the note id so the parent can target it. */
+  onClose: (noteId: string) => void;
+  /** Bring this popover to the front of the stack. */
+  onFocus: (noteId: string) => void;
 }
 
 export const NotePopover: React.FC<NotePopoverProps> = ({
   note,
   position,
+  zIndex,
   theme,
   onChange,
   onDelete,
   onClose,
+  onFocus,
 }) => {
   const [content, setContent] = useState(note.content);
   const [color, setColor] = useState(note.color);
   const [isMinimized, setIsMinimized] = useState(note.minimized);
+  const [pinned, setPinned] = useState(note.pinned ?? false);
   // Persisted resizable width. Kept in state (not just the DOM) so it survives
   // re-renders — otherwise typing would snap the popover back to the default.
   const [width, setWidth] = useState<number>(note.width ?? 380);
@@ -79,19 +87,20 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
     }
   }, [content, isMinimized]);
 
-  // Close on Escape
+  // Close on Escape (disabled while pinned)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (content !== note.content || color !== note.color || isMinimized !== note.minimized || width !== note.width) {
-          onChange(note.id, { content, color, minimized: isMinimized, width });
+        if (pinned) return;
+        if (content !== note.content || color !== note.color || isMinimized !== note.minimized || width !== note.width || pinned !== (note.pinned ?? false)) {
+          onChange(note.id, { content, color, minimized: isMinimized, width, pinned });
         }
-        onClose();
+        onClose(note.id);
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [content, color, isMinimized, width, note.id, note.content, note.color, note.minimized, note.width, onChange, onClose]);
+  }, [content, color, isMinimized, width, pinned, note.id, note.content, note.color, note.minimized, note.width, note.pinned, onChange, onClose]);
 
   const handleColorChange = useCallback(
     (newColor: string) => {
@@ -107,9 +116,15 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
     onChange(note.id, { minimized: newState, content, color, width });
   }, [content, color, isMinimized, width, note.id, onChange]);
 
+  const handleTogglePin = useCallback(() => {
+    const newState = !pinned;
+    setPinned(newState);
+    onChange(note.id, { pinned: newState, content, color, minimized: isMinimized, width });
+  }, [content, color, isMinimized, width, pinned, note.id, onChange]);
+
   const handleDelete = useCallback(() => {
     onDelete(note.id);
-    onClose();
+    onClose(note.id);
   }, [note.id, onDelete, onClose]);
 
   const handleContentChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -127,7 +142,7 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
     position: 'fixed',
     top: position.top,
     left: position.left,
-    zIndex: 1000,
+    zIndex: zIndex,
     backgroundColor: bgColor,
     color: fgColor,
     borderRadius: '8px',
@@ -145,16 +160,19 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
   };
 
   const handleCloseWithFlush = useCallback(() => {
-    if (content !== note.content || color !== note.color || isMinimized !== note.minimized || width !== note.width) {
-      onChange(note.id, { content, color, minimized: isMinimized, width });
+    if (pinned) return;
+    if (content !== note.content || color !== note.color || isMinimized !== note.minimized || width !== note.width || pinned !== (note.pinned ?? false)) {
+      onChange(note.id, { content, color, minimized: isMinimized, width, pinned });
     }
-    onClose();
-  }, [content, color, isMinimized, width, note.id, note.content, note.color, note.minimized, note.width, onChange, onClose]);
+    onClose(note.id);
+  }, [content, color, isMinimized, width, pinned, note.id, note.content, note.color, note.minimized, note.width, note.pinned, onChange, onClose]);
 
   if (isMinimized) {
     return (
       <>
-        {/* Transparent backdrop — catches clicks outside the popover */}
+        {/* Transparent backdrop — catches clicks outside the popover.
+            Omitted while pinned so outside clicks pass through to the editor. */}
+        {!pinned && (
         <div
           style={{
             position: 'fixed',
@@ -168,15 +186,19 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
             handleCloseWithFlush();
           }}
         />
+        )}
         <div
           ref={popoverRef}
-          style={{ ...popoverStyle, zIndex: 1000, position: 'fixed' }}
+          style={{ ...popoverStyle, position: 'fixed' }}
           className="larik-note-popover select-none cursor-pointer"
           onClick={(e) => {
             e.stopPropagation();
             handleToggleMinimize();
           }}
-          onMouseDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            onFocus(note.id);
+          }}
         >
           <div className="flex items-center gap-2 px-3 py-1.5">
             <span className="truncate text-xs font-medium flex-1" style={{ color: fgColor }}>
@@ -191,7 +213,9 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
 
   return (
     <>
-      {/* Transparent backdrop — catches clicks outside the popover */}
+      {/* Transparent backdrop — catches clicks outside the popover.
+          Omitted while pinned so outside clicks pass through to the editor. */}
+      {!pinned && (
       <div
         style={{
           position: 'fixed',
@@ -205,12 +229,16 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
           handleCloseWithFlush();
         }}
       />
+      )}
       {/* The actual popover card */}
       <div
         ref={popoverRef}
-        style={{ ...popoverStyle, zIndex: 1000, position: 'fixed' }}
+        style={{ ...popoverStyle, position: 'fixed' }}
         className="larik-note-popover"
-        onMouseDown={(e) => e.stopPropagation()}
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          onFocus(note.id);
+        }}
       >
       {/* Header / Toolbar */}
       <div
@@ -250,6 +278,18 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
           <button
             onClick={(e) => {
               e.stopPropagation();
+              handleTogglePin();
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            className="p-1 rounded transition-colors hover:bg-black/10"
+            style={{ color: fgColor, opacity: pinned ? 1 : 0.7 }}
+            title={pinned ? 'Unpin (outside clicks won\'t close the note)' : 'Pin (keep note open on outside click)'}
+          >
+            {pinned ? <PinOff size={12} /> : <Pin size={12} />}
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
               handleToggleMinimize();
             }}
             onMouseDown={(e) => e.stopPropagation()}
@@ -272,13 +312,13 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
             <Trash2 size={12} />
           </button>
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (content !== note.content || color !== note.color || isMinimized !== note.minimized || width !== note.width) {
-                onChange(note.id, { content, color, minimized: isMinimized, width });
-              }
-              onClose();
-            }}
+onClick={(e) => {
+            e.stopPropagation();
+            if (content !== note.content || color !== note.color || isMinimized !== note.minimized || width !== note.width || pinned !== (note.pinned ?? false)) {
+              onChange(note.id, { content, color, minimized: isMinimized, width, pinned });
+            }
+            onClose(note.id);
+          }}
             onMouseDown={(e) => e.stopPropagation()}
             className="p-1 rounded transition-colors"
             style={{ color: fgColor, opacity: 0.7 }}
