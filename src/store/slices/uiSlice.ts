@@ -24,6 +24,11 @@ export interface UISlice {
     maxResultRows: number;
     appInfo: { name: string; version: string };
 
+    /** Whether the active tab's editor currently has a non-empty selection.
+     *  Lifted out of QueryEditor so the title-bar action strip can react to it. */
+    activeTabHasSelection: boolean;
+    setActiveTabHasSelection: (hasSelection: boolean) => void;
+
     setSidebarWidth: (width: number) => void;
     setSidebarHidden: (hidden: boolean) => void;
     setSidebarHoveredWhenHidden: (hovered: boolean) => void;
@@ -72,6 +77,8 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
     enableStickyNotes: true,
     maxResultRows: 1000,
     appInfo: { name: '', version: '' },
+    activeTabHasSelection: false,
+    setActiveTabHasSelection: (hasSelection) => set({ activeTabHasSelection: hasSelection }),
 
     setSidebarWidth: (width) => set({ sidebarWidth: width }),
     setSidebarHidden: (hidden) => set({ sidebarHidden: hidden }),

@@ -22,7 +22,6 @@ import { buildJoinConditionSuggestions } from '../utils/sqlJoinSuggestions';
 import { useGutterNotes } from '../hooks/useGutterNotes';
 import { extractAllStatements } from '../utils/queryExtractor';
 import { getResultStatementLabel } from '../utils/sql';
-import { getReadableTextColor } from '../utils/color';
 import { ContextMenu, ContextMenuItem } from './ContextMenu';
 import { writeText, readText } from '@tauri-apps/plugin-clipboard-manager';
 
@@ -31,6 +30,7 @@ interface QueryEditorProps {
 }
 
 const EVENT_RUN_QUERY_CODELENS = 'larik:run-query-codelens';
+const EVENT_EDITOR_ACTION = 'larik:editor-action';
 
 // SQL keywords for basic completion
 const SQL_KEYWORDS = [
@@ -353,7 +353,6 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
   // Atomic selectors to prevent re-renders
   const autosaveContent = useAppStore(s => s.autosaveContent);
-  const isSaving = useAppStore(s => s.isSaving);
   const spaces = useAppStore(s => s.spaces);
   const activeSpaceId = useAppStore(s => s.activeSpaceId);
   const spaceConnectionStatus = useAppStore(s => s.spaceConnectionStatus);
@@ -361,7 +360,6 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   const executeQuery = useAppStore(s => s.executeQuery);
   const executeQueryAppend = useAppStore(s => s.executeQueryAppend);
   const executeSilentQuery = useAppStore(s => s.executeSilentQuery);
-  const cancelRunningQueries = useAppStore(s => s.cancelRunningQueries);
   const clearQueryResult = useAppStore(s => s.clearQueryResult);
   const closeResult = useAppStore(s => s.closeResult);
 
@@ -385,10 +383,10 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   const validationEnabled = useAppStore(s => s.validationEnabled);
   const validationShowWarnings = useAppStore(s => s.validationShowWarnings);
   const validationShowInfo = useAppStore(s => s.validationShowInfo);
-  const toggleValidation = useAppStore(s => s.toggleValidation);
 
   const enableStickyNotes = useAppStore(s => s.enableStickyNotes);
   const maxResultRows = useAppStore(s => s.maxResultRows);
+  const setActiveTabHasSelection = useAppStore(s => s.setActiveTabHasSelection);
 
   // Get theme for Monaco editor
   const theme = useAppStore((state) => state.theme);
@@ -677,6 +675,38 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     return () => window.removeEventListener(EVENT_RUN_QUERY_CODELENS, handleRunQuery);
   }, [tab.id, hasConnection, executeQuery, executeQueryAppend]);
 
+  // Handle toolbar action events dispatched from the auto-hiding title bar.
+  // The title bar hosts the run/format/validate/note buttons since the editor
+  // toolbar was merged into it to free up vertical workspace.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ action: string }>;
+      const action = ce.detail?.action;
+      switch (action) {
+        case 'run':
+          executeQueryRef.current?.();
+          break;
+        case 'run-append':
+          executeQueryAppendRef.current?.();
+          break;
+        case 'format':
+          formatQueryRef.current?.();
+          break;
+        case 'add-note': {
+          const editor = editorRef.current;
+          if (!editor) return;
+          const lineNumber = editor.getPosition()?.lineNumber ?? 1;
+          addNoteAtLineRef.current?.(lineNumber);
+          break;
+        }
+        default:
+          break;
+      }
+    };
+    window.addEventListener(EVENT_EDITOR_ACTION, handler);
+    return () => window.removeEventListener(EVENT_EDITOR_ACTION, handler);
+  }, []);
+
 
   // Context Menu Items
   const contextMenuItems: ContextMenuItem[] = [
@@ -744,6 +774,10 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         editorRef.current.setValue(newValue);
       }
       lastTabIdRef.current = tab.id;
+      // New tab's selection state is unknown — reset until editor fires cursor event
+      hasSelectionRef.current = false;
+      setHasSelection(false);
+      setActiveTabHasSelection(false);
     }
   }, [tab.id, tab.content]);
 
@@ -2043,6 +2077,12 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     formatQueryRef.current = handleFormatSql;
   }, [handleFormatSql]);
 
+  // Keep ref to latest addNoteAtLine so the title-bar event listener can call it
+  const addNoteAtLineRef = useRef(addNoteAtLine);
+  useEffect(() => {
+    addNoteAtLineRef.current = addNoteAtLine;
+  }, [addNoteAtLine]);
+
   // Keep refs updated with the latest clipboard handlers (used by editor keybindings)
   const copyRef = useRef(handleCopy);
   useEffect(() => {
@@ -2177,6 +2217,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       if (hasSelectionRef.current !== nextHasSelection) {
         hasSelectionRef.current = nextHasSelection;
         setHasSelection(nextHasSelection);
+        setActiveTabHasSelection(nextHasSelection);
       }
     });
 
@@ -2222,176 +2263,11 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   const showResults = (activeResult || isExecuting) && !resultsHidden;
 
   return (
-    <div className="query-editor-container flex-1 flex flex-col min-h-0">
+    <div className="query-editor-container flex-1 flex flex-col min-h-0 bg-[var(--bg-secondary)]">
       {gutterNotesPortal}
-      {/* Arc-style editor toolbar */}
-      <div className="flex items-center justify-between px-2 py-1 backdrop-blur-sm border-b border-[var(--border-color)]" style={{
-        background: `linear-gradient(135deg, ${spaceColor}06 0%, transparent 50%, ${spaceColor}06 100%)`
-      }}>
-        <div className="flex items-center gap-1.5 min-w-0">
-          {/* Tab icon with space color */}
-          <div
-            className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0"
-            style={{ backgroundColor: `${spaceColor}20` }}
-          >
-            <svg
-              className="w-3 h-3"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              style={{ color: spaceColor }}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-          </div>
 
-          <span className="text-[12px] font-medium text-[var(--text-primary)] truncate max-w-[180px]">
-            {tab.title}
-          </span>
-
-          {tab.is_pinned && <span className="text-xs" title="Pinned">📌</span>}
-
-          <span className="text-[10px] text-[var(--text-muted)]">•</span>
-
-          <span className="text-[10px] truncate flex items-center gap-1">
-            {isConnected ? (
-              <>
-                <span className="text-[var(--text-secondary)]">{activeSpace?.connection_username}@{activeSpace?.connection_host}</span>
-                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400">Connected</span>
-              </>
-            ) : hasConnection ? (
-              <>
-                <span className="text-[var(--text-secondary)]">{activeSpace?.connection_username}@{activeSpace?.connection_host}</span>
-                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400">Disconnected</span>
-              </>
-            ) : (
-              <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-[var(--bg-hover)] text-[var(--text-muted)]">No connection</span>
-            )}
-          </span>
-
-          {/* Save indicator */}
-          {isSaving && (
-            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-[var(--bg-hover)] text-[var(--text-muted)] text-[10px]">
-              <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-              Saving
-            </div>
-          )}
-        </div>
-
-        <div className="flex items-center gap-0.5">
-          {/* Format button */}
-          <button
-            onClick={handleFormatSql}
-            className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
-            title="Format SQL (Ctrl+Alt+F)"
-          >
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
-            </svg>
-          </button>
-
-          {/* Validation toggle button */}
-          <button
-            onClick={toggleValidation}
-            className={`p-1 rounded-md transition-colors ${validationEnabled
-              ? 'text-green-400 hover:text-green-300 bg-green-400/10 hover:bg-green-400/20'
-              : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
-              }`}
-            title={validationEnabled ? 'Validation enabled - click to disable' : 'Validation disabled - click to enable'}
-          >
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              {validationEnabled ? (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-              )}
-            </svg>
-          </button>
-
-          {/* Sticky Note toggle/add button */}
-          {enableStickyNotes && (
-            <button
-              onClick={() => {
-                const editor = editorRef.current;
-                if (!editor) return;
-                const lineNumber = editor.getPosition()?.lineNumber ?? 1;
-                addNoteAtLine(lineNumber);
-              }}
-              className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
-              title="Add sticky note at cursor line"
-            >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.5 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V8.5L15.5 3z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 3v6h6" />
-              </svg>
-            </button>
-          )}
-
-          {/* Run/Cancel button */}
-          {isExecuting ? (
-            <button
-              onClick={() => cancelRunningQueries(tab.id)}
-              className="p-1 text-white rounded-md transition-all hover:brightness-110 active:scale-95 bg-red-500"
-              title="Cancel Query"
-            >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          ) : (
-            <>
-              {/* Run in new result tab (Ctrl+\) */}
-              <button
-                onClick={handleExecuteQueryAppend}
-                disabled={!hasConnection}
-                className="p-[5px] rounded-md transition-all hover:brightness-110 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed relative"
-                style={{
-                  backgroundColor: hasConnection ? `${spaceColor}18` : 'transparent',
-                  color: hasConnection ? spaceColor : 'var(--text-muted)',
-                }}
-                title={
-                  !hasConnection
-                    ? 'Configure a connection first'
-                    : 'Execute query in new result tab (Ctrl+\\)'
-                }
-              >
-                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-                <svg className="w-2 h-2 absolute -top-[1px] -right-[1px] text-white"
-                  fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={4}>
-                  <path d="M12 5v14M5 12h14" />
-                </svg>
-              </button>
-
-              {/* Run in current tab (Ctrl+Enter) */}
-              <button
-                onClick={handleExecuteQuery}
-                disabled={!hasConnection}
-                className="p-1 text-white rounded-md transition-all hover:brightness-110 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
-                style={{
-                  backgroundColor: hasConnection ? spaceColor : 'transparent',
-                  color: hasConnection ? getReadableTextColor(spaceColor) : 'var(--text-muted)',
-                }}
-                title={
-                  !hasConnection
-                    ? 'Configure a connection first'
-                    : hasSelection
-                      ? 'Execute selected text (Ctrl+Enter)'
-                      : 'Execute query (Ctrl+Enter)'
-                }
-              >
-                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Monaco Editor */}
-      <div className="flex-1 min-h-0 relative" style={{ flex: showResults ? '1 1 auto' : '1 1 100%' }} data-allow-select-all>
+      {/* Monaco Editor — Arc-style frame, excludes result pane */}
+      <div className={`flex-1 min-h-0 relative mx-1.5 mt-1.5 ${showResults ? 'mb-0' : 'mb-1.5'} rounded-xl overflow-hidden border border-[var(--border-subtle)]`} style={{ flex: showResults ? '1 1 auto' : '1 1 100%' }} data-allow-select-all>
         <Editor
           height="100%"
           language="sql"
@@ -2446,15 +2322,15 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       {/* Results Panel with Virtual Scrolling */}
       {showResults && (
         <>
-          {/* Resize handle */}
+          {/* Resize handle — matches container bg so it's invisible; only accent while dragging */}
           <div
-            className={`h-1 cursor-row-resize transition-colors flex-shrink-0 ${isResizingResults ? 'bg-[var(--accent-color)]' : 'bg-[var(--border-color)] hover:bg-[var(--border-subtle)]'
+            className={`mx-1.5 h-1 cursor-row-resize flex-shrink-0 ${isResizingResults ? 'bg-[var(--accent-color)]' : 'bg-[var(--bg-secondary)] hover:bg-[var(--border-subtle)]'
               }`}
             onMouseDown={() => setIsResizingResults(true)}
           />
 
           <div
-            className="bg-[var(--bg-secondary)] border-t border-[var(--border-color)] flex flex-col overflow-hidden"
+            className="mx-1.5 mb-1.5 bg-[var(--bg-secondary)] flex flex-col overflow-hidden"
             style={{ height: resultPanelHeight }}
           >
             {/* Results header with horizontal tabs for multiple results */}

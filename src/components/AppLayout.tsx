@@ -30,6 +30,7 @@ export function AppLayout() {
   const loadAutoArchiveSettings = useAppStore(s => s.loadAutoArchiveSettings);
   const archivedTabsCount = useAppStore(s => s.archivedTabsCount);
   const setArchiveModalOpen = useAppStore(s => s.setArchiveModalOpen);
+  const appInfo = useAppStore(s => s.appInfo);
 
   const sidebarWidth = useAppStore(s => s.sidebarWidth);
   const setSidebarWidth = useAppStore(s => s.setSidebarWidth);
@@ -530,8 +531,10 @@ export function AppLayout() {
 
 
 
-      {/* Custom title bar (T047) - Higher z-index to ensure dropdowns are visible over main content */}
-      <div className="relative z-[60]">
+      {/* Custom title bar (T047) - Auto-hiding, overlays content so workspace fills the window.
+          pointer-events-none on the wrapper so the sidebar's DB selector at y=0 stays
+          clickable when the bar is hidden; the bar itself re-enables pointer events. */}
+      <div className="absolute top-0 left-0 right-0 z-[60] pointer-events-none">
         <TitleBar
           sidebarWidth={sidebarWidth}
           sidebarHidden={sidebarHidden}
@@ -556,7 +559,7 @@ export function AppLayout() {
         {/* Sidebar with browser-like layout - overlay when hidden */}
         <aside
           ref={sidebarRef}
-          className={`flex flex-col overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] backdrop-blur-xl border-r border-[var(--border-subtle)] ${isShowingSidebarHover ? 'rounded-xl m-1.5 mt-1.5' : ''}`}
+          className={`flex flex-col overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] backdrop-blur-xl ${isShowingSidebarHover ? 'rounded-xl m-1.5 mt-1.5' : ''}`}
           style={{
             width: isShowingSidebarHover ? sidebarWidth - 16 : (sidebarHidden ? sidebarWidth : currentSidebarWidth),
             minWidth: isShowingSidebarHover ? sidebarWidth - 16 : (sidebarHidden ? sidebarWidth : currentSidebarWidth),
@@ -692,8 +695,16 @@ export function AppLayout() {
               )}
             </div>
 
+            {/* App name banner above footer controls */}
+            <div className="px-3 py-2 border-t border-[var(--border-subtle)] shrink-0 text-center">
+              <span className="text-[10px] font-medium text-[var(--text-muted)] truncate block" title={`${appInfo.name} v${appInfo.version}`}>
+                {appInfo.name || 'Larik SQL Studio'}
+                {appInfo.version && <span className="opacity-60"> v{appInfo.version}</span>}
+              </span>
+            </div>
+
             {/* Footer Section: Archive | Spaces | Settings */}
-            <div className="px-2 py-1.5 border-t border-[var(--border-subtle)] flex items-center justify-between shrink-0">
+            <div className="px-2 py-1.5 flex items-center justify-between shrink-0">
               {/* Left: Archive */}
               <button
                 onClick={() => setArchiveModalOpen(true)}
@@ -721,11 +732,11 @@ export function AppLayout() {
           </div>
         </aside>
 
-        {/* Resize handle - thin and subtle (only show when sidebar is visible and not hidden) */}
+        {/* Resize handle - matches sidebar/editor bg so it's invisible; only accent while dragging */}
         {
           !sidebarHidden && (
             <div
-              className={`w-px cursor-col-resize transition-colors flex-shrink-0 ${isResizing ? 'bg-[var(--accent-color)]' : 'bg-[var(--border-color)] hover:bg-[var(--text-muted)]'
+              className={`w-1 cursor-col-resize transition-colors flex-shrink-0 ${isResizing ? 'bg-[var(--accent-color)]' : 'bg-[var(--bg-secondary)] hover:bg-[var(--border-subtle)]'
                 }`}
               onMouseDown={startResize}
             />
