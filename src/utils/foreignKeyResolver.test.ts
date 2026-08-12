@@ -23,6 +23,7 @@ function column(name: string, dataType = 'int'): SchemaColumnInfo {
     is_nullable: true,
     is_primary_key: false,
     is_identity: false,
+    is_computed: false,
     column_default: null,
     ordinal_position: 1,
   };

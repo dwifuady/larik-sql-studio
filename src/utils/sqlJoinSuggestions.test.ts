@@ -11,8 +11,8 @@ const baseSchema: SchemaInfo = {
       table_name: 'Application',
       table_type: 'BASE TABLE',
       columns: [
-        { name: 'Id', data_type: 'int', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: true, is_identity: true, column_default: null, ordinal_position: 1 },
-        { name: 'Name', data_type: 'nvarchar', max_length: 100, precision: null, scale: null, is_nullable: false, is_primary_key: false, is_identity: false, column_default: null, ordinal_position: 2 },
+        { name: 'Id', data_type: 'int', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: true, is_identity: true, is_computed: false, column_default: null, ordinal_position: 1 },
+        { name: 'Name', data_type: 'nvarchar', max_length: 100, precision: null, scale: null, is_nullable: false, is_primary_key: false, is_identity: false, is_computed: false, column_default: null, ordinal_position: 2 },
       ],
     },
     {
@@ -20,8 +20,8 @@ const baseSchema: SchemaInfo = {
       table_name: 'BCApplicationQuotes',
       table_type: 'BASE TABLE',
       columns: [
-        { name: 'Id', data_type: 'int', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: true, is_identity: true, column_default: null, ordinal_position: 1 },
-        { name: 'ApplicationId', data_type: 'int', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: false, is_identity: false, column_default: null, ordinal_position: 2 },
+        { name: 'Id', data_type: 'int', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: true, is_identity: true, is_computed: false, column_default: null, ordinal_position: 1 },
+        { name: 'ApplicationId', data_type: 'int', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: false, is_identity: false, is_computed: false, column_default: null, ordinal_position: 2 },
       ],
     },
     {
@@ -29,8 +29,8 @@ const baseSchema: SchemaInfo = {
       table_name: 'ApplicationAudit',
       table_type: 'BASE TABLE',
       columns: [
-        { name: 'Id', data_type: 'int', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: true, is_identity: true, column_default: null, ordinal_position: 1 },
-        { name: 'ApplicationId', data_type: 'int', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: false, is_identity: false, column_default: null, ordinal_position: 2 },
+        { name: 'Id', data_type: 'int', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: true, is_identity: true, is_computed: false, column_default: null, ordinal_position: 1 },
+        { name: 'ApplicationId', data_type: 'int', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: false, is_identity: false, is_computed: false, column_default: null, ordinal_position: 2 },
       ],
     },
     {
@@ -38,8 +38,8 @@ const baseSchema: SchemaInfo = {
       table_name: 'TenantUser',
       table_type: 'BASE TABLE',
       columns: [
-        { name: 'TenantId', data_type: 'int', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: true, is_identity: false, column_default: null, ordinal_position: 1 },
-        { name: 'UserId', data_type: 'int', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: true, is_identity: false, column_default: null, ordinal_position: 2 },
+        { name: 'TenantId', data_type: 'int', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: true, is_identity: false, is_computed: false, column_default: null, ordinal_position: 1 },
+        { name: 'UserId', data_type: 'int', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: true, is_identity: false, is_computed: false, column_default: null, ordinal_position: 2 },
       ],
     },
     {
@@ -47,8 +47,8 @@ const baseSchema: SchemaInfo = {
       table_name: 'TenantPermission',
       table_type: 'BASE TABLE',
       columns: [
-        { name: 'TenantId', data_type: 'int', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: false, is_identity: false, column_default: null, ordinal_position: 1 },
-        { name: 'UserId', data_type: 'int', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: false, is_identity: false, column_default: null, ordinal_position: 2 },
+        { name: 'TenantId', data_type: 'int', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: false, is_identity: false, is_computed: false, column_default: null, ordinal_position: 1 },
+        { name: 'UserId', data_type: 'int', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: false, is_identity: false, is_computed: false, column_default: null, ordinal_position: 2 },
       ],
     },
   ],

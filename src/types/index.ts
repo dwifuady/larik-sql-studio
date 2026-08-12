@@ -247,6 +247,7 @@ export interface SchemaColumnInfo {
   is_nullable: boolean;
   is_primary_key: boolean;
   is_identity: boolean;
+  is_computed: boolean;
   column_default: string | null;
   ordinal_position: number;
 }

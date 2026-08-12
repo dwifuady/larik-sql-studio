@@ -172,6 +172,41 @@ describe('sqlAstExtractor completion context', () => {
     });
 });
 
+describe('sqlAstExtractor INSERT context', () => {
+    it('detects insert_column context right after opening paren of the column list', () => {
+        const textBeforeCursor = 'INSERT INTO dbo.Users (';
+
+        const context = getCompletionContext(textBeforeCursor);
+
+        expect(context.type).toBe('insert_column');
+        if (context.type === 'insert_column') {
+            expect(context.targetTable).toEqual({ schema: 'dbo', table: 'Users' });
+        }
+    });
+
+    it('detects insert_column context while typing a partial column name', () => {
+        const textBeforeCursor = 'INSERT INTO [dbo].[Users] (Fi';
+
+        const context = getCompletionContext(textBeforeCursor);
+
+        expect(context.type).toBe('insert_column');
+        if (context.type === 'insert_column') {
+            expect(context.targetTable).toEqual({ schema: 'dbo', table: 'Users' });
+        }
+    });
+
+    it('detects insert_column context without INTO keyword', () => {
+        const textBeforeCursor = 'INSERT Users (Name, ';
+
+        const context = getCompletionContext(textBeforeCursor);
+
+        expect(context.type).toBe('insert_column');
+        if (context.type === 'insert_column') {
+            expect(context.targetTable).toEqual({ schema: 'dbo', table: 'Users' });
+        }
+    });
+});
+
 describe('sqlAstExtractor alias resolution on large JOIN queries', () => {
     // Regression: when a SELECT-list column reference such as
     // `..., [f].[Reinstatements]\nFROM [dbo].[BCApplicationQuotes] q`

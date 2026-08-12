@@ -258,6 +258,7 @@ function buildColumnDocumentation(col: SchemaColumnInfo, tableName?: string): st
   const constraints: string[] = [];
   if (col.is_primary_key) constraints.push('Primary Key');
   if (col.is_identity) constraints.push('Identity');
+  if (col.is_computed) constraints.push('Computed');
   if (!col.is_nullable) constraints.push('NOT NULL');
   if (col.is_nullable) constraints.push('Nullable');
 
@@ -896,7 +897,11 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       );
 
       if (targetTable) {
-        targetTable.columns.forEach(col => {
+        // Only suggest columns that can be inserted manually - exclude
+        // identity columns (auto-generated) and computed columns (derived).
+        const insertableColumns = targetTable.columns.filter(col => !col.is_identity && !col.is_computed);
+
+        insertableColumns.forEach(col => {
           suggestions.push({
             label: col.name,
             kind: monaco.languages.CompletionItemKind.Field,
@@ -1847,7 +1852,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
     // Register new completion provider with updated schema
     completionProviderRef.current = monaco.languages.registerCompletionItemProvider('sql', {
-      triggerCharacters: ['.', ' ', '[', '@'],
+      triggerCharacters: ['.', ' ', '[', '@', '('],
       provideCompletionItems: (model, position) => {
         const word = model.getWordUntilPosition(position);
         let completionRange: IRange = {

@@ -18,6 +18,7 @@ pub struct ColumnInfo {
     pub is_nullable: bool,
     pub is_primary_key: bool,
     pub is_identity: bool,
+    pub is_computed: bool,
     pub column_default: Option<String>,
     pub ordinal_position: i32,
 }
@@ -297,7 +298,8 @@ impl SchemaMetadataManager {
                 c.COLUMN_DEFAULT,
                 c.ORDINAL_POSITION,
                 CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS IS_PRIMARY_KEY,
-                COLUMNPROPERTY(OBJECT_ID(c.TABLE_SCHEMA + '.' + c.TABLE_NAME), c.COLUMN_NAME, 'IsIdentity') AS IS_IDENTITY
+                COLUMNPROPERTY(OBJECT_ID(c.TABLE_SCHEMA + '.' + c.TABLE_NAME), c.COLUMN_NAME, 'IsIdentity') AS IS_IDENTITY,
+                COLUMNPROPERTY(OBJECT_ID(c.TABLE_SCHEMA + '.' + c.TABLE_NAME), c.COLUMN_NAME, 'IsComputed') AS IS_COMPUTED
             FROM INFORMATION_SCHEMA.COLUMNS c
             LEFT JOIN (
                 SELECT 
@@ -357,6 +359,7 @@ impl SchemaMetadataManager {
             let ordinal_position = row.get::<i32, _>(9).unwrap_or(0);
             let is_primary_key = row.get::<i32, _>(10).map(|v| v == 1).unwrap_or(false);
             let is_identity = row.get::<i32, _>(11).map(|v| v == 1).unwrap_or(false);
+            let is_computed = row.get::<i32, _>(12).map(|v| v == 1).unwrap_or(false);
 
             let column = ColumnInfo {
                 name: column_name,
@@ -367,6 +370,7 @@ impl SchemaMetadataManager {
                 is_nullable,
                 is_primary_key,
                 is_identity,
+                is_computed,
                 column_default,
                 ordinal_position,
             };
@@ -553,7 +557,8 @@ impl SchemaMetadataManager {
                 c.COLUMN_DEFAULT,
                 c.ORDINAL_POSITION,
                 CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS IS_PRIMARY_KEY,
-                COLUMNPROPERTY(OBJECT_ID('{}.{}'), c.COLUMN_NAME, 'IsIdentity') AS IS_IDENTITY
+                COLUMNPROPERTY(OBJECT_ID('{}.{}'), c.COLUMN_NAME, 'IsIdentity') AS IS_IDENTITY,
+                COLUMNPROPERTY(OBJECT_ID('{}.{}'), c.COLUMN_NAME, 'IsComputed') AS IS_COMPUTED
             FROM INFORMATION_SCHEMA.COLUMNS c
             LEFT JOIN (
                 SELECT ku.COLUMN_NAME
@@ -568,7 +573,7 @@ impl SchemaMetadataManager {
             WHERE c.TABLE_SCHEMA = '{}' AND c.TABLE_NAME = '{}'
             ORDER BY c.ORDINAL_POSITION
         "#,
-            schema_name, table_name, schema_name, table_name, schema_name, table_name
+            schema_name, table_name, schema_name, table_name, schema_name, table_name, schema_name, table_name
         );
 
         let stream = conn.simple_query(&query).await?;
@@ -593,6 +598,7 @@ impl SchemaMetadataManager {
                 let ordinal_position = row.get::<i32, _>(7).unwrap_or(0);
                 let is_primary_key = row.get::<i32, _>(8).map(|v| v == 1).unwrap_or(false);
                 let is_identity = row.get::<i32, _>(9).map(|v| v == 1).unwrap_or(false);
+                let is_computed = row.get::<i32, _>(10).map(|v| v == 1).unwrap_or(false);
 
                 Some(ColumnInfo {
                     name,
@@ -603,6 +609,7 @@ impl SchemaMetadataManager {
                     is_nullable,
                     is_primary_key,
                     is_identity,
+                    is_computed,
                     column_default,
                     ordinal_position,
                 })
