@@ -81,6 +81,48 @@ describe('queryExtractor', () => {
     expect(result!.statement).toContain('orders');
   });
 
+  it('should extract a full MERGE statement when cursor is on a WHEN clause', () => {
+    const sql = `MERGE [dbo].[Settings] AS [Target]
+USING (VALUES
+    ('ShowCreditCardFeeOnlyWhenCalculable', 'False', 1, 'Feature flag')
+) AS [Source] ([Key], [Value], [Active], [Description])
+ON [Target].[Key] = [Source].[Key] AND [Target].[BizEntityId] IS NULL
+WHEN NOT MATCHED BY TARGET THEN
+    INSERT ([Key], [Value], [Active], [BizEntityId], [Description])
+    VALUES ([Source].[Key], [Source].[Value], [Source].[Active], NULL, [Source].[Description])
+WHEN MATCHED THEN
+    UPDATE SET
+        [Target].[Value] = [Source].[Value],
+        [Target].[Active] = [Source].[Active];`;
+    // Cursor on the "WHEN MATCHED THEN" line (1-based line 9)
+    const result = extractStatementAtCursor(sql, 9, 1);
+    expect(result).not.toBeNull();
+    expect(result!.statement).toContain('MERGE [dbo].[Settings]');
+    expect(result!.statement).toContain('WHEN NOT MATCHED BY TARGET THEN');
+    expect(result!.statement).toContain('WHEN MATCHED THEN');
+    expect(result!.statement).toContain('[Target].[Active] = [Source].[Active]');
+    expect(result!.startLine).toBe(1);
+    expect(result!.endLine).toBe(12);
+  });
+
+  it('should extract a full MERGE statement when cursor is in the USING VALUES block', () => {
+    const sql = `MERGE [dbo].[Settings] AS [Target]
+USING (VALUES
+    ('ShowCreditCardFeeOnlyWhenCalculable', 'False', 1, 'Feature flag')
+) AS [Source] ([Key], [Value], [Active], [Description])
+ON [Target].[Key] = [Source].[Key] AND [Target].[BizEntityId] IS NULL
+WHEN MATCHED THEN
+    UPDATE SET
+        [Target].[Value] = [Source].[Value],
+        [Target].[Active] = [Source].[Active];`;
+    // Cursor on the VALUES row line (1-based line 3)
+    const result = extractStatementAtCursor(sql, 3, 10);
+    expect(result).not.toBeNull();
+    expect(result!.statement).toContain('MERGE [dbo].[Settings]');
+    expect(result!.statement).toContain('[Target].[Active] = [Source].[Active]');
+    expect(result!.startLine).toBe(1);
+  });
+
   it('should return null for empty SQL', () => {
     const sql = '';
     const result = extractStatementAtCursor(sql, 1, 1);

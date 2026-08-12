@@ -61,7 +61,7 @@ export function extractStatementAtCursor(
   }
 
   const parser = new Parser();
-  let statements: any[];
+  let statements: any[] | null = null;
 
   try {
     // Try TransactSQL first
@@ -70,20 +70,33 @@ export function extractStatementAtCursor(
       statements = Array.isArray(ast) ? ast : [ast];
     } catch (tsqlErr) {
       // Fallback to MySQL
-      const ast = parser.astify(batchWithCursor.batch, { database: 'MySQL' });
-      statements = Array.isArray(ast) ? ast : [ast];
+      try {
+        const ast = parser.astify(batchWithCursor.batch, { database: 'MySQL' });
+        statements = Array.isArray(ast) ? ast : [ast];
+      } catch (mysqlErr) {
+        // Neither parser handled this batch (e.g. MERGE statements which
+        // node-sql-parser does not support). Fall back to semicolon-based
+        // statement splitting below so we still locate the statement correctly.
+        statements = null;
+      }
     }
   } catch (err) {
-    // Parsing failed - return null to trigger fallback
-    console.warn('Query parsing failed, will use fallback detection:', err);
-    return null;
+    statements = null;
+  }
+
+  const statementTexts = splitBySemicolon(batchWithCursor.batch);
+
+  // If parsing failed, use the semicolon splits as the statement list.
+  // This keeps detection working for statements node-sql-parser can't parse,
+  // such as MERGE (whose WHEN ... THEN clauses contain INSERT/UPDATE/DELETE
+  // keywords that regex-based detection would mistake for new statements).
+  if (statements === null) {
+    statements = statementTexts.map(text => ({ _text: text }));
   }
 
   if (!statements || statements.length === 0) {
     return null;
   }
-
-  const statementTexts = splitBySemicolon(batchWithCursor.batch);
 
   // If we have more statements in AST than text splits, something's wrong
   // Just use the whole batch
