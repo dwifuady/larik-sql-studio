@@ -583,6 +583,21 @@ textarea:focus {
   user-select: none !important;
 }
 
+/*
+ * QueryEditor's Arc-style frame has rounded corners but NO overflow:hidden
+ * (overflow-hidden would clip Monaco's suggest widget, which renders outside
+ * .overflow-guard and can extend below the editor into the results pane).
+ * Re-apply the rounding to the editor's own surface so content still clips to
+ * the rounded border. .overflow-guard already has overflow:hidden from Monaco,
+ * and the suggest widget is its sibling, so it is not affected.
+ */
+.query-editor-container .monaco-editor {
+  border-radius: 0.75rem;
+}
+.query-editor-container .monaco-editor .overflow-guard {
+  border-radius: 0.75rem;
+}
+
 /* ===== Sticky Notes v2 — Gutter Icon ===== */
 
 /*

@@ -2271,8 +2271,10 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     <div className="query-editor-container flex-1 flex flex-col min-h-0 bg-[var(--bg-secondary)]">
       {gutterNotesPortal}
 
-      {/* Monaco Editor — Arc-style frame, excludes result pane */}
-      <div className={`flex-1 min-h-0 relative mx-1.5 mt-1.5 ${showResults ? 'mb-0' : 'mb-1.5'} rounded-xl overflow-hidden border border-[var(--border-subtle)]`} style={{ flex: showResults ? '1 1 auto' : '1 1 100%' }} data-allow-select-all>
+      {/* Monaco Editor — Arc-style frame, excludes result pane.
+          NOTE: no overflow-hidden here — it would clip Monaco's suggest widget,
+          which lives outside .overflow-guard and can extend below the editor. */}
+      <div className={`flex-1 min-h-0 relative mx-1.5 mt-1.5 ${showResults ? 'mb-0' : 'mb-1.5'} rounded-xl border border-[var(--border-subtle)]`} style={{ flex: showResults ? '1 1 auto' : '1 1 100%' }} data-allow-select-all>
         <Editor
           height="100%"
           language="sql"
