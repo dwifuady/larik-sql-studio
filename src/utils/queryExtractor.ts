@@ -168,12 +168,13 @@ export function extractStatementAtCursor(
       const isBeforeEnd = cursorLine < absoluteEndLine || (cursorLine === absoluteEndLine && _cursorColumn <= endColumn);
 
       if (isAfterStart && isBeforeEnd) {
+        const extended = includeStatementTerminator(batchLines, stmtText, absoluteEndLine, endColumn);
         return {
-          statement: stmtText,
+          statement: extended.statement,
           startLine: absoluteStartLine,
           startColumn,
-          endLine: absoluteEndLine,
-          endColumn,
+          endLine: extended.endLine,
+          endColumn: extended.endColumn,
           statementIndex: i,
         };
       }
@@ -210,18 +211,73 @@ export function extractStatementAtCursor(
       const lastLine = batchLines[lastStmtEndLine];
       const endColumn = lastLine.length + 1;
 
+      const extended = includeStatementTerminator(batchLines, lastStmt, absoluteEndLine, endColumn);
+
       return {
-        statement: lastStmt,
+        statement: extended.statement,
         startLine: absoluteStartLine,
         startColumn,
-        endLine: absoluteEndLine,
-        endColumn,
+        endLine: extended.endLine,
+        endColumn: extended.endColumn,
         statementIndex: statementTexts.length - 1,
       };
     }
   }
 
   return null;
+}
+
+/**
+ * MERGE statements must be terminated by a semicolon. splitBySemicolon strips
+ * the terminator from the statement text, so re-attach it and extend the
+ * selection range past it for statements that require one.
+ */
+function includeStatementTerminator(
+  batchLines: string[],
+  statement: string,
+  endLine: number,
+  endColumn: number
+): { statement: string; endLine: number; endColumn: number } {
+  if (!/^\s*MERGE\b/i.test(statement)) {
+    return { statement, endLine, endColumn };
+  }
+
+  const batch = batchLines.join('\n');
+
+  // Absolute offset (0-based) just past the statement's last character
+  let offset = 0;
+  for (let i = 0; i < endLine - 1 && i < batchLines.length; i++) {
+    offset += batchLines[i].length + 1;
+  }
+  offset += Math.min(endColumn - 1, batchLines[Math.min(endLine, batchLines.length) - 1]?.length ?? 0);
+
+  // Terminator already covered by the current range?
+  let back = offset - 1;
+  while (back >= 0 && /\s/.test(batch[back])) back--;
+  if (back >= 0 && batch[back] === ';') {
+    return { statement: statement + ';', endLine, endColumn };
+  }
+
+  // Scan forward over whitespace for the terminator
+  for (let idx = offset; idx < batch.length; idx++) {
+    const ch = batch[idx];
+    if (ch === ';') {
+      // Convert the absolute index back to 1-based line/column
+      let lineNo = 0;
+      let remaining = idx;
+      while (lineNo < batchLines.length && remaining > batchLines[lineNo].length) {
+        remaining -= batchLines[lineNo].length + 1;
+        lineNo++;
+      }
+      return { statement: statement + ';', endLine: lineNo + 1, endColumn: remaining + 2 };
+    }
+    if (!/\s/.test(ch)) {
+      break;
+    }
+  }
+
+  // No terminator found in the batch - append one so the statement remains valid
+  return { statement: statement + ';', endLine, endColumn };
 }
 
 /**
@@ -415,12 +471,14 @@ export function extractAllStatements(sql: string): StatementLocation[] {
       const lastLine = batchLines[stmtEndLine];
       const endColumn = lastLine.length + 1;
 
+      const extended = includeStatementTerminator(batchLines, stmtText, absoluteEndLine, endColumn);
+
       result.push({
-        statement: stmtText,
+        statement: extended.statement,
         startLine: absoluteStartLine,
         startColumn: startColumn > 0 ? startColumn : 1,
-        endLine: absoluteEndLine,
-        endColumn,
+        endLine: extended.endLine,
+        endColumn: extended.endColumn,
         statementIndex: result.length
       });
 

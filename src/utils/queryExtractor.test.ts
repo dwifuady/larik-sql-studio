@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractStatementAtCursor } from './queryExtractor';
+import { extractStatementAtCursor, extractAllStatements } from './queryExtractor';
 
 describe('queryExtractor', () => {
   it('should extract single statement', () => {
@@ -101,6 +101,8 @@ WHEN MATCHED THEN
     expect(result!.statement).toContain('WHEN NOT MATCHED BY TARGET THEN');
     expect(result!.statement).toContain('WHEN MATCHED THEN');
     expect(result!.statement).toContain('[Target].[Active] = [Source].[Active]');
+    // MERGE must be executed with its terminating semicolon
+    expect(result!.statement.trimEnd().endsWith(';')).toBe(true);
     expect(result!.startLine).toBe(1);
     expect(result!.endLine).toBe(12);
   });
@@ -121,6 +123,24 @@ WHEN MATCHED THEN
     expect(result!.statement).toContain('MERGE [dbo].[Settings]');
     expect(result!.statement).toContain('[Target].[Active] = [Source].[Active]');
     expect(result!.startLine).toBe(1);
+  });
+
+  it('should include the terminating semicolon for MERGE in extractAllStatements (CodeLens)', () => {
+    const sql = `MERGE [dbo].[Settings] AS [Target]
+USING (VALUES
+    ('Key1', 'False', 1, 'Feature flag')
+) AS [Source] ([Key], [Value], [Active], [Description])
+ON [Target].[Key] = [Source].[Key]
+WHEN MATCHED THEN
+    UPDATE SET
+        [Target].[Value] = [Source].[Value];
+SELECT 1;`;
+    const statements = extractAllStatements(sql);
+    expect(statements).toHaveLength(2);
+    expect(statements[0].statement.trimEnd().endsWith(';')).toBe(true);
+    expect(statements[0].statement).toContain('WHEN MATCHED THEN');
+    // The second statement is unaffected
+    expect(statements[1].statement).toBe('SELECT 1');
   });
 
   it('should return null for empty SQL', () => {
