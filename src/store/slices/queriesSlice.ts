@@ -79,6 +79,10 @@ export interface QueriesSlice {
     isResultsHidden: (tabId: string) => boolean;
 
     updateResultCells: (tabId: string, resultIndex: number, updates: Array<{ rowIndex: number; colIndex: number; value: CellValue }>) => void;
+    /** Append saved new rows to a stored result (grid "add record" flow). */
+    insertResultRows: (tabId: string, resultIndex: number, rows: CellValue[][]) => void;
+    /** Remove saved deleted rows from a stored result by row index (grid "delete record" flow). */
+    removeResultRows: (tabId: string, resultIndex: number, rowIndexes: number[]) => void;
     reorderQueryResults: (tabId: string, fromIndex: number, toIndex: number) => void;
 
     setEnableStickyNotes: (enabled: boolean) => void;
@@ -632,6 +636,57 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
 
             targetresult.rows = newRows;
             newResults[resultIndex] = targetresult;
+
+            return {
+                tabQueryResults: {
+                    ...state.tabQueryResults,
+                    [tabId]: newResults
+                }
+            };
+        });
+    },
+
+    insertResultRows: (tabId, resultIndex, rows) => {
+        set((state) => {
+            const currentResults = state.tabQueryResults[tabId];
+            if (!currentResults || rows.length === 0) return state;
+
+            const target = currentResults[resultIndex];
+            if (!target) return state;
+
+            const newResults = [...currentResults];
+            newResults[resultIndex] = {
+                ...target,
+                rows: [...target.rows, ...rows.map(row => [...row])],
+                row_count: target.row_count + rows.length
+            };
+
+            return {
+                tabQueryResults: {
+                    ...state.tabQueryResults,
+                    [tabId]: newResults
+                }
+            };
+        });
+    },
+
+    removeResultRows: (tabId, resultIndex, rowIndexes) => {
+        set((state) => {
+            const currentResults = state.tabQueryResults[tabId];
+            if (!currentResults || rowIndexes.length === 0) return state;
+
+            const target = currentResults[resultIndex];
+            if (!target) return state;
+
+            const toRemove = new Set(rowIndexes);
+            const newRows = target.rows.filter((_, index) => !toRemove.has(index));
+
+            const newResults = [...currentResults];
+            newResults[resultIndex] = {
+                ...target,
+                rows: newRows,
+                row_count: newRows.length
+            };
 
             return {
                 tabQueryResults: {

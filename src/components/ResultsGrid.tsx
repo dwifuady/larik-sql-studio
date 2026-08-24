@@ -11,6 +11,14 @@ import type { QueryResult, ColumnInfo, CellValue } from '../types';
 import { formatExecutionTime } from '../utils/formatters';
 import { getReadableTextColor } from '../utils/color';
 import { buildColumnReferenceIndex } from '../utils/foreignKeyResolver';
+import {
+  formatValueForInsert,
+  coerceCellValue,
+  buildUpdateQuery,
+  buildDeleteQuery,
+  buildInsertQuery,
+  type GridColumnRef,
+} from '../utils/gridEdit';
 import type { CellPreviewTab } from '../store/slices/queriesSlice';
 import type { ReferenceFilter, ReferenceRequest } from '../store/slices/referencePreviewSlice';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
@@ -46,6 +54,19 @@ interface EditingCell {
   rowIndex: number;
   colIndex: number;
   value: string;
+}
+
+// A row added in the grid that is pending INSERT on save.
+// Values are keyed by column index; columns the user never touched stay NULL.
+interface PendingInsertRow {
+  id: number;
+  values: Map<number, CellValue>;
+}
+
+// One SQL statement queued for execution after preview
+interface PendingQuery {
+  sql: string;
+  kind: 'UPDATE' | 'INSERT' | 'DELETE';
 }
 
 // Cell value formatter
@@ -151,6 +172,10 @@ interface RowData {
   editingCell: EditingCell | null;
   editedCells: Map<string, EditedCell>;
   canEdit: boolean;
+  /** Rows marked for deletion; indices refer to committed rows. */
+  pendingDeleteRows: Set<number>;
+  /** Number of committed rows - indices >= this are pending new rows. */
+  baseRowCount: number;
   onCellClick: (row: number, col: number) => void;
   onCellMouseDown: (row: number, col: number, shiftKey: boolean) => void;
   onCellMouseEnter: (row: number, col: number) => void;
@@ -163,6 +188,7 @@ interface RowData {
   onEditCommit: () => void;
   onEditCancel: () => void;
   onPreviewCell: (row: number, col: number) => void;
+  onToggleDeleteRow: (row: number) => void;
 }
 
 // Row component props for react-window v2
@@ -212,6 +238,8 @@ function arePropsEqual(prev: RowComponentProps, next: RowComponentProps) {
     d1.totalWidth !== d2.totalWidth ||
     d1.canEdit !== d2.canEdit ||
     d1.editedCells !== d2.editedCells ||
+    d1.pendingDeleteRows !== d2.pendingDeleteRows ||
+    d1.baseRowCount !== d2.baseRowCount ||
     d1.onCellMouseDown !== d2.onCellMouseDown ||
     d1.onCellClick !== d2.onCellClick) {
     return false;
@@ -368,10 +396,13 @@ const Row = memo(function Row({
   style,
   data
 }: RowComponentProps): ReactElement | null {
-  const { rows, columnWidths, totalWidth, selectedCell, selection, copiedCell, copiedSelection, editingCell, editedCells, onCellMouseDown, onCellMouseEnter, onCellMouseUp, onCellContextMenu, onCopyRow, onEditChange, onEditCommit, onEditCancel, onPreviewCell, columnOrder } = data;
+  const { rows, columnWidths, totalWidth, selectedCell, selection, copiedCell, copiedSelection, editingCell, editedCells, pendingDeleteRows, baseRowCount, onCellMouseDown, onCellMouseEnter, onCellMouseUp, onCellContextMenu, onCopyRow, onEditChange, onEditCommit, onEditCancel, onPreviewCell, onToggleDeleteRow, columnOrder } = data;
 
   const row = rows[index];
   if (!row) return null;
+
+  const isPendingDelete = pendingDeleteRows.has(index);
+  const isPendingInsert = index >= baseRowCount;
 
   // Helper to get edited key
   const getEditKey = (rowIdx: number, colIdx: number) => `${rowIdx}-${colIdx}`;
@@ -379,24 +410,56 @@ const Row = memo(function Row({
   return (
     <div
       style={{ ...style, width: totalWidth, minWidth: totalWidth }}
-      className={`flex items-center border-b border-[var(--border-color)] ${index % 2 === 0 ? 'bg-transparent' : 'bg-[var(--bg-hover)]'
-        } hover:bg-[var(--bg-active)] group`}
+      className={`flex items-center border-b border-[var(--border-color)] group ${
+        isPendingDelete
+          ? 'bg-red-500/15'
+          : isPendingInsert
+            ? 'bg-emerald-500/15'
+            : index % 2 === 0
+              ? 'bg-transparent'
+              : 'bg-[var(--bg-hover)]'
+      } hover:bg-[var(--bg-active)]`}
     >
       {/* Row number */}
       <div
-        className="shrink-0 w-12 px-2 text-xs text-[var(--text-muted)] border-r border-[var(--border-color)] h-full flex items-center justify-center relative"
+        className="shrink-0 w-12 px-1 text-xs text-[var(--text-muted)] border-r border-[var(--border-color)] h-full flex items-center justify-center relative"
         style={{ minWidth: 48 }}
       >
-        <span className="group-hover:opacity-0 transition-opacity">{index + 1}</span>
-        <button
-          onClick={(e) => { e.stopPropagation(); onCopyRow(index); }}
-          className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-          title="Copy row as JSON"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-          </svg>
-        </button>
+        <span className={`group-hover:opacity-0 transition-opacity ${isPendingDelete ? 'line-through' : ''} ${isPendingInsert ? 'text-emerald-400 font-medium' : ''}`}>
+          {index + 1}
+        </span>
+        <div className="absolute inset-0 flex items-center justify-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            onClick={(e) => { e.stopPropagation(); onCopyRow(index); }}
+            className="p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+            title="Copy row as JSON"
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+          </button>
+          {isPendingDelete ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); onToggleDeleteRow(index); }}
+              className="p-0.5 rounded text-red-400 hover:text-emerald-400 transition-colors"
+              title="Undo delete"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              onClick={(e) => { e.stopPropagation(); onToggleDeleteRow(index); }}
+              className="p-0.5 rounded text-[var(--text-muted)] hover:text-red-400 transition-colors"
+              title={isPendingInsert ? 'Remove new row' : 'Mark row for deletion'}
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Cells rendered in columnOrder */}
@@ -480,48 +543,10 @@ function isCellInSelection(row: number, col: number, selection: SelectionRange |
   return col >= norm.startCol && col <= norm.endCol;
 }
 
-// Format a cell value for SQL INSERT statement
-function formatValueForInsert(value: CellValue, dataType: string): string {
-  if (value === null) {
-    return 'NULL';
-  }
-  if (typeof value === 'boolean') {
-    return value ? '1' : '0';
-  }
-  if (typeof value === 'number') {
-    return String(value);
-  }
-  if (Array.isArray(value)) {
-    // Binary data - convert to hex string
-    const hex = value.map(b => b.toString(16).padStart(2, '0')).join('');
-    return `0x${hex}`;
-  }
-  // String value - escape single quotes
-  const type = dataType.toLowerCase();
-  const strValue = String(value).replace(/'/g, "''");
-
-  // For date/time types, use appropriate format
-  if (type.includes('date') || type.includes('time')) {
-    return `'${strValue}'`;
-  }
-
-  // For numeric types stored as string, don't quote
-  if ((type.includes('int') || type.includes('numeric') || type.includes('decimal') ||
-    type.includes('float') || type.includes('real') || type.includes('money')) &&
-    !isNaN(Number(strValue))) {
-    return strValue;
-  }
-
-  // String - wrap with N' for nvarchar/nchar support
-  if (type.includes('nvarchar') || type.includes('nchar') || type.includes('ntext')) {
-    return `N'${strValue}'`;
-  }
-
-  return `'${strValue}'`;
-}
-
 function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#6366f1', onLoadMore, onExecuteUpdate, canEdit = false, queryText, tabId, resultIndex }: ResultsGridProps) {
   const updateResultCells = useAppStore((state) => state.updateResultCells);
+  const insertResultRows = useAppStore((state) => state.insertResultRows);
+  const removeResultRows = useAppStore((state) => state.removeResultRows);
   const storedColumnOrder = useAppStore((state) =>
     tabId && resultIndex !== undefined ? state.resultColumnOrder[tabId]?.[resultIndex] ?? null : null
   );
@@ -569,9 +594,16 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // New-row state: rows appended in the grid that become INSERTs on save
+  const [pendingInsertRows, setPendingInsertRows] = useState<PendingInsertRow[]>([]);
+  const newRowIdCounter = useRef(0);
+
+  // Rows marked for deletion; indices refer to result.rows (not displayRows)
+  const [pendingDeleteRows, setPendingDeleteRows] = useState<Set<number>>(new Set());
+
   // Confirmation dialog state
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
-  const [pendingQueries, setPendingQueries] = useState<string[]>([]);
+  const [pendingQueries, setPendingQueries] = useState<PendingQuery[]>([]);
 
   // Find the identity/primary key column for WHERE clause
   const identityColumn = useMemo(() => {
@@ -615,6 +647,16 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     }
     return null;
   }, [queryText, result.statement_text]);
+
+  // All rows shown in the grid: committed rows plus pending new rows.
+  // Indices >= result.rows.length belong to pendingInsertRows.
+  const displayRows = useMemo(() => {
+    if (pendingInsertRows.length === 0) return result.rows;
+    const extra = pendingInsertRows.map(pr =>
+      result.columns.map((_col, colIdx) => pr.values.get(colIdx) ?? null)
+    );
+    return [...result.rows, ...extra];
+  }, [result.rows, result.columns, pendingInsertRows]);
 
   // Per-column source tables and references (real foreign keys plus the user's
   // own). Columns that can't be traced to exactly one source table are left out.
@@ -670,6 +712,10 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
 
   // Check if we can actually save (has connection and update handler)
   const canSaveEdits = canEdit && onExecuteUpdate && identityColumn !== null;
+
+  // Any unsaved change waiting: cell edits, new rows, or row deletions
+  const hasPendingChanges =
+    editedCells.size > 0 || pendingInsertRows.length > 0 || pendingDeleteRows.size > 0;
 
   // Calculate base column widths (expensive - only when data changes)
   const baseColumnWidths = useMemo(() => {
@@ -844,7 +890,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
 
   // Copy cell value to clipboard
   const handleCopyCell = useCallback(async (rowIdx: number, colIdx: number, includeHeaders = false) => {
-    const value = result.rows[rowIdx]?.[colIdx];
+    const value = displayRows[rowIdx]?.[colIdx];
     let textValue = value === null ? '' : String(value);
 
     if (includeHeaders) {
@@ -860,7 +906,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     } catch (err) {
       console.error('Failed to copy:', err);
     }
-  }, [result.rows, result.columns]);
+  }, [displayRows, result.columns]);
 
   // Copy selection (multiple cells) as tab-separated values, respecting visual order
   const handleCopySelection = useCallback(async (sel: SelectionRange, includeHeaders = false) => {
@@ -885,7 +931,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     for (let row = norm.startRow; row <= norm.endRow; row++) {
       const rowValues: string[] = [];
       for (const col of visualCols) {
-        const value = result.rows[row]?.[col];
+        const value = displayRows[row]?.[col];
         rowValues.push(value === null ? '' : String(value));
       }
       lines.push(rowValues.join('\t'));
@@ -899,7 +945,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     } catch (err) {
       console.error('Failed to copy selection:', err);
     }
-  }, [result.rows, result.columns, columnOrder]);
+  }, [displayRows, result.columns, columnOrder]);
 
   // Copy selection as SQL INSERT VALUES, respecting visual order
   const handleCopyAsInsert = useCallback(async (sel: SelectionRange) => {
@@ -919,7 +965,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     for (let row = norm.startRow; row <= norm.endRow; row++) {
       const rowValues: string[] = [];
       for (const col of visualCols) {
-        const value = result.rows[row]?.[col];
+        const value = displayRows[row]?.[col];
         const dataType = result.columns[col]?.data_type || 'varchar';
         rowValues.push(formatValueForInsert(value, dataType));
       }
@@ -937,7 +983,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     } catch (err) {
       console.error('Failed to copy as INSERT:', err);
     }
-  }, [result.rows, result.columns, columnOrder]);
+  }, [displayRows, result.columns, columnOrder]);
 
   // Copy selection as SQL IN clause, respecting visual order
   const handleCopyAsInClause = useCallback(async (sel: SelectionRange) => {
@@ -957,7 +1003,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     // For IN clause, we collect all values from the selection
     for (let row = norm.startRow; row <= norm.endRow; row++) {
       for (const col of visualCols) {
-        const value = result.rows[row]?.[col];
+        const value = displayRows[row]?.[col];
         const dataType = result.columns[col]?.data_type || 'varchar';
         values.push(formatValueForInsert(value, dataType));
       }
@@ -974,13 +1020,13 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     } catch (err) {
       console.error('Failed to copy as IN clause:', err);
     }
-  }, [result.rows, result.columns, columnOrder]);
+  }, [displayRows, result.columns, columnOrder]);
 
   // Preview cell handler
   const handlePreviewCell = useCallback((row: number, col: number, tab: CellPreviewTab = 'value') => {
     if (!tabId || resultIndex === undefined) return;
 
-    const value = result.rows[row]?.[col];
+    const value = displayRows[row]?.[col];
     const columnName = result.columns[col]?.name || '';
     const dataType = result.columns[col]?.data_type || '';
     const referenceRequest = buildReferenceRequest(row, col);
@@ -990,21 +1036,21 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
       tab,
       queryId: result.query_id,
     });
-  }, [tabId, resultIndex, result.rows, result.columns, result.query_id, showCellPreview, buildReferenceRequest]);
+  }, [tabId, resultIndex, displayRows, result.columns, result.query_id, showCellPreview, buildReferenceRequest]);
 
   // Select all cells in the current grid
   const handleSelectAll = useCallback(() => {
-    if (result.rows.length === 0 || result.columns.length === 0) return;
+    if (displayRows.length === 0 || result.columns.length === 0) return;
 
     setSelection({
       startRow: 0,
       startCol: columnOrder[0],
-      endRow: result.rows.length - 1,
+      endRow: displayRows.length - 1,
       endCol: columnOrder[columnOrder.length - 1],
     });
     setSelectedCell({ row: 0, col: columnOrder[0] });
     containerRef.current?.focus();
-  }, [result.rows.length, result.columns.length, columnOrder]);
+  }, [displayRows.length, result.columns.length, columnOrder]);
 
   // Keyboard shortcut: Ctrl+C to copy selected cell(s) - only when focus is in results grid
   useEffect(() => {
@@ -1058,7 +1104,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
 
   // Copy a single row as JSON, respecting visual column order
   const handleCopyRow = useCallback(async (rowIdx: number) => {
-    const row = result.rows[rowIdx];
+    const row = displayRows[rowIdx];
     if (!row) return;
 
     const rowObj: Record<string, CellValue> = {};
@@ -1076,7 +1122,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     } catch (err) {
       console.error('Failed to copy row:', err);
     }
-  }, [result.rows, result.columns, columnOrder]);
+  }, [displayRows, result.columns, columnOrder]);
 
   // ========== EDITING HANDLERS ==========
 
@@ -1084,6 +1130,23 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
   const handleStartEdit = useCallback((rowIdx: number, colIdx: number) => {
     // Don't allow editing if no columns
     if (!canActuallyEdit) {
+      return;
+    }
+
+    // Rows marked for deletion are read-only until the delete is undone
+    if (pendingDeleteRows.has(rowIdx)) {
+      return;
+    }
+
+    // Pending new rows edit their own local value map
+    if (rowIdx >= result.rows.length) {
+      const pendingRow = pendingInsertRows[rowIdx - result.rows.length];
+      const current = pendingRow?.values.get(colIdx);
+      setEditingCell({
+        rowIndex: rowIdx,
+        colIndex: colIdx,
+        value: current === null || current === undefined ? '' : String(current),
+      });
       return;
     }
 
@@ -1096,7 +1159,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
       colIndex: colIdx,
       value: currentValue === null ? '' : String(currentValue),
     });
-  }, [canActuallyEdit, editedCells, result.rows]);
+  }, [canActuallyEdit, editedCells, result.rows, pendingDeleteRows, pendingInsertRows]);
 
   // Handle edit input change
   const handleEditChange = useCallback((value: string) => {
@@ -1108,6 +1171,21 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     if (!editingCell) return;
 
     const { rowIndex, colIndex, value } = editingCell;
+
+    // Committing into a pending new row just updates its local values
+    if (rowIndex >= result.rows.length) {
+      const coerced = coerceCellValue(value, result.columns[colIndex]?.data_type ?? '');
+      setPendingInsertRows(prev => prev.map((pr, i) => {
+        if (i !== rowIndex - result.rows.length) return pr;
+        const nextValues = new Map(pr.values);
+        nextValues.set(colIndex, coerced);
+        return { ...pr, values: nextValues };
+      }));
+      setEditingCell(null);
+      setSaveError(null);
+      return;
+    }
+
     const originalValue = result.rows[rowIndex]?.[colIndex];
     const cellKey = `${rowIndex}-${colIndex}`;
 
@@ -1154,62 +1232,139 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
 
     setEditingCell(null);
     setSaveError(null);
-  }, [editingCell, result.rows, editedCells]);
+  }, [editingCell, result.rows, result.columns, editedCells]);
 
   // Cancel editing
   const handleEditCancel = useCallback(() => {
     setEditingCell(null);
   }, []);
 
-  // Discard all edits
+  // Discard all pending changes (edits, new rows, deletions)
   const handleDiscardEdits = useCallback(() => {
     setEditedCells(new Map());
+    setPendingInsertRows([]);
+    setPendingDeleteRows(new Set());
     setEditingCell(null);
     setSaveError(null);
   }, []);
 
-  // Generate UPDATE queries for preview
-  const generateUpdateQueries = useCallback((): string[] | null => {
-    if (editedCells.size === 0) return null;
+  // Append a new pending row to the bottom of the grid
+  const handleAddNewRow = useCallback(() => {
+    if (!canActuallyEdit) return;
+    newRowIdCounter.current += 1;
+    setPendingInsertRows(prev => [...prev, { id: newRowIdCounter.current, values: new Map() }]);
+    setSaveError(null);
+  }, [canActuallyEdit]);
 
-    if (!identityColumn || !tableName) return null;
+  // Toggle deletion of a row. For pending new rows this just removes them locally.
+  const handleToggleDeleteRow = useCallback((rowIdx: number) => {
+    setEditingCell(null);
 
-    const queries: string[] = [];
-
-    // Group edits by row for efficient UPDATE statements
-    const editsByRow = new Map<number, EditedCell[]>();
-    for (const edit of editedCells.values()) {
-      const rowEdits = editsByRow.get(edit.rowIndex) || [];
-      rowEdits.push(edit);
-      editsByRow.set(edit.rowIndex, rowEdits);
+    // A not-yet-saved new row is simply discarded - nothing to send to the database
+    if (rowIdx >= result.rows.length) {
+      const prIndex = rowIdx - result.rows.length;
+      setPendingInsertRows(prev => prev.filter((_, i) => i !== prIndex));
+      return;
     }
 
-    // Generate UPDATE for each modified row
-    for (const [rowIndex, rowEdits] of editsByRow) {
-      const identityValue = result.rows[rowIndex]?.[identityColumn.index];
-      if (identityValue === null || identityValue === undefined) continue;
-
-      const setClauses = rowEdits.map(edit => {
-        const colName = result.columns[edit.colIndex].name;
-        const dataType = result.columns[edit.colIndex].data_type;
-        const formattedValue = formatValueForInsert(edit.newValue, dataType);
-        return `[${colName}] = ${formattedValue}`;
+    if (pendingDeleteRows.has(rowIdx)) {
+      setPendingDeleteRows(prev => {
+        const next = new Set(prev);
+        next.delete(rowIdx);
+        return next;
       });
+    } else {
+      setPendingDeleteRows(prev => {
+        const next = new Set(prev);
+        next.add(rowIdx);
+        return next;
+      });
+      // Cell edits on a deleted row are meaningless - drop them
+      setEditedCells(prev => {
+        const cleaned = new Map(prev);
+        for (const key of cleaned.keys()) {
+          if (key.startsWith(`${rowIdx}-`)) cleaned.delete(key);
+        }
+        return cleaned.size === prev.size ? prev : cleaned;
+      });
+    }
+    setSaveError(null);
+  }, [pendingDeleteRows, result.rows.length]);
 
-      const identityFormatted = formatValueForInsert(identityValue, identityColumn.dataType);
-      const updateQuery = `UPDATE ${tableName} SET ${setClauses.join(', ')} WHERE [${identityColumn.name}] = ${identityFormatted}`;
-      queries.push(updateQuery);
+  // Generate SQL statements for all pending changes.
+  // Order matters for retry-after-partial-failure safety:
+  // UPDATEs (idempotent) -> DELETEs (no-op when repeated) -> INSERTs last (would duplicate).
+  const generatePendingQueries = useCallback((): PendingQuery[] | null => {
+    const queries: PendingQuery[] = [];
+
+    // UPDATEs for edited cells, one per touched row
+    if (editedCells.size > 0) {
+      if (!identityColumn || !tableName) return null;
+
+      const editsByRow = new Map<number, EditedCell[]>();
+      for (const edit of editedCells.values()) {
+        const rowEdits = editsByRow.get(edit.rowIndex) || [];
+        rowEdits.push(edit);
+        editsByRow.set(edit.rowIndex, rowEdits);
+      }
+
+      for (const [rowIndex, rowEdits] of editsByRow) {
+        const identityValue = result.rows[rowIndex]?.[identityColumn.index];
+        if (identityValue === null || identityValue === undefined) continue;
+
+        queries.push({
+          kind: 'UPDATE',
+          sql: buildUpdateQuery(
+            tableName,
+            identityColumn,
+            identityValue,
+            rowEdits.map(edit => ({
+              column: { name: result.columns[edit.colIndex].name, dataType: result.columns[edit.colIndex].data_type },
+              value: edit.newValue,
+            }))
+          ),
+        });
+      }
     }
 
-    return queries;
-  }, [editedCells, identityColumn, tableName, result.rows, result.columns]);
+    // DELETEs for rows marked for deletion
+    if (pendingDeleteRows.size > 0) {
+      if (!identityColumn || !tableName) return null;
+      for (const rowIndex of pendingDeleteRows) {
+        const identityValue = result.rows[rowIndex]?.[identityColumn.index];
+        if (identityValue === null || identityValue === undefined) continue;
+        queries.push({ kind: 'DELETE', sql: buildDeleteQuery(tableName, identityColumn, identityValue) });
+      }
+    }
+
+    // INSERTs for new rows - only columns the user actually filled in,
+    // so database defaults (and identity columns) are left untouched.
+    if (pendingInsertRows.length > 0) {
+      if (!tableName) return null;
+      for (const pr of pendingInsertRows) {
+        const cols: GridColumnRef[] = [];
+        const values: CellValue[] = [];
+        for (let ci = 0; ci < result.columns.length; ci++) {
+          const v = pr.values.get(ci);
+          if (v === null || v === undefined) continue;
+          cols.push({ name: result.columns[ci].name, dataType: result.columns[ci].data_type });
+          values.push(v);
+        }
+        // An entirely empty new row has nothing meaningful to insert
+        if (cols.length === 0) return null;
+        queries.push({ kind: 'INSERT', sql: buildInsertQuery(tableName, cols, values) });
+      }
+    }
+
+    return queries.length > 0 ? queries : null;
+  }, [editedCells, pendingDeleteRows, pendingInsertRows, identityColumn, tableName, result.rows, result.columns]);
 
   // Show confirmation dialog with generated queries
   const handleSaveEdits = useCallback(() => {
-    if (editedCells.size === 0) return;
+    if (!hasPendingChanges) return;
 
     // Check if we can save
-    if (!canSaveEdits || !onExecuteUpdate || !identityColumn) {
+    if (!canSaveEdits || !onExecuteUpdate) {
       setSaveError('Cannot save: Not connected to database or missing identity column.');
       return;
     }
@@ -1220,9 +1375,15 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
       return;
     }
 
-    const queries = generateUpdateQueries();
+    const queries = generatePendingQueries();
     if (!queries || queries.length === 0) {
-      setSaveError('No valid queries to execute.');
+      if (pendingInsertRows.some(pr =>
+        [...pr.values.values()].every(v => v === null || v === undefined)
+      )) {
+        setSaveError('A new row has no values. Fill in at least one column or remove it.');
+      } else {
+        setSaveError('No valid queries to execute.');
+      }
       return;
     }
 
@@ -1230,7 +1391,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     setPendingQueries(queries);
     setShowConfirmDialog(true);
     setSaveError(null);
-  }, [canSaveEdits, onExecuteUpdate, identityColumn, tableName, editedCells.size, generateUpdateQueries]);
+  }, [hasPendingChanges, canSaveEdits, onExecuteUpdate, tableName, pendingInsertRows, generatePendingQueries]);
 
   // Execute queries after confirmation
   const handleConfirmSave = useCallback(async () => {
@@ -1242,13 +1403,13 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
 
     try {
       for (let i = 0; i < pendingQueries.length; i++) {
-        const success = await onExecuteUpdate(pendingQueries[i]);
+        const success = await onExecuteUpdate(pendingQueries[i].sql);
         if (!success) {
           throw new Error(`Failed to execute query ${i + 1}`);
         }
       }
 
-      // Update the grid data to reflect the saved values
+      // Apply all saved changes to the grid data
       if (tabId && resultIndex !== undefined) {
         const updates = Array.from(editedCells.values()).map(edit => ({
           rowIndex: edit.rowIndex,
@@ -1256,10 +1417,16 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
           value: edit.newValue
         }));
         updateResultCells(tabId, resultIndex, updates);
+        removeResultRows(tabId, resultIndex, Array.from(pendingDeleteRows));
+        insertResultRows(tabId, resultIndex, pendingInsertRows.map(pr =>
+          result.columns.map((_col, ci) => pr.values.get(ci) ?? null)
+        ));
       }
 
-      // Clear edited cells on successful save
+      // Clear pending state on successful save
       setEditedCells(new Map());
+      setPendingInsertRows([]);
+      setPendingDeleteRows(new Set());
       setPendingQueries([]);
 
     } catch (err) {
@@ -1267,7 +1434,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     } finally {
       setIsSaving(false);
     }
-  }, [pendingQueries, onExecuteUpdate, tabId, resultIndex, editedCells, updateResultCells]);
+  }, [pendingQueries, onExecuteUpdate, tabId, resultIndex, editedCells, pendingDeleteRows, pendingInsertRows, result.columns, updateResultCells, removeResultRows, insertResultRows]);
 
   // Cancel confirmation
   const handleCancelConfirm = useCallback(() => {
@@ -1363,7 +1530,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
 
   // Row data for the virtual list
   const rowData: RowData = useMemo(() => ({
-    rows: result.rows,
+    rows: displayRows,
     columns: result.columns,
     columnWidths,
     totalWidth,
@@ -1374,6 +1541,8 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     editingCell,
     editedCells,
     canEdit: canActuallyEdit ?? false,
+    pendingDeleteRows,
+    baseRowCount: result.rows.length,
     onCellClick: handleCellClick,
     onCellMouseDown: handleCellMouseDown,
     onCellMouseEnter: handleCellMouseEnter,
@@ -1386,7 +1555,8 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     onEditCommit: handleEditCommit,
     onEditCancel: handleEditCancel,
     onPreviewCell: handlePreviewCell,
-  }), [result.rows, result.columns, columnWidths, totalWidth, selectedCell, selection, copiedCell, copiedSelection, editingCell?.rowIndex, editingCell?.colIndex, editedCells, canActuallyEdit, handleCellClick, handleCellMouseDown, handleCellMouseEnter, handleCellMouseUp, handleStartEdit, handleCellContextMenu, columnOrder, handleCopyRow, handleEditChange, handleEditCommit, handleEditCancel, handlePreviewCell,
+    onToggleDeleteRow: handleToggleDeleteRow,
+  }), [displayRows, result.columns, columnWidths, totalWidth, selectedCell, selection, copiedCell, copiedSelection, editingCell?.rowIndex, editingCell?.colIndex, editedCells, canActuallyEdit, pendingDeleteRows, result.rows.length, handleCellClick, handleCellMouseDown, handleCellMouseEnter, handleCellMouseUp, handleStartEdit, handleCellContextMenu, columnOrder, handleCopyRow, handleEditChange, handleEditCommit, handleEditCancel, handlePreviewCell, handleToggleDeleteRow,
   ]); // Only depend on row/col, not value
 
   const renderRow = useCallback((props: Omit<RowComponentProps, 'data'>) => {
@@ -1593,11 +1763,11 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
 
         {/* Virtual scrolling body */}
         <div ref={bodyRef} className="flex-1 min-h-0">
-          {result.rows.length > 0 ? (
+          {displayRows.length > 0 ? (
             <List
               key={editingCell ? `editing-${editingCell.rowIndex}-${editingCell.colIndex}` : 'no-edit'}
               defaultHeight={containerHeight}
-              rowCount={result.rows.length}
+              rowCount={displayRows.length}
               rowHeight={ROW_HEIGHT}
               rowComponent={renderRow}
               rowProps={{}}
@@ -1616,6 +1786,12 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
           <div className="flex items-center gap-4">
             <span>
               <strong className="text-[var(--text-primary)]">{result.row_count.toLocaleString()}</strong> row{result.row_count !== 1 ? 's' : ''}
+              {pendingInsertRows.length > 0 && (
+                <span className="text-emerald-400 font-medium"> +{pendingInsertRows.length} new</span>
+              )}
+              {pendingDeleteRows.size > 0 && (
+                <span className="text-red-400 font-medium"> −{pendingDeleteRows.size}</span>
+              )}
             </span>
             <span>
               <strong className="text-[var(--text-primary)]">{result.columns.length}</strong> column{result.columns.length !== 1 ? 's' : ''}
@@ -1632,6 +1808,16 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
             {editedCells.size > 0 && (
               <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded">
                 {editedCells.size} pending edit{editedCells.size !== 1 ? 's' : ''}
+              </span>
+            )}
+            {pendingDeleteRows.size > 0 && (
+              <span className="px-2 py-0.5 bg-red-500/20 text-red-400 rounded">
+                {pendingDeleteRows.size} row{pendingDeleteRows.size !== 1 ? 's' : ''} marked for delete
+              </span>
+            )}
+            {pendingInsertRows.length > 0 && (
+              <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded">
+                {pendingInsertRows.length} new row{pendingInsertRows.length !== 1 ? 's' : ''}
               </span>
             )}
             {saveError && (
@@ -1658,8 +1844,23 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
               </button>
             )}
 
-            {/* Edit action buttons */}
-            {editedCells.size > 0 && (
+            {/* Add row action */}
+            {canActuallyEdit && onExecuteUpdate && (
+              <button
+                onClick={handleAddNewRow}
+                disabled={isSaving}
+                className="flex items-center gap-1 px-3 py-1 rounded bg-[var(--bg-hover)] hover:bg-[var(--bg-active)] text-[var(--text-primary)] transition-colors disabled:opacity-50"
+                title="Add a new row (saved as INSERT)"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                New Row
+              </button>
+            )}
+
+            {/* Pending changes action buttons */}
+            {hasPendingChanges && (
               <>
                 <button
                   onClick={handleDiscardEdits}
@@ -1697,7 +1898,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
             )}
 
             {/* Editing hint */}
-            {editedCells.size === 0 && (
+            {!hasPendingChanges && (
               <span className="text-[var(--text-muted)] text-[10px]">
                 Double-click to edit
               </span>
@@ -1857,6 +2058,24 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
                 ),
                 action: () => handleCopyRow(contextMenu.row),
               }] : []),
+              ...(contextMenu && canActuallyEdit && onExecuteUpdate ? [{
+                id: 'toggle-delete-row',
+                label: contextMenu.row >= result.rows.length
+                  ? 'Remove New Row'
+                  : pendingDeleteRows.has(contextMenu.row)
+                    ? 'Undo Delete Row'
+                    : 'Delete Row',
+                icon: (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={
+                      pendingDeleteRows.has(contextMenu.row) && contextMenu.row < result.rows.length
+                        ? 'M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6'
+                        : 'M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16'
+                    } />
+                  </svg>
+                ),
+                action: () => handleToggleDeleteRow(contextMenu.row),
+              }] : []),
             ]}
           />
         )}
@@ -1886,13 +2105,27 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
               {/* Content */}
               <div className="flex-1 overflow-auto p-4">
                 <p className="text-sm text-[var(--text-secondary)] mb-3">
-                  The following {pendingQueries.length} UPDATE {pendingQueries.length === 1 ? 'query' : 'queries'} will be executed:
+                  The following {pendingQueries.length} {pendingQueries.length === 1 ? 'statement' : 'statements'} will be executed:
                 </p>
                 <div className="space-y-2">
                   {pendingQueries.map((query, index) => (
                     <div key={index} className="p-3 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
+                          query.kind === 'DELETE'
+                            ? 'bg-red-500/20 text-red-400'
+                            : query.kind === 'INSERT'
+                              ? 'bg-emerald-500/20 text-emerald-400'
+                              : 'bg-yellow-500/20 text-yellow-400'
+                        }`}>
+                          {query.kind}
+                        </span>
+                        <span className="text-[10px] text-[var(--text-muted)]">
+                          Statement {index + 1} of {pendingQueries.length}
+                        </span>
+                      </div>
                       <pre className="text-xs font-mono text-[var(--text-primary)] whitespace-pre-wrap break-all">
-                        {query}
+                        {query.sql}
                       </pre>
                     </div>
                   ))}
@@ -1911,7 +2144,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
                   onClick={handleConfirmSave}
                   className="px-4 py-2 text-sm rounded-lg bg-green-600 hover:bg-green-500 text-white font-medium transition-colors"
                 >
-                  Execute {pendingQueries.length} {pendingQueries.length === 1 ? 'Query' : 'Queries'}
+                  Execute {pendingQueries.length} {pendingQueries.length === 1 ? 'Statement' : 'Statements'}
                 </button>
               </div>
             </div>

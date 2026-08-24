@@ -439,4 +439,71 @@ describe('queriesSlice', () => {
             expect(useTestStore.getState().cellPreviewPanel.byTab['tab-1']).toBeUndefined();
         });
     });
+
+    describe('insertResultRows / removeResultRows (grid add & delete)', () => {
+        const seedResult = {
+            query_id: 'q1',
+            columns: [
+                { name: 'id', data_type: 'int' },
+                { name: 'name', data_type: 'nvarchar' },
+            ],
+            rows: [[1, 'one'], [2, 'two']],
+            row_count: 2,
+            execution_time_ms: 1,
+            is_complete: true,
+            error: null,
+        } as any;
+
+        beforeEach(() => {
+            useTestStore.setState({
+                tabQueryResults: { 'tab-1': [seedResult] },
+                activeResultIndex: { 'tab-1': 0 },
+            });
+        });
+
+        it('appends rows and updates row_count', () => {
+            useTestStore.getState().insertResultRows('tab-1', 0, [[3, 'three'], [4, 'four']]);
+
+            const result = useTestStore.getState().tabQueryResults['tab-1'][0];
+            expect(result.rows).toEqual([[1, 'one'], [2, 'two'], [3, 'three'], [4, 'four']]);
+            expect(result.row_count).toBe(4);
+        });
+
+        it('leaves other results untouched', () => {
+            useTestStore.setState({
+                tabQueryResults: { 'tab-1': [seedResult, { ...seedResult, query_id: 'q2' }] },
+            });
+            const before = useTestStore.getState().tabQueryResults['tab-1'][1];
+
+            useTestStore.getState().insertResultRows('tab-1', 0, [[9, 'nine']]);
+
+            expect(useTestStore.getState().tabQueryResults['tab-1'][1]).toBe(before);
+        });
+
+        it('removes rows by index and updates row_count', () => {
+            useTestStore.getState().removeResultRows('tab-1', 0, [1]);
+
+            const result = useTestStore.getState().tabQueryResults['tab-1'][0];
+            expect(result.rows).toEqual([[1, 'one']]);
+            expect(result.row_count).toBe(1);
+        });
+
+        it('removes multiple non-adjacent rows in one call', () => {
+            useTestStore.getState().removeResultRows('tab-1', 0, [0, 1]);
+
+            const result = useTestStore.getState().tabQueryResults['tab-1'][0];
+            expect(result.rows).toEqual([]);
+            expect(result.row_count).toBe(0);
+        });
+
+        it('does nothing for an unknown tab or result index', () => {
+            const stateBefore = useTestStore.getState().tabQueryResults;
+
+            useTestStore.getState().insertResultRows('missing-tab', 0, [[5, 'five']]);
+            useTestStore.getState().removeResultRows('tab-1', 7, [0]);
+            useTestStore.getState().insertResultRows('tab-1', 0, []);
+
+            expect(useTestStore.getState().tabQueryResults).toBe(stateBefore);
+        });
+    });
 });
