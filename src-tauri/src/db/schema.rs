@@ -111,12 +111,18 @@ impl SchemaMetadataManager {
         database: &str,
         schema_filter: Option<&str>,
     ) -> Result<SchemaInfo, ConnectionError> {
-        // Get connection pool
-        let pool = self.connection_manager.connect(connection_id).await?;
-        let mut conn = pool.get().await?;
+        // Use a dedicated connection so the `USE` does not pollute a pooled connection
+        let mut conn = self
+            .connection_manager
+            .create_dedicated_connection(connection_id)
+            .await?;
 
-        // Switch to the target database
-        let use_db_query = format!("USE [{}]", database);
+        // Switch to the target database — validated + bracket-quoted
+        let use_db_query = format!(
+            "USE {};",
+            crate::db::ident::resolve_database_name(database)
+                .map_err(|e| ConnectionError::QueryError(e))?
+        );
         conn.simple_query(&use_db_query).await?;
 
         // Fetch schemas
@@ -149,9 +155,16 @@ impl SchemaMetadataManager {
     /// Fetch foreign key relationships between tables
     async fn fetch_relationships(
         &self,
-        conn: &mut bb8::PooledConnection<'_, bb8_tiberius::ConnectionManager>,
+        conn: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
         schema_filter: Option<&str>,
     ) -> Result<Vec<RelationshipInfo>, ConnectionError> {
+        if let Some(s) = schema_filter {
+            if !crate::db::ident::is_safe_ident(s) {
+                return Err(ConnectionError::QueryError(
+                    "Invalid identifier".into(),
+                ));
+            }
+        }
         let schema_condition = schema_filter
             .map(|s| format!(
                 "AND (src_schema.name = '{}' OR tgt_schema.name = '{}')",
@@ -219,7 +232,7 @@ impl SchemaMetadataManager {
     /// Fetch all schema names in the database
     async fn fetch_schemas(
         &self,
-        conn: &mut bb8::PooledConnection<'_, bb8_tiberius::ConnectionManager>,
+        conn: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
     ) -> Result<Vec<String>, ConnectionError> {
         let query = r#"
             SELECT schema_name 
@@ -242,12 +255,19 @@ impl SchemaMetadataManager {
     /// Fetch tables and views with their columns
     async fn fetch_tables_and_views(
         &self,
-        conn: &mut bb8::PooledConnection<'_, bb8_tiberius::ConnectionManager>,
+        conn: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
         schema_filter: Option<&str>,
     ) -> Result<Vec<TableInfo>, ConnectionError> {
+        if let Some(s) = schema_filter {
+            if !crate::db::ident::is_safe_ident(s) {
+                return Err(ConnectionError::QueryError(
+                    "Invalid identifier".into(),
+                ));
+            }
+        }
         // First, fetch all tables and views
         let schema_condition = schema_filter
-            .map(|s| format!("AND t.TABLE_SCHEMA = '{}'", s))
+            .map(|s| format!("AND t.TABLE_SCHEMA = '{}'", s.replace('\'', "''")))
             .unwrap_or_default();
 
         let tables_query = format!(
@@ -318,7 +338,7 @@ impl SchemaMetadataManager {
             ORDER BY c.TABLE_SCHEMA, c.TABLE_NAME, c.ORDINAL_POSITION
         "#,
             schema_filter
-                .map(|s| format!("AND c.TABLE_SCHEMA = '{}'", s))
+                .map(|s| format!("AND c.TABLE_SCHEMA = '{}'", s.replace('\'', "''")))
                 .unwrap_or_default()
         );
 
@@ -394,11 +414,18 @@ impl SchemaMetadataManager {
     /// Fetch stored procedures and functions with their parameters
     async fn fetch_routines(
         &self,
-        conn: &mut bb8::PooledConnection<'_, bb8_tiberius::ConnectionManager>,
+        conn: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
         schema_filter: Option<&str>,
     ) -> Result<Vec<RoutineInfo>, ConnectionError> {
+        if let Some(s) = schema_filter {
+            if !crate::db::ident::is_safe_ident(s) {
+                return Err(ConnectionError::QueryError(
+                    "Invalid identifier".into(),
+                ));
+            }
+        }
         let schema_condition = schema_filter
-            .map(|s| format!("AND ROUTINE_SCHEMA = '{}'", s))
+            .map(|s| format!("AND ROUTINE_SCHEMA = '{}'", s.replace('\'', "''")))
             .unwrap_or_default();
 
         // First, fetch all routines
@@ -456,7 +483,7 @@ impl SchemaMetadataManager {
             ORDER BY SPECIFIC_SCHEMA, SPECIFIC_NAME, ORDINAL_POSITION
         "#,
             schema_filter
-                .map(|s| format!("AND SPECIFIC_SCHEMA = '{}'", s))
+                .map(|s| format!("AND SPECIFIC_SCHEMA = '{}'", s.replace('\'', "''")))
                 .unwrap_or_default()
         );
 
@@ -537,13 +564,33 @@ impl SchemaMetadataManager {
             }
         }
 
-        // Fetch from database
-        let pool = self.connection_manager.connect(connection_id).await?;
-        let mut conn = pool.get().await?;
+        // Fetch from database — dedicated connection so `USE` does not pollute the pool
+        let mut conn = self
+            .connection_manager
+            .create_dedicated_connection(connection_id)
+            .await?;
 
-        // Switch to the target database
-        let use_db_query = format!("USE [{}]", database);
+        // Switch to the target database — validated + bracket-quoted
+        let use_db_query = format!(
+            "USE {};",
+            crate::db::ident::resolve_database_name(database)
+                .map_err(|e| ConnectionError::QueryError(e))?
+        );
         conn.simple_query(&use_db_query).await?;
+
+        // Validate schema/table — they must be strict identifiers for the string-literal
+        // contexts below (WHERE … = '…'); bracket-quoted OBJECT_ID target is built separately.
+        if !crate::db::ident::is_safe_ident(schema_name)
+            || !crate::db::ident::is_safe_ident(table_name)
+        {
+            return Err(ConnectionError::QueryError(
+                "Invalid identifier".into(),
+            ));
+        }
+        let target = crate::db::ident::qualified_object_name(schema_name, table_name)
+            .map_err(|e| ConnectionError::QueryError(e))?;
+        let s_esc = schema_name.replace('\'', "''");
+        let t_esc = table_name.replace('\'', "''");
 
         let query = format!(
             r#"
@@ -557,8 +604,8 @@ impl SchemaMetadataManager {
                 c.COLUMN_DEFAULT,
                 c.ORDINAL_POSITION,
                 CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS IS_PRIMARY_KEY,
-                COLUMNPROPERTY(OBJECT_ID('{}.{}'), c.COLUMN_NAME, 'IsIdentity') AS IS_IDENTITY,
-                COLUMNPROPERTY(OBJECT_ID('{}.{}'), c.COLUMN_NAME, 'IsComputed') AS IS_COMPUTED
+                COLUMNPROPERTY(OBJECT_ID(N'{target}'), c.COLUMN_NAME, 'IsIdentity') AS IS_IDENTITY,
+                COLUMNPROPERTY(OBJECT_ID(N'{target}'), c.COLUMN_NAME, 'IsComputed') AS IS_COMPUTED
             FROM INFORMATION_SCHEMA.COLUMNS c
             LEFT JOIN (
                 SELECT ku.COLUMN_NAME
@@ -567,13 +614,12 @@ impl SchemaMetadataManager {
                     ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
                     AND tc.TABLE_SCHEMA = ku.TABLE_SCHEMA
                 WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
-                    AND tc.TABLE_SCHEMA = '{}'
-                    AND tc.TABLE_NAME = '{}'
+                    AND tc.TABLE_SCHEMA = '{s_esc}'
+                    AND tc.TABLE_NAME = '{t_esc}'
             ) pk ON c.COLUMN_NAME = pk.COLUMN_NAME
-            WHERE c.TABLE_SCHEMA = '{}' AND c.TABLE_NAME = '{}'
+            WHERE c.TABLE_SCHEMA = '{s_esc}' AND c.TABLE_NAME = '{t_esc}'
             ORDER BY c.ORDINAL_POSITION
-        "#,
-            schema_name, table_name, schema_name, table_name, schema_name, table_name, schema_name, table_name
+        "#
         );
 
         let stream = conn.simple_query(&query).await?;

@@ -1202,9 +1202,11 @@ impl QueryEngine {
             query.to_string()
         };
 
-        // Build the full query with optional USE database
+        // Build the full query with optional USE database — database identifier is validated + bracket-quoted
         let full_query = if let Some(db) = database {
-            format!("USE [{}]; {}", db, statement_sql)
+            let use_db = crate::db::ident::resolve_database_name(db)
+                .map_err(|e| ConnectionError::QueryError(e))?;
+            format!("USE {use_db}; {statement_sql}")
         } else {
             statement_sql
         };
