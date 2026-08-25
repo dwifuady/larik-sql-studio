@@ -5,8 +5,8 @@ use std::path::Path;
 use tauri::{AppHandle, State};
 
 /// Export the application database to a specified file path
-pub fn export_database(state: &State<AppState>, destination: &str) -> Result<(), String> {
-    let db_manager = state.db.lock().unwrap();
+pub async fn export_database(state: &State<'_, AppState>, destination: &str) -> Result<(), String> {
+    let db_manager = state.db.lock().await;
     let db_path = db_manager.db_path();
 
     if !db_path.exists() {
@@ -30,9 +30,9 @@ pub fn export_database(state: &State<AppState>, destination: &str) -> Result<(),
 }
 
 /// Import the application database from a specified file path and restart the app
-pub fn import_database(
+pub async fn import_database(
     app_handle: &AppHandle,
-    state: &State<AppState>,
+    state: &State<'_, AppState>,
     source: &str,
 ) -> Result<(), String> {
     let source_path = Path::new(source);
@@ -43,7 +43,7 @@ pub fn import_database(
     // This is a critical step: we need to get the db_path *before* we
     // potentially shut down the connection or lock anything.
     let db_path = {
-        let db_manager = state.db.lock().unwrap();
+        let db_manager = state.db.lock().await;
         db_manager.db_path().clone()
     };
 

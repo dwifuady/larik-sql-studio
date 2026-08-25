@@ -2,11 +2,11 @@
 // This module contains all commands exposed to the frontend via Tauri's invoke system
 
 use tauri::{command, State, AppHandle, Emitter};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::path::PathBuf;
 use std::collections::HashMap;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, Mutex, RwLock};
 
 use crate::storage::{
     DatabaseManager, StorageError,
@@ -36,6 +36,8 @@ pub struct AppState {
     pub query_engine: Arc<QueryEngine>,
     pub schema_manager: Arc<SchemaMetadataManager>,
     pub export_cancel_flags: RwLock<HashMap<String, Arc<AtomicBool>>>,
+    /// Handle of the background auto-archive task, so it can be aborted on exit.
+    pub archive_task: std::sync::Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
 }
 
 /// Convert StorageError to a string for IPC
@@ -66,7 +68,7 @@ pub async fn create_space(
     connection_encrypt: Option<bool>,
 ) -> Result<Space, String> {
     let space = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let db = state.db.lock().await;
         db.create_space(CreateSpaceInput { 
             name, 
             color, 
@@ -104,27 +106,27 @@ pub async fn create_space(
 
 /// Get all spaces
 #[command]
-pub fn get_spaces(state: State<'_, AppState>) -> Result<Vec<Space>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+pub async fn get_spaces(state: State<'_, AppState>) -> Result<Vec<Space>, String> {
+    let db = state.db.lock().await;
     db.get_all_spaces().map_err(|e| e.to_string())
 }
 
 /// Update the last active tab for a space
 #[command]
-pub fn update_space_last_active_tab(
+pub async fn update_space_last_active_tab(
     state: State<'_, AppState>,
     space_id: String,
     tab_id: Option<String>,
 ) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.update_space_last_active_tab(&space_id, tab_id.as_deref())
         .map_err(|e| e.to_string())
 }
 
 /// Get a single space by ID
 #[command]
-pub fn get_space(state: State<'_, AppState>, id: String) -> Result<Option<Space>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+pub async fn get_space(state: State<'_, AppState>, id: String) -> Result<Option<Space>, String> {
+    let db = state.db.lock().await;
     db.get_space(&id).map_err(|e| e.to_string())
 }
 
@@ -147,7 +149,7 @@ pub async fn update_space(
     connection_encrypt: Option<bool>,
 ) -> Result<Option<Space>, String> {
     let space = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let db = state.db.lock().await;
         db.update_space(&id, UpdateSpaceInput { 
             name, 
             color, 
@@ -172,7 +174,7 @@ pub async fn update_space(
         if let (Some(host), Some(database)) = (&space.connection_host, &space.connection_database) {
             // Get password from DB (it's not sent back from get)
             let password = {
-                let db = state.db.lock().map_err(|e| e.to_string())?;
+                let db = state.db.lock().await;
                 db.get_space_password(&id).map_err(|e| e.to_string())?.unwrap_or_default()
             };
             
@@ -203,14 +205,14 @@ pub async fn delete_space(state: State<'_, AppState>, id: String) -> Result<bool
     let _ = state.mssql_manager.disconnect(&id).await;
     let _ = state.mssql_manager.remove_connection(&id).await;
     
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.delete_space(&id).map_err(|e| e.to_string())
 }
 
 /// Reorder spaces
 #[command]
-pub fn reorder_spaces(state: State<'_, AppState>, space_ids: Vec<String>) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+pub async fn reorder_spaces(state: State<'_, AppState>, space_ids: Vec<String>) -> Result<(), String> {
+    let db = state.db.lock().await;
     db.reorder_spaces(&space_ids).map_err(|e| e.to_string())
 }
 
@@ -220,7 +222,7 @@ pub fn reorder_spaces(state: State<'_, AppState>, space_ids: Vec<String>) -> Res
 
 /// Create a new tab
 #[command]
-pub fn create_tab(
+pub async fn create_tab(
     state: State<'_, AppState>,
     space_id: String,
     title: String,
@@ -229,7 +231,7 @@ pub fn create_tab(
     metadata: Option<String>,
     database: Option<String>,
 ) -> Result<Tab, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     let tab_type = TabType::from_str(&tab_type).unwrap_or(TabType::Query);
     db.create_tab(CreateTabInput {
         space_id,
@@ -244,21 +246,21 @@ pub fn create_tab(
 
 /// Get all tabs for a space
 #[command]
-pub fn get_tabs_by_space(state: State<'_, AppState>, space_id: String) -> Result<Vec<Tab>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+pub async fn get_tabs_by_space(state: State<'_, AppState>, space_id: String) -> Result<Vec<Tab>, String> {
+    let db = state.db.lock().await;
     db.get_tabs_by_space(&space_id).map_err(|e| e.to_string())
 }
 
 /// Get a single tab by ID
 #[command]
-pub fn get_tab(state: State<'_, AppState>, id: String) -> Result<Option<Tab>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+pub async fn get_tab(state: State<'_, AppState>, id: String) -> Result<Option<Tab>, String> {
+    let db = state.db.lock().await;
     db.get_tab(&id).map_err(|e| e.to_string())
 }
 
 /// Update a tab
 #[command]
-pub fn update_tab(
+pub async fn update_tab(
     state: State<'_, AppState>,
     id: String,
     title: Option<String>,
@@ -267,76 +269,76 @@ pub fn update_tab(
     database: Option<String>,
     sort_order: Option<i32>,
 ) -> Result<Option<Tab>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.update_tab(&id, UpdateTabInput { title, content, metadata, database, sort_order })
         .map_err(|e| e.to_string())
 }
 
 /// Update just the database selection for a tab
 #[command]
-pub fn update_tab_database(
+pub async fn update_tab_database(
     state: State<'_, AppState>,
     id: String,
     database: Option<String>,
 ) -> Result<bool, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.update_tab_database(&id, database.as_deref()).map_err(|e| e.to_string())
 }
 
 /// Auto-save tab content (optimized for frequent saves)
 #[command]
-pub fn autosave_tab_content(
+pub async fn autosave_tab_content(
     state: State<'_, AppState>,
     id: String,
     content: String,
 ) -> Result<bool, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.autosave_tab_content(&id, &content).map_err(|e| e.to_string())
 }
 
 /// Toggle the pinned status of a tab
 #[command]
-pub fn toggle_tab_pinned(
+pub async fn toggle_tab_pinned(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<Option<Tab>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.toggle_tab_pinned(&id).map_err(|e| e.to_string())
 }
 
 /// Delete a tab by ID
 #[command]
-pub fn delete_tab(state: State<'_, AppState>, id: String) -> Result<bool, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+pub async fn delete_tab(state: State<'_, AppState>, id: String) -> Result<bool, String> {
+    let db = state.db.lock().await;
     db.delete_tab(&id).map_err(|e| e.to_string())
 }
 
 /// Search active tabs by title or content
 #[command]
-pub fn search_tabs(state: State<'_, AppState>, query: String) -> Result<Vec<Tab>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+pub async fn search_tabs(state: State<'_, AppState>, query: String) -> Result<Vec<Tab>, String> {
+    let db = state.db.lock().await;
     db.search_tabs(&query).map_err(|e| e.to_string())
 }
 
 /// Reorder tabs within a space
 #[command]
-pub fn reorder_tabs(
+pub async fn reorder_tabs(
     state: State<'_, AppState>,
     space_id: String,
     tab_ids: Vec<String>,
 ) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.reorder_tabs(&space_id, &tab_ids).map_err(|e| e.to_string())
 }
 
 /// Move a tab to a different space
 #[command]
-pub fn move_tab_to_space(
+pub async fn move_tab_to_space(
     state: State<'_, AppState>,
     tab_id: String,
     new_space_id: String,
 ) -> Result<Option<Tab>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.move_tab_to_space(&tab_id, &new_space_id).map_err(|e| e.to_string())
 }
 
@@ -346,91 +348,91 @@ pub fn move_tab_to_space(
 
 /// Create a new folder
 #[command]
-pub fn create_folder(
+pub async fn create_folder(
     state: State<'_, AppState>,
     space_id: String,
     name: String,
 ) -> Result<TabFolder, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.create_folder(CreateFolderInput { space_id, name })
         .map_err(|e| e.to_string())
 }
 
 /// Get all folders for a space
 #[command]
-pub fn get_folders_by_space(
+pub async fn get_folders_by_space(
     state: State<'_, AppState>,
     space_id: String,
 ) -> Result<Vec<TabFolder>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.get_folders_by_space(&space_id).map_err(|e| e.to_string())
 }
 
 /// Update a folder
 #[command]
-pub fn update_folder(
+pub async fn update_folder(
     state: State<'_, AppState>,
     id: String,
     name: Option<String>,
     is_expanded: Option<bool>,
     sort_order: Option<i32>,
 ) -> Result<Option<TabFolder>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.update_folder(&id, UpdateFolderInput { name, is_expanded, sort_order })
         .map_err(|e| e.to_string())
 }
 
 /// Delete a folder (tabs become ungrouped)
 #[command]
-pub fn delete_folder(
+pub async fn delete_folder(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<bool, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.delete_folder(&id).map_err(|e| e.to_string())
 }
 
 /// Add a tab to a folder (also pins the tab)
 #[command]
-pub fn add_tab_to_folder(
+pub async fn add_tab_to_folder(
     state: State<'_, AppState>,
     tab_id: String,
     folder_id: String,
 ) -> Result<bool, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.add_tab_to_folder(&tab_id, &folder_id).map_err(|e| e.to_string())
 }
 
 /// Remove a tab from its folder
 #[command]
-pub fn remove_tab_from_folder(
+pub async fn remove_tab_from_folder(
     state: State<'_, AppState>,
     tab_id: String,
 ) -> Result<bool, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.remove_tab_from_folder(&tab_id).map_err(|e| e.to_string())
 }
 
 /// Reorder folders within a space
 #[command]
-pub fn reorder_folders(
+pub async fn reorder_folders(
     state: State<'_, AppState>,
     space_id: String,
     folder_ids: Vec<String>,
 ) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.reorder_folders(&space_id, &folder_ids).map_err(|e| e.to_string())
 }
 
 /// Create a folder and add tabs to it atomically
 #[command]
-pub fn create_folder_from_tabs(
+pub async fn create_folder_from_tabs(
     state: State<'_, AppState>,
     space_id: String,
     name: String,
     tab_ids: Vec<String>,
 ) -> Result<TabFolder, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.create_folder_from_tabs(&space_id, &name, &tab_ids).map_err(|e| e.to_string())
 }
 
@@ -446,7 +448,7 @@ pub async fn connect_to_space(
 ) -> Result<bool, String> {
     // Get the space
     let space = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let db = state.db.lock().await;
         db.get_space(&space_id).map_err(|e| e.to_string())?
     };
     
@@ -462,7 +464,7 @@ pub async fn connect_to_space(
     
     // Get password from DB (not serialized in Space)
     let password = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let db = state.db.lock().await;
         db.get_space_password(&space_id).map_err(|e| e.to_string())?.unwrap_or_default()
     };
     
@@ -993,7 +995,7 @@ pub async fn cancel_export(
 
 /// Export tab content to a SQL file
 #[command]
-pub fn export_tab_as_sql(
+pub async fn export_tab_as_sql(
     state: State<'_, AppState>,
     tab_id: String,
     file_path: String,
@@ -1003,7 +1005,7 @@ pub fn export_tab_as_sql(
         c
     } else {
         let tab = {
-            let db = state.db.lock().map_err(|e| e.to_string())?;
+            let db = state.db.lock().await;
             db.get_tab(&tab_id).map_err(|e| e.to_string())?
         };
 
@@ -1019,7 +1021,7 @@ pub fn export_tab_as_sql(
 
 /// Import SQL file as a new tab
 #[command]
-pub fn import_sql_file_as_tab(
+pub async fn import_sql_file_as_tab(
     state: State<'_, AppState>,
     space_id: String,
     file_path: String,
@@ -1036,7 +1038,7 @@ pub fn import_sql_file_as_tab(
 
     let tab_title = title.unwrap_or(default_title);
 
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.create_tab(CreateTabInput {
         space_id,
         title: tab_title,
@@ -1053,8 +1055,8 @@ pub fn import_sql_file_as_tab(
 
 /// Get all snippets
 #[command]
-pub fn get_snippets(state: State<'_, AppState>) -> Result<Vec<Snippet>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+pub async fn get_snippets(state: State<'_, AppState>) -> Result<Vec<Snippet>, String> {
+    let db = state.db.lock().await;
     let snippets = db.get_all_snippets().map_err(|e| e.to_string())?;
     println!("[get_snippets] Returning {} snippets", snippets.len());
     Ok(snippets)
@@ -1062,28 +1064,28 @@ pub fn get_snippets(state: State<'_, AppState>) -> Result<Vec<Snippet>, String> 
 
 /// Get only enabled snippets (for editor use)
 #[command]
-pub fn get_enabled_snippets(state: State<'_, AppState>) -> Result<Vec<Snippet>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+pub async fn get_enabled_snippets(state: State<'_, AppState>) -> Result<Vec<Snippet>, String> {
+    let db = state.db.lock().await;
     db.get_enabled_snippets().map_err(|e| e.to_string())
 }
 
 /// Get a single snippet by ID
 #[command]
-pub fn get_snippet(state: State<'_, AppState>, id: String) -> Result<Option<Snippet>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+pub async fn get_snippet(state: State<'_, AppState>, id: String) -> Result<Option<Snippet>, String> {
+    let db = state.db.lock().await;
     db.get_snippet(&id).map_err(|e| e.to_string())
 }
 
 /// Get a snippet by trigger text
 #[command]
-pub fn get_snippet_by_trigger(state: State<'_, AppState>, trigger: String) -> Result<Option<Snippet>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+pub async fn get_snippet_by_trigger(state: State<'_, AppState>, trigger: String) -> Result<Option<Snippet>, String> {
+    let db = state.db.lock().await;
     db.get_snippet_by_trigger(&trigger).map_err(|e| e.to_string())
 }
 
 /// Create a new user-defined snippet
 #[command]
-pub fn create_snippet(
+pub async fn create_snippet(
     state: State<'_, AppState>,
     trigger: String,
     name: String,
@@ -1091,7 +1093,7 @@ pub fn create_snippet(
     description: Option<String>,
     category: Option<String>,
 ) -> Result<Snippet, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.create_snippet(CreateSnippetInput {
         trigger,
         name,
@@ -1103,7 +1105,7 @@ pub fn create_snippet(
 
 /// Update an existing snippet
 #[command]
-pub fn update_snippet(
+pub async fn update_snippet(
     state: State<'_, AppState>,
     id: String,
     trigger: Option<String>,
@@ -1113,7 +1115,7 @@ pub fn update_snippet(
     category: Option<String>,
     enabled: Option<bool>,
 ) -> Result<Option<Snippet>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.update_snippet(&id, UpdateSnippetInput {
         trigger,
         name,
@@ -1126,26 +1128,26 @@ pub fn update_snippet(
 
 /// Delete a snippet (only user-defined snippets can be deleted)
 #[command]
-pub fn delete_snippet(state: State<'_, AppState>, id: String) -> Result<bool, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+pub async fn delete_snippet(state: State<'_, AppState>, id: String) -> Result<bool, String> {
+    let db = state.db.lock().await;
     db.delete_snippet(&id).map_err(|e| e.to_string())
 }
 
 /// Reset a builtin snippet to its default content
 #[command]
-pub fn reset_builtin_snippet(state: State<'_, AppState>, id: String) -> Result<Option<Snippet>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+pub async fn reset_builtin_snippet(state: State<'_, AppState>, id: String) -> Result<Option<Snippet>, String> {
+    let db = state.db.lock().await;
     db.reset_builtin_snippet(&id).map_err(|e| e.to_string())
 }
 
 /// Import snippets from external source (bulk import)
 /// Returns the number of snippets imported
 #[command]
-pub fn import_snippets(
+pub async fn import_snippets(
     state: State<'_, AppState>,
     snippets: Vec<CreateSnippetInput>,
 ) -> Result<usize, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.import_snippets(snippets).map_err(|e| e.to_string())
 }
 
@@ -1159,7 +1161,7 @@ pub async fn archive_tab(
     state: State<'_, AppState>,
     tab_id: String,
 ) -> Result<ArchivedTab, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.archive_tab(&tab_id).map_err(|e| e.to_string())
 }
 
@@ -1170,7 +1172,7 @@ pub async fn restore_archived_tab(
     archived_id: String,
     target_space_id: Option<String>,
 ) -> Result<Tab, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
 
     // If no target space provided, use the original space from the archived tab
     let target_space = if let Some(space_id) = target_space_id {
@@ -1194,109 +1196,109 @@ pub async fn restore_archived_tab(
 
 /// Search archived tabs using FTS5 full-text search
 #[command]
-pub fn search_archived_tabs(
+pub async fn search_archived_tabs(
     state: State<'_, AppState>,
     query: String,
     space_id: Option<String>,
     limit: Option<usize>,
 ) -> Result<Vec<ArchiveSearchResult>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.search_archived_tabs(&query, space_id.as_deref(), limit)
         .map_err(|e| e.to_string())
 }
 
 /// Get archived tabs with optional space filter and pagination
 #[command]
-pub fn get_archived_tabs(
+pub async fn get_archived_tabs(
     state: State<'_, AppState>,
     space_id: Option<String>,
     limit: Option<usize>,
     offset: Option<usize>,
 ) -> Result<Vec<ArchivedTab>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.get_archived_tabs(space_id.as_deref(), limit, offset)
         .map_err(|e| e.to_string())
 }
 
 /// Get count of archived tabs with optional space filter
 #[command]
-pub fn get_archived_tabs_count(
+pub async fn get_archived_tabs_count(
     state: State<'_, AppState>,
     space_id: Option<String>,
 ) -> Result<usize, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.get_archived_tabs_count(space_id.as_deref())
         .map_err(|e| e.to_string())
 }
 
 /// Permanently delete an archived tab
 #[command]
-pub fn delete_archived_tab(
+pub async fn delete_archived_tab(
     state: State<'_, AppState>,
     archived_id: String,
 ) -> Result<bool, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.delete_archived_tab(&archived_id)
         .map_err(|e| e.to_string())
 }
 
 /// Update last_accessed_at timestamp for a tab (activity tracking)
 #[command]
-pub fn touch_tab(
+pub async fn touch_tab(
     state: State<'_, AppState>,
     tab_id: String,
 ) -> Result<bool, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.touch_tab(&tab_id).map_err(|e| e.to_string())
 }
 
 /// Get auto-archive settings
 #[command]
-pub fn get_auto_archive_settings(
+pub async fn get_auto_archive_settings(
     state: State<'_, AppState>,
 ) -> Result<AutoArchiveSettings, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.get_auto_archive_settings().map_err(|e| e.to_string())
 }
 
 /// Update auto-archive settings
 #[command]
-pub fn update_auto_archive_settings(
+pub async fn update_auto_archive_settings(
     state: State<'_, AppState>,
     enabled: bool,
     days_inactive: i32,
 ) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.update_auto_archive_settings(enabled, days_inactive)
         .map_err(|e| e.to_string())
 }
 
 /// Get history retention days setting
 #[command]
-pub fn get_history_retention_days(
+pub async fn get_history_retention_days(
     state: State<'_, AppState>,
 ) -> Result<i32, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.get_history_retention_days().map_err(|e| e.to_string())
 }
 
 /// Update history retention days setting
 #[command]
-pub fn update_history_retention_days(
+pub async fn update_history_retention_days(
     state: State<'_, AppState>,
     days: i32,
 ) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.set_setting("history_retention_days", &days.to_string())
         .map_err(|e| e.to_string())
 }
 
 /// Purge archived tabs that are older than the retention period (manual trigger)
 #[command]
-pub fn purge_archived_tabs_now(
+pub async fn purge_archived_tabs_now(
     state: State<'_, AppState>,
 ) -> Result<usize, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     let retention_days = db.get_history_retention_days().map_err(|e| e.to_string())?;
     db.cleanup_old_archived_tabs(retention_days)
         .map_err(|e| e.to_string())
@@ -1304,10 +1306,10 @@ pub fn purge_archived_tabs_now(
 
 /// Permanently delete ALL archived tabs (regardless of retention period)
 #[command]
-pub fn purge_all_archived_tabs(
+pub async fn purge_all_archived_tabs(
     state: State<'_, AppState>,
 ) -> Result<usize, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.purge_all_archived_tabs().map_err(|e| e.to_string())
 }
 
@@ -1317,16 +1319,16 @@ pub fn purge_all_archived_tabs(
 
 /// Get app settings (validation, last opened workspace/tab)
 #[command]
-pub fn get_app_settings(
+pub async fn get_app_settings(
     state: State<'_, AppState>,
 ) -> Result<AppSettings, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.get_app_settings().map_err(|e| e.to_string())
 }
 
 /// Update app settings
 #[command]
-pub fn update_app_settings(
+pub async fn update_app_settings(
     state: State<'_, AppState>,
     validation_enabled: bool,
     last_space_id: Option<String>,
@@ -1335,7 +1337,7 @@ pub fn update_app_settings(
     max_result_rows: i32,
     reference_preview_row_limit: i32,
 ) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     let settings = AppSettings {
         validation_enabled,
         last_space_id,
@@ -1353,21 +1355,21 @@ pub fn update_app_settings(
 
 /// Export the entire application database to a file
 #[command]
-pub fn export_database(
+pub async fn export_database(
     state: State<'_, AppState>,
     destination: String,
 ) -> Result<(), String> {
-    export_db(&state, &destination)
+    export_db(&state, &destination).await
 }
 
 /// Import an application database from a file and restart the application
 #[command]
-pub fn import_database(
+pub async fn import_database(
     app_handle: AppHandle,
     state: State<'_, AppState>,
     source: String,
 ) -> Result<(), String> {
-    import_db(&app_handle, &state, &source)
+    import_db(&app_handle, &state, &source).await
 }
 
 // ============================================================================
@@ -1376,54 +1378,54 @@ pub fn import_database(
 
 /// Get all sticky notes for a tab
 #[command]
-pub fn get_tab_notes(
+pub async fn get_tab_notes(
     state: State<'_, AppState>,
     tab_id: String,
 ) -> Result<Vec<StickyNote>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.get_tab_notes(&tab_id).map_err(|e| e.to_string())
 }
 
 /// Save (insert or replace) a sticky note
 #[command]
-pub fn save_note(
+pub async fn save_note(
     state: State<'_, AppState>,
     note: StickyNote,
 ) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.save_note(&note).map_err(|e| e.to_string())
 }
 
 /// Delete a single sticky note
 #[command]
-pub fn delete_note(
+pub async fn delete_note(
     state: State<'_, AppState>,
     note_id: String,
     tab_id: String,
 ) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.delete_note(&note_id, &tab_id).map_err(|e| e.to_string())
 }
 
 /// Move a sticky note to a new line number
 #[command]
-pub fn move_note(
+pub async fn move_note(
     state: State<'_, AppState>,
     note_id: String,
     tab_id: String,
     new_line: i32,
 ) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.move_note(&note_id, &tab_id, new_line).map_err(|e| e.to_string())
 }
 
 /// Clear all sticky notes for a tab
 #[command]
-pub fn clear_tab_notes(
+pub async fn clear_tab_notes(
     state: State<'_, AppState>,
     tab_id: String,
 ) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.delete_tab_notes(&tab_id).map_err(|e| e.to_string())
 }
 
@@ -1433,12 +1435,12 @@ pub fn clear_tab_notes(
 
 /// Get all user-defined references for a connection + database
 #[command]
-pub fn get_virtual_references(
+pub async fn get_virtual_references(
     state: State<'_, AppState>,
     connection_id: String,
     database: String,
 ) -> Result<Vec<VirtualReference>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.get_virtual_references(&connection_id, &database)
         .map_err(|e| e.to_string())
 }
@@ -1446,7 +1448,7 @@ pub fn get_virtual_references(
 /// Create or replace the user-defined reference for a source column
 #[command]
 #[allow(clippy::too_many_arguments)]
-pub fn save_virtual_reference(
+pub async fn save_virtual_reference(
     state: State<'_, AppState>,
     connection_id: String,
     database: String,
@@ -1472,7 +1474,7 @@ pub fn save_virtual_reference(
         updated_at: now,
     };
 
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.save_virtual_reference(&reference)
         .map_err(|e| e.to_string())?;
     Ok(reference)
@@ -1480,10 +1482,10 @@ pub fn save_virtual_reference(
 
 /// Delete a user-defined reference by id
 #[command]
-pub fn delete_virtual_reference(
+pub async fn delete_virtual_reference(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<bool, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let db = state.db.lock().await;
     db.delete_virtual_reference(&id).map_err(|e| e.to_string())
 }

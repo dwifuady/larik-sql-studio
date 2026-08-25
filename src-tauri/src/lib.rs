@@ -9,32 +9,39 @@ pub mod storage;
 use commands::AppState;
 use db::{MssqlConnectionManager, QueryEngine, SchemaMetadataManager};
 use storage::{DatabaseManager, get_default_db_path};
-use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
-use tokio::sync::RwLock;
+use std::sync::{Arc, Mutex as StdMutex};
+use tauri::Manager;
+use tokio::sync::{Mutex, RwLock};
 use tokio::time::{interval, Duration};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
+pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize the database
-    let db_path = get_default_db_path().expect("Failed to get database path");
+    let db_path = get_default_db_path()?;
     println!("[Startup] Database path: {:?}", db_path);
-    let db_manager = DatabaseManager::new(db_path.clone()).expect("Failed to initialize database");
-    
+    let db_manager = DatabaseManager::new(db_path.clone())?;
+
     // Initialize snippets schema and seed built-in snippets (T046)
-    db_manager.init_snippets_schema().expect("Failed to initialize snippets schema");
-    let seeded_count = db_manager.seed_builtin_snippets().expect("Failed to seed built-in snippets");
+    db_manager
+        .init_snippets_schema()
+        .map_err(|e| format!("Failed to initialize snippets schema: {e}"))?;
+    let seeded_count = db_manager
+        .seed_builtin_snippets()
+        .map_err(|e| format!("Failed to seed built-in snippets: {e}"))?;
     if seeded_count > 0 {
         println!("[Startup] Seeded {} new built-in snippets", seeded_count);
     }
-    
+
     // Log total snippet count
     if let Ok(all_snippets) = db_manager.get_all_snippets() {
         println!("[Startup] Total snippets in database: {}", all_snippets.len());
     }
 
     // Initialize default settings for archive/history
-    db_manager.init_default_settings().expect("Failed to initialize default settings");
+    db_manager
+        .init_default_settings()
+        .map_err(|e| format!("Failed to initialize default settings: {e}"))?;
 
     // Initialize MS-SQL connection manager (T015, T016)
     let mssql_manager = Arc::new(MssqlConnectionManager::new());
@@ -43,8 +50,7 @@ pub fn run() {
     let query_engine = Arc::new(QueryEngine::new(Arc::clone(&mssql_manager)));
 
     // Initialize schema metadata manager (T024)
-    let schema_db_manager = DatabaseManager::new(db_path.clone())
-        .expect("Failed to initialize database for schema manager");
+    let schema_db_manager = DatabaseManager::new(db_path.clone())?;
     let schema_manager = Arc::new(SchemaMetadataManager::new(
         Arc::clone(&mssql_manager),
         Arc::new(schema_db_manager)
@@ -56,15 +62,23 @@ pub fn run() {
         query_engine,
         schema_manager,
         export_cancel_flags: RwLock::new(HashMap::new()),
+        archive_task: StdMutex::new(None),
     };
 
     // Clone DB path for background task
     let db_path_for_bg = db_path.clone();
 
     tauri::Builder::default()
-        .setup(move |_app| {
-            // Spawn background auto-archive task
-            spawn_auto_archive_task(db_path_for_bg);
+        .setup(move |app| {
+            // Spawn background auto-archive task and keep its handle so it can
+            // be aborted on exit (Step 1.6d).
+            let handle = spawn_auto_archive_task(db_path_for_bg);
+            let state = app.state::<AppState>();
+            let mut slot = state
+                .archive_task
+                .lock()
+                .map_err(|_| "AppState lock poisoned")?;
+            *slot = Some(handle);
             Ok(())
         })
         .manage(app_state)
@@ -89,7 +103,6 @@ pub fn run() {
             commands::autosave_tab_content,
             commands::toggle_tab_pinned,
             commands::delete_tab,
-            commands::reorder_tabs,
             commands::reorder_tabs,
             commands::move_tab_to_space,
             commands::search_tabs,
@@ -178,12 +191,30 @@ pub fn run() {
             commands::save_virtual_reference,
             commands::delete_virtual_reference,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())?
+        .run(|app_handle, event| {
+            // Abort the background archiver cleanly on exit (Step 1.6d).
+            if matches!(
+                event,
+                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+            ) {
+                let state = app_handle.state::<AppState>();
+                let taken = state
+                    .archive_task
+                    .lock()
+                    .ok()
+                    .and_then(|mut slot| slot.take());
+                if let Some(handle) = taken {
+                    handle.abort();
+                }
+            }
+        });
+    Ok(())
 }
 
-/// Spawn background task for auto-archiving inactive tabs
-fn spawn_auto_archive_task(db_path: std::path::PathBuf) {
+/// Spawn background task for auto-archiving inactive tabs.
+/// Returns the task handle so the caller can abort it on exit.
+fn spawn_auto_archive_task(db_path: std::path::PathBuf) -> tauri::async_runtime::JoinHandle<()> {
     tauri::async_runtime::spawn(async move {
         // Create a separate DatabaseManager for this background task
         let db = match DatabaseManager::new(db_path) {
@@ -194,10 +225,18 @@ fn spawn_auto_archive_task(db_path: std::path::PathBuf) {
             }
         };
 
-        let mut interval = interval(Duration::from_secs(3600)); // Every hour
+        // Jitter the first tick (0-299s) so multiple instances/timers do not
+        // wake in lockstep (Step 1.6d). Derived from clock nanos — no rand dep.
+        let jitter_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| (d.subsec_nanos() as u64) % 300)
+            .unwrap_or(0);
+        tokio::time::sleep(Duration::from_secs(jitter_secs)).await;
+
+        let mut ticker = interval(Duration::from_secs(3600)); // Every hour
 
         loop {
-            interval.tick().await;
+            ticker.tick().await;
 
             // Check if enabled
             let enabled = match db.get_auto_archive_enabled() {
@@ -250,6 +289,5 @@ fn spawn_auto_archive_task(db_path: std::path::PathBuf) {
                 Err(e) => eprintln!("[Auto-Archive] Failed to cleanup old tabs: {}", e),
             }
         }
-    });
+    })
 }
-
