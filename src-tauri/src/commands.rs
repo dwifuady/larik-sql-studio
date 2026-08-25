@@ -862,7 +862,7 @@ pub async fn export_to_csv(
         flags.insert(export_id.clone(), Arc::clone(&cancel_flag));
     }
 
-    let path = PathBuf::from(&file_path);
+    let path = crate::storage::paths::validate_export_path(&file_path, "csv")?;
     let options = options.unwrap_or_default();
     let exporter = CsvExporter::new(options);
     
@@ -913,7 +913,7 @@ pub async fn export_to_json(
         flags.insert(export_id.clone(), Arc::clone(&cancel_flag));
     }
 
-    let path = PathBuf::from(&file_path);
+    let path = crate::storage::paths::validate_export_path(&file_path, "json")?;
     let options = options.unwrap_or_else(|| ExportOptions {
         pretty_print: true,
         ..Default::default()
@@ -1013,8 +1013,11 @@ pub async fn export_tab_as_sql(
         tab.content.unwrap_or_default()
     };
 
-    std::fs::write(PathBuf::from(&file_path), final_content)
-        .map_err(|e| format!("Failed to write file: {}", e))?;
+    {
+        let path = crate::storage::paths::validate_export_path(&file_path, "sql")?;
+        std::fs::write(&path, final_content)
+            .map_err(|e| format!("Failed to write file: {}", e))?;
+    }
 
     Ok(())
 }
@@ -1027,9 +1030,12 @@ pub async fn import_sql_file_as_tab(
     file_path: String,
     title: Option<String>,
 ) -> Result<Tab, String> {
-    let path = PathBuf::from(&file_path);
+    let path = crate::storage::paths::validate_import_path(&file_path, "sql")?;
     let content = std::fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read file: {}", e))?;
+    if content.len() > 10_000_000 {
+        return Err("File exceeds 10000000 byte limit".into());
+    }
 
     let default_title = path.file_stem()
         .and_then(|s| s.to_str())

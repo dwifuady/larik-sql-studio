@@ -6,6 +6,7 @@ use tauri::{AppHandle, State};
 
 /// Export the application database to a specified file path
 pub async fn export_database(state: &State<'_, AppState>, destination: &str) -> Result<(), String> {
+    let validated_dest = crate::storage::paths::validate_export_path(destination, "db")?;
     let db_manager = state.db.lock().await;
     let db_path = db_manager.db_path();
 
@@ -14,7 +15,7 @@ pub async fn export_database(state: &State<'_, AppState>, destination: &str) -> 
     }
 
     // Ensure the destination directory exists
-    let dest_path = Path::new(destination);
+    let dest_path = Path::new(&validated_dest);
     if let Some(parent) = dest_path.parent() {
         if !parent.exists() {
             if let Err(e) = std::fs::create_dir_all(parent) {
@@ -23,7 +24,7 @@ pub async fn export_database(state: &State<'_, AppState>, destination: &str) -> 
         }
     }
 
-    match std::fs::copy(db_path, destination) {
+    match std::fs::copy(db_path, &validated_dest) {
         Ok(_) => Ok(()),
         Err(e) => Err(format!("Failed to copy database file: {}", e)),
     }
@@ -35,7 +36,8 @@ pub async fn import_database(
     state: &State<'_, AppState>,
     source: &str,
 ) -> Result<(), String> {
-    let source_path = Path::new(source);
+    let validated_source = crate::storage::paths::validate_import_path(source, "db")?;
+    let source_path = Path::new(&validated_source);
     if !source_path.exists() {
         return Err("Source database file not found.".to_string());
     }

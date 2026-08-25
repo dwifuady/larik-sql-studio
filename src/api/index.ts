@@ -462,6 +462,15 @@ export async function cancelExport(exportId: string): Promise<boolean> {
 // SQL File Import/Export API
 // ============================================================================
 
+const MAX_SQL_IMPORT_BYTES = 10_000_000;
+
+/** Validate SQL content length before import (10 MB cap). */
+export function validateSqlContentLength(content: string): void {
+  if (content.length > MAX_SQL_IMPORT_BYTES) {
+    throw new Error(`SQL content exceeds ${MAX_SQL_IMPORT_BYTES} byte limit`);
+  }
+}
+
 /** Sanitize filename for SQL export */
 export function sanitizeFilename(title: string): string {
   return title
