@@ -3,6 +3,7 @@
 
 use bb8::Pool;
 use bb8_tiberius::ConnectionManager;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -20,8 +21,8 @@ pub struct ConnectionConfig {
     pub port: u16,
     pub database: String,
     pub username: String,
-    #[serde(skip_serializing)] // Don't serialize password
-    pub password: String,
+    #[serde(skip_serializing)] // Don't serialize password; redacted via SecretString Debug
+    pub password: SecretString,
     pub trust_certificate: bool,
     pub encrypt: bool,
     pub space_id: Option<String>,
@@ -43,7 +44,7 @@ impl ConnectionConfig {
             port,
             database,
             username,
-            password,
+            password: SecretString::new(password.into()),
             trust_certificate: true,
             encrypt: false,
             space_id: None,
@@ -56,7 +57,10 @@ impl ConnectionConfig {
         config.host(&self.host);
         config.port(self.port);
         config.database(&self.database);
-        config.authentication(AuthMethod::sql_server(&self.username, &self.password));
+        config.authentication(AuthMethod::sql_server(
+            &self.username,
+            self.password.expose_secret(),
+        ));
         
         if self.trust_certificate {
             config.trust_cert();
@@ -341,7 +345,7 @@ impl MssqlConnectionManager {
             config.username = username;
         }
         if let Some(password) = updates.password {
-            config.password = password;
+            config.password = SecretString::new(password.into());
         }
         if let Some(trust_certificate) = updates.trust_certificate {
             config.trust_certificate = trust_certificate;
@@ -482,10 +486,14 @@ mod tests {
         assert_eq!(config.port, 1433);
         assert_eq!(config.database, "master");
         assert_eq!(config.username, "sa");
-        assert_eq!(config.password, "password123");
+        assert_eq!(config.password.expose_secret(), "password123");
         assert_eq!(config.trust_certificate, true); // Default
         assert_eq!(config.encrypt, false); // Default
         assert!(config.space_id.is_none());
+        // Debug must be redacted
+        let dbg = format!("{:?}", config);
+        assert!(!dbg.contains("password123"));
+        assert!(dbg.contains("***") || dbg.contains("REDACTED") || dbg.contains("Secret"));
     }
 
     #[test]
