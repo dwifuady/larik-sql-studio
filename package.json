@@ -41,7 +41,6 @@
     "@types/node-sql-parser": "^1.0.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
-    "@types/react-window": "^1.8.8",
     "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "^8.68.0",
     "@typescript-eslint/parser": "^8.68.0",
