@@ -389,6 +389,11 @@ export interface ExportProgress {
   error: string | null;
 }
 
+export interface ExportResult {
+  progress: ExportProgress;
+  export_id: string;
+}
+
 // ============================================================================
 // Snippet Types (T046)
 // ============================================================================

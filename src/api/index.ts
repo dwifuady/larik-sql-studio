@@ -406,16 +406,16 @@ export async function deleteVirtualReference(id: string): Promise<boolean> {
 // Export API (T034, T035, T036)
 // ============================================================================
 
-import type { ExportOptions, ExportProgress, ColumnInfo, CellValue } from '../types';
+import type { ExportOptions, ExportResult, ColumnInfo, CellValue } from '../types';
 
-/** Export query results to CSV file */
+/** Export query results to CSV file — returns progress plus the export_id for cancellation */
 export async function exportToCsv(
   filePath: string,
   columns: ColumnInfo[],
   rows: CellValue[][],
   options?: ExportOptions
-): Promise<ExportProgress> {
-  return invoke<ExportProgress>('export_to_csv', {
+): Promise<ExportResult> {
+  return invoke<ExportResult>('export_to_csv', {
     filePath,
     columns,
     rows,
@@ -423,14 +423,14 @@ export async function exportToCsv(
   });
 }
 
-/** Export query results to JSON file */
+/** Export query results to JSON file — returns progress plus the export_id for cancellation */
 export async function exportToJson(
   filePath: string,
   columns: ColumnInfo[],
   rows: CellValue[][],
   options?: ExportOptions
-): Promise<ExportProgress> {
-  return invoke<ExportProgress>('export_to_json', {
+): Promise<ExportResult> {
+  return invoke<ExportResult>('export_to_json', {
     filePath,
     columns,
     rows,
