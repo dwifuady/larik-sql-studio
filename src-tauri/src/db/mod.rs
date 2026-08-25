@@ -2,6 +2,7 @@
 // This module handles database connections, query operations, and schema metadata
 
 pub mod connection;
+pub mod ident;
 pub mod query;
 pub mod schema;
 pub mod management;
