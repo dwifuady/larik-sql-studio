@@ -1,6 +1,6 @@
 [package]
 name = "larik-sql-studio"
-version = "0.1.0"
+version = "0.5.0"
 description = "Workspace-Centric SQL Studio"
 authors = ["you"]
 edition = "2021"
