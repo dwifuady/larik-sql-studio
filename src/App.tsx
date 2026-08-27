@@ -1,5 +1,6 @@
 import { AppLayout } from './components/AppLayout';
 import { CreateSpaceModal } from './components/CreateSpaceModal';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { useAppStore } from './store';
 
 function App() {
@@ -7,7 +8,9 @@ function App() {
 
   return (
     <>
-      <AppLayout />
+      <ErrorBoundary>
+        <AppLayout />
+      </ErrorBoundary>
       <CreateSpaceModal
         isOpen={createSpaceModalOpen}
         onClose={() => setCreateSpaceModalOpen(false)}
