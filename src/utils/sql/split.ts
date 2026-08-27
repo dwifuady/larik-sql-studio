@@ -12,15 +12,10 @@ export function splitSqlStatements(sql: string): string[] {
   type State = 'NORMAL' | 'STRING' | 'BRACKET' | 'LINE_COMMENT' | 'BLOCK_COMMENT';
   let state: State = 'NORMAL';
 
-  // For GO detection: track if we are at start of line (after \n or at 0) and in NORMAL
-  let atLineStart = true;
-  let lineBuffer = ''; // buffer for current line content to detect GO
-
   const flush = () => {
     const trimmed = current.trim();
     if (trimmed) statements.push(trimmed);
     current = '';
-    lineBuffer = '';
   };
 
   while (i < len) {
@@ -29,12 +24,10 @@ export function splitSqlStatements(sql: string): string[] {
 
     if (state === 'STRING') {
       current += ch;
-      lineBuffer += ch;
       if (ch === "'") {
         if (next === "'") {
           // Escaped '' inside string
           current += next;
-          lineBuffer += next;
           i += 2;
           continue;
         } else {
@@ -43,21 +36,16 @@ export function splitSqlStatements(sql: string): string[] {
       }
       i++;
       if (ch === '\n') {
-        atLineStart = true;
-        lineBuffer = '';
       } else {
-        atLineStart = false;
       }
       continue;
     }
 
     if (state === 'BRACKET') {
       current += ch;
-      lineBuffer += ch;
       if (ch === ']') {
         if (next === ']') {
           current += next;
-          lineBuffer += next;
           i += 2;
           continue;
         } else {
@@ -70,11 +58,8 @@ export function splitSqlStatements(sql: string): string[] {
 
     if (state === 'LINE_COMMENT') {
       current += ch;
-      lineBuffer += ch;
       if (ch === '\n') {
         state = 'NORMAL';
-        atLineStart = true;
-        lineBuffer = '';
       }
       i++;
       continue;
@@ -82,17 +67,13 @@ export function splitSqlStatements(sql: string): string[] {
 
     if (state === 'BLOCK_COMMENT') {
       current += ch;
-      lineBuffer += ch;
       if (ch === '*' && next === '/') {
         current += next;
-        lineBuffer += next;
         i += 2;
         state = 'NORMAL';
         continue;
       }
       if (ch === '\n') {
-        atLineStart = true;
-        lineBuffer = '';
       }
       i++;
       continue;
@@ -102,40 +83,30 @@ export function splitSqlStatements(sql: string): string[] {
     if (ch === "'") {
       state = 'STRING';
       current += ch;
-      lineBuffer += ch;
-      atLineStart = false;
       i++;
       continue;
     }
     if (ch === '[') {
       state = 'BRACKET';
       current += ch;
-      lineBuffer += ch;
-      atLineStart = false;
       i++;
       continue;
     }
     if (ch === '-' && next === '-') {
       state = 'LINE_COMMENT';
       current += ch + next;
-      lineBuffer += ch + next;
       i += 2;
-      atLineStart = false;
       continue;
     }
     if (ch === '/' && next === '*') {
       state = 'BLOCK_COMMENT';
       current += ch + next;
-      lineBuffer += ch + next;
       i += 2;
-      atLineStart = false;
       continue;
     }
     if (ch === ';') {
       flush();
       i++;
-      atLineStart = false;
-      lineBuffer = '';
       continue;
     }
 
@@ -152,20 +123,14 @@ export function splitSqlStatements(sql: string): string[] {
           if (current.trim()) flush();
           i = lineEnd + 1;
           current = '';
-          lineBuffer = '';
-          atLineStart = true;
           continue;
         }
       }
     }
 
     current += ch;
-    lineBuffer += ch;
     if (ch === '\n') {
-      atLineStart = true;
-      lineBuffer = '';
     } else if (ch.trim() !== '') {
-      atLineStart = false;
     }
     i++;
   }
