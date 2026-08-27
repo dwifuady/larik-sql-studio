@@ -4,7 +4,6 @@
 use tauri::{command, State, AppHandle, Emitter};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::path::PathBuf;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, Mutex, RwLock};
 

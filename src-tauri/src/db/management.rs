@@ -86,7 +86,7 @@ pub async fn import_database(
         // Attempt to restore by reopening the (possibly corrupted) destination
         // so the app remains usable; propagate the error and do NOT restart
         let _ = crate::storage::DatabaseManager::new(db_path.clone()).map(|new_mgr| {
-            let mut guard = state.db.try_lock();
+            let guard = state.db.try_lock();
             if let Ok(mut g) = guard {
                 let placeholder = std::mem::replace(&mut *g, new_mgr);
                 let _ = std::fs::remove_file(placeholder.db_path());
