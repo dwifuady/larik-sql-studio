@@ -28,6 +28,7 @@ use crate::export::{
     CsvExporter, JsonExporter, ExportOptions, ExportProgress,
 };
 
+#[allow(dead_code)]
 mod validate;
 
 /// Application state managed by Tauri

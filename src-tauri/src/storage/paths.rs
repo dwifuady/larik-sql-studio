@@ -51,6 +51,7 @@ fn deny_system_dirs(canon: &Path) -> Result<(), String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 

@@ -6,19 +6,7 @@ import type { CreateSpaceInput, UpdateSpaceInput } from '../types';
 import { save, open, ask } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 
-// Arc-style space colors
-const SPACE_COLORS = [
-  '#C4B5FD', // pastel purple (violet-300)
-  '#93C5FD', // pastel blue (blue-300)
-  '#67E8F9', // pastel cyan (cyan-300)
-  '#86EFAC', // pastel green (green-300)
-  '#FDE047', // pastel yellow (yellow-300)
-  '#FDBA74', // pastel orange (orange-300)
-  '#F9A8D4', // pastel pink (pink-300)
-  '#FCA5A5', // pastel red (red-300)
-  '#A5F3FC', // light cyan (cyan-200)
-  '#E9D5FF', // light purple (purple-200)
-];
+import { SPACE_COLORS } from '@/utils/spaceColors';
 
 function getSpaceColor(index: number, customColor?: string | null): string {
   if (customColor) return customColor;

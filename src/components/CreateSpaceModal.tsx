@@ -4,17 +4,7 @@ import { createPortal } from 'react-dom';
 import { useAppStore } from '../store';
 import type { CreateSpaceInput } from '../types';
 
-// Arc-style space colors
-const SPACE_COLORS = [
-  '#8b5cf6', // purple
-  '#3b82f6', // blue
-  '#06b6d4', // cyan
-  '#22c55e', // green
-  '#eab308', // yellow
-  '#f97316', // orange
-  '#ec4899', // pink
-  '#ef4444', // red
-];
+import { SPACE_COLORS } from '@/utils/spaceColors';
 
 // Connection form state interface
 interface ConnectionFormState {

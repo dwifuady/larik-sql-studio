@@ -1,45 +1,25 @@
-name: CI on Push
-
-on:
-  push:
-    branches: [ "main", "dev", "opensource" ]
-  pull_request:
-    branches: [ "main", "dev" ]
-
+name: CI
+on: [push, pull_request]
 jobs:
-  test:
-    name: Run Tests
+  backend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          
-      - name: Install Dependencies
-        run: npm ci
-        
-      - name: Run Unit Tests
-        run: npx vitest run
-
-  lint:
-    name: Lint & Type Check
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: clippy, rustfmt }
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+      - run: cargo install cargo-audit && cargo audit
+  frontend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          
-      - name: Install Dependencies
-        run: npm ci
-
-      # Assuming standard vite tsc build check
-      - name: Type Check
-        run: npx tsc --noEmit
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npx impeccable detect src/
+      - run: npm run test -- --run
