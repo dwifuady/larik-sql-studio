@@ -51,26 +51,28 @@ export function TitleBar({ sidebarWidth = 280, sidebarHidden = false, onToggleSi
     hideTimer.current = window.setTimeout(() => setTitleVisible(false), HIDE_DELAY);
   };
 
-  // Reveal when the cursor enters the top edge of the window.
-  // Uses a window-level mousemove listener (checking clientY) instead of a
-  // fixed-position hotspot, because a fixed hotspot at the very top of a
-  // frameless Tauri window is unreliable when the window is maximized —
-  // Windows reserves the topmost rows for non-client hit-testing on first
-  // launch, swallowing mouseenter on our hotspot until a resize occurs.
+  // Reveal when the cursor enters the top edge of the window — throttled via rAF
+  const rafRef = useRef<number | null>(null);
   useEffect(() => {
     const REVEAL_ZONE = 4;
     const onMouseMove = (e: MouseEvent) => {
-      if (e.clientY <= REVEAL_ZONE) {
-        revealTitleBar();
-      } else if (!titleBarRef.current?.contains(e.target as Node)) {
-        // Cursor moved away from both the top edge and the bar itself
-        if (!hideTimer.current) {
-          scheduleHideTitleBar();
+      if (rafRef.current !== null) return;
+      rafRef.current = window.requestAnimationFrame(() => {
+        rafRef.current = null;
+        if (e.clientY <= REVEAL_ZONE) {
+          revealTitleBar();
+        } else if (!titleBarRef.current?.contains(e.target as Node)) {
+          if (!hideTimer.current) {
+            scheduleHideTitleBar();
+          }
         }
-      }
+      });
     };
     window.addEventListener('mousemove', onMouseMove);
-    return () => window.removeEventListener('mousemove', onMouseMove);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      if (rafRef.current !== null) window.cancelAnimationFrame(rafRef.current);
+    };
   }, []);
 
   // Auto-hide shortly after mount so users see the controls exist

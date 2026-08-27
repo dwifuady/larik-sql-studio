@@ -798,12 +798,21 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     }
   }, [tab.id, editorReady]);
 
-  // Load schema when connected and tab database changes
+  // Load schema when connected and tab database changes — dedup inflight
+  const inflightSchemaRef = useRef<Map<string, Promise<void>>>(new Map());
+  const lastFetchedDbRef = useRef<Map<string, string>>(new Map());
   useEffect(() => {
     if (isConnected && tab.database) {
-      loadSchema(tab.database);
+      const lastDb = lastFetchedDbRef.current.get(tab.id);
+      if (lastDb === tab.database) return;
+      if (inflightSchemaRef.current.has(tab.id)) return;
+      const p = loadSchema(tab.database).finally(() => {
+        inflightSchemaRef.current.delete(tab.id);
+        if (tab.database) lastFetchedDbRef.current.set(tab.id, tab.database);
+      });
+      inflightSchemaRef.current.set(tab.id, p as Promise<void>);
     }
-  }, [isConnected, tab.database, loadSchema]);
+  }, [isConnected, tab.database, tab.id, loadSchema]);
 
   // Load snippets on mount (if not already loaded)
   useEffect(() => {
