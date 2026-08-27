@@ -4,6 +4,7 @@
  */
 
 import NodeSqlParser from 'node-sql-parser';
+import { splitSqlStatements } from '@/utils/sql/split';
 
 const { Parser } = NodeSqlParser;
 
@@ -84,7 +85,7 @@ export function extractStatementAtCursor(
     statements = null;
   }
 
-  const statementTexts = splitBySemicolon(batchWithCursor.batch);
+  const statementTexts = splitSqlStatements(batchWithCursor.batch);
 
   // If parsing failed, use the semicolon splits as the statement list.
   // This keeps detection working for statements node-sql-parser can't parse,
@@ -311,98 +312,6 @@ function splitByGoBatches(sql: string): string[] {
   return batches.length > 0 ? batches : [sql];
 }
 
-function splitBySemicolon(sql: string): string[] {
-  const statements: string[] = [];
-  let currentStatement = '';
-  let inString: string | null = null;
-  let inBracket = false;
-  let inLineComment = false;
-  let inBlockComment = false;
-
-  for (let i = 0; i < sql.length; i++) {
-    const char = sql[i];
-    const nextChar = i < sql.length - 1 ? sql[i + 1] : '';
-
-    if (!inString && !inBlockComment && char === '-' && nextChar === '-') {
-      inLineComment = true;
-      currentStatement += char;
-      continue;
-    }
-
-    if (inLineComment && char === '\n') {
-      inLineComment = false;
-      currentStatement += char;
-      continue;
-    }
-
-    if (!inString && !inLineComment && char === '/' && nextChar === '*') {
-      inBlockComment = true;
-      currentStatement += char;
-      continue;
-    }
-
-    if (inBlockComment && char === '*' && nextChar === '/') {
-      inBlockComment = false;
-      currentStatement += char + nextChar;
-      i++;
-      continue;
-    }
-
-    if (inLineComment || inBlockComment) {
-      currentStatement += char;
-      continue;
-    }
-
-    // Handle square brackets
-    if (!inString && char === '[') {
-      inBracket = true;
-      currentStatement += char;
-      continue;
-    }
-
-    if (inBracket && char === ']') {
-      inBracket = false;
-      currentStatement += char;
-      continue;
-    }
-
-    if (!inBracket && (char === "'" || char === '"')) {
-      if (!inString) {
-        inString = char;
-      } else if (inString === char) {
-        if (nextChar === char) {
-          currentStatement += char + nextChar;
-          i++;
-          continue;
-        } else {
-          inString = null;
-        }
-      }
-      currentStatement += char;
-      continue;
-    }
-
-    if (!inString && !inBracket && char === ';') {
-      const stmt = currentStatement.trim();
-      if (stmt.length > 0) {
-        statements.push(stmt);
-      }
-      currentStatement = '';
-      continue;
-    }
-
-    // Regular character
-    currentStatement += char;
-  }
-
-  // Add final statement if any
-  const finalStmt = currentStatement.trim();
-  if (finalStmt.length > 0) {
-    statements.push(finalStmt);
-  }
-
-  return statements.length > 0 ? statements : [sql];
-}
 
 /**
  * Fallback function for when parsing fails
@@ -433,7 +342,7 @@ export function extractAllStatements(sql: string): StatementLocation[] {
       continue;
     }
 
-    const statementTexts = splitBySemicolon(batch);
+    const statementTexts = splitSqlStatements(batch);
 
     let searchStartLine = 0; // 0-based index within batch
 

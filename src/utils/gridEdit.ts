@@ -1,5 +1,6 @@
 // SQL builders for inline grid editing (UPDATE / INSERT / DELETE).
 // Shared by ResultsGrid so add, edit, and delete all produce consistent literals.
+import { quoteIdent } from '@/utils/sql/ident';
 import type { CellValue } from '../types';
 
 /** Minimal column reference needed to build SQL for one column. */
@@ -80,10 +81,10 @@ export function buildUpdateQuery(
   sets: Array<{ column: GridColumnRef; value: CellValue }>
 ): string {
   const setClauses = sets.map(({ column, value }) =>
-    `[${column.name}] = ${formatValueForInsert(value, column.dataType)}`
+    `${quoteIdent(column.name)} = ${formatValueForInsert(value, column.dataType)}`
   );
   const identityFormatted = formatValueForInsert(identityValue, identity.dataType);
-  return `UPDATE ${tableName} SET ${setClauses.join(', ')} WHERE [${identity.name}] = ${identityFormatted}`;
+  return `UPDATE ${tableName} SET ${setClauses.join(', ')} WHERE ${quoteIdent(identity.name)} = ${identityFormatted}`;
 }
 
 /** Build a DELETE statement targeting one row by its key column. */
@@ -93,7 +94,7 @@ export function buildDeleteQuery(
   identityValue: CellValue
 ): string {
   const identityFormatted = formatValueForInsert(identityValue, identity.dataType);
-  return `DELETE FROM ${tableName} WHERE [${identity.name}] = ${identityFormatted}`;
+  return `DELETE FROM ${tableName} WHERE ${quoteIdent(identity.name)} = ${identityFormatted}`;
 }
 
 /** Build an INSERT statement for explicitly provided columns only. */
@@ -102,7 +103,7 @@ export function buildInsertQuery(
   columns: GridColumnRef[],
   values: CellValue[]
 ): string {
-  const colNames = columns.map(c => `[${c.name}]`).join(', ');
+  const colNames = columns.map(c => quoteIdent(c.name)).join(', ');
   const formattedValues = columns
     .map((c, i) => formatValueForInsert(values[i] ?? null, c.dataType))
     .join(', ');

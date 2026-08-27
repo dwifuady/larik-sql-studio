@@ -4,6 +4,7 @@
  */
 
 import NodeSqlParser from 'node-sql-parser';
+import { splitSqlStatements } from '@/utils/sql/split';
 import type { SchemaInfo, TableInfo, SchemaColumnInfo } from '../types';
 
 const { Parser } = NodeSqlParser;
@@ -99,7 +100,7 @@ export class SqlValidator {
     const statements = Array.isArray(ast) ? ast : [ast];
 
     // Split query by semicolons to track statement positions
-    const statementTexts = query.split(';').map(s => s.trim()).filter(s => s.length > 0);
+    const statementTexts = splitSqlStatements(query);
 
     let currentLineOffset = 0;
 
