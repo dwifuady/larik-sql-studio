@@ -40,6 +40,12 @@ pub struct AppState {
     pub archive_task: std::sync::Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
 }
 
+#[derive(serde::Serialize)]
+pub struct ExportResult {
+    pub progress: ExportProgress,
+    pub export_id: String,
+}
+
 /// Convert StorageError to a string for IPC
 impl From<StorageError> for String {
     fn from(err: StorageError) -> Self {
@@ -852,7 +858,7 @@ pub async fn export_to_csv(
     columns: Vec<crate::db::query::ColumnInfo>,
     rows: Vec<Vec<crate::db::query::CellValue>>,
     options: Option<ExportOptions>,
-) -> Result<ExportProgress, String> {
+) -> Result<ExportResult, String> {
     let export_id = uuid::Uuid::new_v4().to_string();
     let cancel_flag = Arc::new(AtomicBool::new(false));
     
@@ -884,13 +890,17 @@ pub async fn export_to_csv(
         .await
         .map_err(|e| e.to_string())?;
     
-    // Clean up cancel flag
+    // Clean up cancel flag — keep the ID to return to the caller for cancellation
+    let export_id_out = export_id.clone();
     {
         let mut flags = state.export_cancel_flags.write().await;
         flags.remove(&export_id);
     }
-    
-    Ok(result)
+
+    Ok(ExportResult {
+        progress: result,
+        export_id: export_id_out,
+    })
 }
 
 /// Export query results to JSON file
@@ -903,7 +913,7 @@ pub async fn export_to_json(
     columns: Vec<crate::db::query::ColumnInfo>,
     rows: Vec<Vec<crate::db::query::CellValue>>,
     options: Option<ExportOptions>,
-) -> Result<ExportProgress, String> {
+) -> Result<ExportResult, String> {
     let export_id = uuid::Uuid::new_v4().to_string();
     let cancel_flag = Arc::new(AtomicBool::new(false));
     
@@ -937,14 +947,18 @@ pub async fn export_to_json(
         .export_to_file_with_progress(&path, &columns, &rows, cancel_flag.clone(), tx)
         .await
         .map_err(|e| e.to_string())?;
-    
-    // Clean up cancel flag
+
+    // Clean up cancel flag — keep the ID to return to the caller for cancellation
+    let export_id_out = export_id.clone();
     {
         let mut flags = state.export_cancel_flags.write().await;
         flags.remove(&export_id);
     }
-    
-    Ok(result)
+
+    Ok(ExportResult {
+        progress: result,
+        export_id: export_id_out,
+    })
 }
 
 /// Export query results to string (CSV or JSON) for clipboard copy

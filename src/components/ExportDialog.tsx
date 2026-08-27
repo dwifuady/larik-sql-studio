@@ -3,7 +3,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { save } from '@tauri-apps/plugin-dialog';
-import { exportToCsv, exportToJson, exportToString } from '../api';
+import { exportToCsv, exportToJson, exportToString, cancelExport } from '../api';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import type { QueryResult, ExportOptions, ExportProgress } from '../types';
 
@@ -19,6 +19,7 @@ export function ExportDialog({ isOpen, onClose, result, spaceColor }: ExportDial
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState<ExportProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [activeExportId, setActiveExportId] = useState<string | null>(null);
   const [options, setOptions] = useState<ExportOptions>({
     include_headers: true,
     pretty_print: true,
@@ -32,6 +33,7 @@ export function ExportDialog({ isOpen, onClose, result, spaceColor }: ExportDial
       setProgress(null);
       setError(null);
       setIsExporting(false);
+      setActiveExportId(null);
     }
   }, [isOpen]);
 
@@ -58,12 +60,14 @@ export function ExportDialog({ isOpen, onClose, result, spaceColor }: ExportDial
         return; // User cancelled
       }
 
-      // Perform export
+      // Perform export — export fn now returns { progress, export_id } for cancellation
       const exportFn = format === 'csv' ? exportToCsv : exportToJson;
-      const result_progress = await exportFn(filePath, result.columns, result.rows, options);
+      const exportResult = await exportFn(filePath, result.columns, result.rows, options);
+      const result_progress = exportResult.progress;
+      setActiveExportId(exportResult.export_id);
 
       setProgress(result_progress);
-      
+
       if (result_progress.error) {
         setError(result_progress.error);
       }
@@ -73,6 +77,18 @@ export function ExportDialog({ isOpen, onClose, result, spaceColor }: ExportDial
       setIsExporting(false);
     }
   }, [format, options, result]);
+
+  const handleCancelExport = useCallback(async () => {
+    if (activeExportId) {
+      try {
+        await cancelExport(activeExportId);
+      } catch {
+        // ignore cancellation errors
+      }
+      setActiveExportId(null);
+    }
+    setIsExporting(false);
+  }, [activeExportId]);
 
   const handleCopyToClipboard = useCallback(async () => {
     try {
@@ -229,9 +245,19 @@ export function ExportDialog({ isOpen, onClose, result, spaceColor }: ExportDial
 
           {/* Progress/Error */}
           {isExporting && (
-            <div className="flex items-center gap-3 text-sm text-[var(--text-muted)]">
-              <div className="animate-spin w-4 h-4 border-2 border-[var(--accent-color)] border-t-transparent rounded-full" />
-              <span>Exporting...</span>
+            <div className="flex items-center justify-between text-sm text-[var(--text-muted)]">
+              <div className="flex items-center gap-3">
+                <div className="animate-spin w-4 h-4 border-2 border-[var(--accent-color)] border-t-transparent rounded-full" />
+                <span>Exporting...</span>
+              </div>
+              {activeExportId && (
+                <button
+                  onClick={handleCancelExport}
+                  className="px-3 py-1 rounded border border-[var(--border-color)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors"
+                >
+                  Cancel
+                </button>
+              )}
             </div>
           )}
 
