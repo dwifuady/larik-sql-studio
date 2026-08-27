@@ -358,6 +358,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   const activeSpaceId = useAppStore(s => s.activeSpaceId);
   const spaceConnectionStatus = useAppStore(s => s.spaceConnectionStatus);
 
+  const addToast = useAppStore(s => s.addToast);
   const executeQuery = useAppStore(s => s.executeQuery);
   const executeQueryAppend = useAppStore(s => s.executeQueryAppend);
   const executeSilentQuery = useAppStore(s => s.executeSilentQuery);
@@ -661,7 +662,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       if (tabId !== tab.id || !sql) return;
 
       if (!hasConnection) {
-        alert('Please configure a database connection for this space');
+        addToast({ type: 'error', message: 'Please configure a database connection for this space' });
         return;
       }
 
@@ -1508,7 +1509,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   // Execute query handler
   const handleExecuteQuery = useCallback(async () => {
     if (!hasConnection) {
-      alert('Please configure a database connection for this space');
+      addToast({ type: 'error', message: 'Please configure a database connection for this space' });
       return;
     }
 
@@ -1516,7 +1517,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       // Try to connect first
       const connected = await connectToSpace();
       if (!connected) {
-        alert('Failed to connect to database. Please check connection settings.');
+        addToast({ type: 'error', message: 'Failed to connect to database. Please check connection settings.' });
         return;
       }
     }
@@ -1620,7 +1621,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   // Execute query and append to existing results (Ctrl+\)
   const handleExecuteQueryAppend = useCallback(async () => {
     if (!hasConnection) {
-      alert('Please configure a database connection for this space');
+      addToast({ type: 'error', message: 'Please configure a database connection for this space' });
       return;
     }
 
@@ -1628,7 +1629,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       // Try to connect first
       const connected = await connectToSpace();
       if (!connected) {
-        alert('Failed to connect to database. Please check connection settings.');
+        addToast({ type: 'error', message: 'Failed to connect to database. Please check connection settings.' });
         return;
       }
     }

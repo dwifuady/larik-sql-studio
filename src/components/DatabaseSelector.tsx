@@ -105,7 +105,7 @@ export function DatabaseSelector({ isCompact = false }: DatabaseSelectorProps) {
 
                     {isOpen && (
                         <div
-                            className={`absolute top-full mt-1 z-[100] py-1 rounded-md border border-[var(--border-color)] shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150 bg-[var(--bg-secondary)] backdrop-blur-xl ${isCompact ? 'left-[-30px] w-[180px]' : 'left-[-8px] right-[-8px]'}`}
+                            className={`absolute top-full mt-1 z-[20] py-1 rounded-md border border-[var(--border-color)] shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150 bg-[var(--bg-secondary)] backdrop-blur-xl ${isCompact ? 'left-[-30px] w-[180px]' : 'left-[-8px] right-[-8px]'}`}
                             style={{ maxHeight: '280px', overflowY: 'auto' }}
                         >
                             <button

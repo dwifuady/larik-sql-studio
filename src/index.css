@@ -177,165 +177,165 @@
 
 /* Background colors */
 :root[data-theme="light"] .bg-white\/5 {
-  background-color: rgba(0, 0, 0, 0.03) !important;
+  background-color: rgba(0, 0, 0, 0.03);
 }
 
 :root[data-theme="light"] .bg-white\/10 {
-  background-color: rgba(0, 0, 0, 0.06) !important;
+  background-color: rgba(0, 0, 0, 0.06);
 }
 
 :root[data-theme="light"] .bg-white\/15 {
-  background-color: rgba(0, 0, 0, 0.09) !important;
+  background-color: rgba(0, 0, 0, 0.09);
 }
 
 :root[data-theme="light"] .bg-white\/20 {
-  background-color: rgba(0, 0, 0, 0.12) !important;
+  background-color: rgba(0, 0, 0, 0.12);
 }
 
 :root[data-theme="light"] .bg-white\/\[0\.02\] {
-  background-color: rgba(0, 0, 0, 0.02) !important;
+  background-color: rgba(0, 0, 0, 0.02);
 }
 
 :root[data-theme="light"] .bg-white\/\[0\.07\] {
-  background-color: rgba(0, 0, 0, 0.05) !important;
+  background-color: rgba(0, 0, 0, 0.05);
 }
 
 /* Hover background colors */
 :root[data-theme="light"] .hover\:bg-white\/5:hover {
-  background-color: rgba(0, 0, 0, 0.04) !important;
+  background-color: rgba(0, 0, 0, 0.04);
 }
 
 :root[data-theme="light"] .hover\:bg-white\/10:hover {
-  background-color: rgba(0, 0, 0, 0.07) !important;
+  background-color: rgba(0, 0, 0, 0.07);
 }
 
 :root[data-theme="light"] .hover\:bg-white\/15:hover {
-  background-color: rgba(0, 0, 0, 0.1) !important;
+  background-color: rgba(0, 0, 0, 0.1);
 }
 
 :root[data-theme="light"] .hover\:bg-white\/20:hover {
-  background-color: rgba(0, 0, 0, 0.14) !important;
+  background-color: rgba(0, 0, 0, 0.14);
 }
 
 :root[data-theme="light"] .hover\:bg-white\/\[0\.07\]:hover {
-  background-color: rgba(0, 0, 0, 0.05) !important;
+  background-color: rgba(0, 0, 0, 0.05);
 }
 
 /* Focus background colors */
 :root[data-theme="light"] .focus\:bg-white\/\[0\.07\]:focus {
-  background-color: rgba(0, 0, 0, 0.05) !important;
+  background-color: rgba(0, 0, 0, 0.05);
 }
 
 /* Border colors */
 :root[data-theme="light"] .border-white\/5 {
-  border-color: rgba(0, 0, 0, 0.06) !important;
+  border-color: rgba(0, 0, 0, 0.06);
 }
 
 :root[data-theme="light"] .border-white\/10 {
-  border-color: rgba(0, 0, 0, 0.1) !important;
+  border-color: rgba(0, 0, 0, 0.1);
 }
 
 :root[data-theme="light"] .border-white\/20 {
-  border-color: rgba(0, 0, 0, 0.15) !important;
+  border-color: rgba(0, 0, 0, 0.15);
 }
 
 :root[data-theme="light"] .border-white\/30 {
-  border-color: rgba(0, 0, 0, 0.2) !important;
+  border-color: rgba(0, 0, 0, 0.2);
 }
 
 :root[data-theme="light"] .border-white\/50 {
-  border-color: rgba(0, 0, 0, 0.35) !important;
+  border-color: rgba(0, 0, 0, 0.35);
 }
 
 /* Hover border colors */
 :root[data-theme="light"] .hover\:border-white\/20:hover {
-  border-color: rgba(0, 0, 0, 0.15) !important;
+  border-color: rgba(0, 0, 0, 0.15);
 }
 
 :root[data-theme="light"] .hover\:border-white\/50:hover {
-  border-color: rgba(0, 0, 0, 0.35) !important;
+  border-color: rgba(0, 0, 0, 0.35);
 }
 
 /* Focus border colors */
 :root[data-theme="light"] .focus\:border-white\/20:focus {
-  border-color: rgba(0, 0, 0, 0.15) !important;
+  border-color: rgba(0, 0, 0, 0.15);
 }
 
 /* Ring colors */
 :root[data-theme="light"] .ring-white\/30 {
-  --tw-ring-color: rgba(0, 0, 0, 0.2) !important;
+  --tw-ring-color: rgba(0, 0, 0, 0.2);
 }
 
 /* Divider/separator colors */
 :root[data-theme="light"] .divide-white\/5> :not([hidden])~ :not([hidden]) {
-  border-color: rgba(0, 0, 0, 0.06) !important;
+  border-color: rgba(0, 0, 0, 0.06);
 }
 
 :root[data-theme="light"] .divide-white\/10> :not([hidden])~ :not([hidden]) {
-  border-color: rgba(0, 0, 0, 0.1) !important;
+  border-color: rgba(0, 0, 0, 0.1);
 }
 
 /* Fixed backgrounds that should invert in light mode */
 :root[data-theme="light"] .bg-zinc-800 {
-  background-color: #f0f0f0 !important;
+  background-color: #f0f0f0;
 }
 
 :root[data-theme="light"] .bg-zinc-900 {
-  background-color: #f8f8f8 !important;
+  background-color: #f8f8f8;
 }
 
 /* Text color overrides for light mode - gray scale colors that work better */
 :root[data-theme="light"] .text-gray-100 {
-  color: #1a1a1a !important;
+  color: #1a1a1a;
 }
 
 :root[data-theme="light"] .text-gray-200 {
-  color: #2d2d2d !important;
+  color: #2d2d2d;
 }
 
 :root[data-theme="light"] .text-gray-300 {
-  color: #404040 !important;
+  color: #404040;
 }
 
 :root[data-theme="light"] .text-gray-400 {
-  color: #525252 !important;
+  color: #525252;
 }
 
 :root[data-theme="light"] .text-gray-500 {
-  color: #6b6b6b !important;
+  color: #6b6b6b;
 }
 
 :root[data-theme="light"] .hover\:text-gray-100:hover {
-  color: #1a1a1a !important;
+  color: #1a1a1a;
 }
 
 :root[data-theme="light"] .hover\:text-gray-200:hover {
-  color: #2d2d2d !important;
+  color: #2d2d2d;
 }
 
 /* Semantic color adjustments for light mode */
 :root[data-theme="light"] .text-green-400 {
-  color: #16a34a !important;
+  color: #16a34a;
 }
 
 :root[data-theme="light"] .text-red-400 {
-  color: #dc2626 !important;
+  color: #dc2626;
 }
 
 :root[data-theme="light"] .text-blue-400 {
-  color: #2563eb !important;
+  color: #2563eb;
 }
 
 :root[data-theme="light"] .text-purple-400 {
-  color: #7c3aed !important;
+  color: #7c3aed;
 }
 
 :root[data-theme="light"] .text-orange-400 {
-  color: #ea580c !important;
+  color: #ea580c;
 }
 
 :root[data-theme="light"] .text-amber-400 {
-  color: #d97706 !important;
+  color: #d97706;
 }
 
 /* Ensure dark background immediately */
@@ -576,11 +576,11 @@ textarea:focus {
 
 /* Helper to hide specific lines in Monaco Editor */
 .hidden-monaco-line {
-  opacity: 0 !important;
-  font-size: 0 !important;
-  line-height: 0 !important;
-  pointer-events: none !important;
-  user-select: none !important;
+  opacity: 0;
+  font-size: 0;
+  line-height: 0;
+  pointer-events: none;
+  user-select: none;
 }
 
 /*
@@ -668,13 +668,16 @@ textarea:focus {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .animate-space-slide-in {
+    animation: none;
+  }
   .larik-note-popover {
-    animation: none !important;
+    animation: none;
   }
   .larik-gutter-note-icon {
-    transition: none !important;
+    transition: none;
   }
   .larik-gutter-note-add-icon {
-    transition: none !important;
+    transition: none;
   }
 }

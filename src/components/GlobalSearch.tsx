@@ -114,7 +114,7 @@ export function GlobalSearch() {
 
     // Spotlight-style modal content
     const searchModal = isOpen ? (
-        <div className="fixed inset-0 z-[9999] flex items-start justify-center pt-[20vh]" style={{ pointerEvents: 'auto' }}>
+        <div className="fixed inset-0 z-[50] flex items-start justify-center pt-[20vh]" style={{ pointerEvents: 'auto' }}>
             {/* Backdrop */}
             <div
                 className="absolute inset-0 bg-black/20 backdrop-blur-sm transition-opacity"

@@ -1,5 +1,6 @@
 // Archive modal with search and restore functionality
 import { useEffect, useState, useRef } from 'react';
+import DOMPurify from 'dompurify';
 import { useAppStore } from '../store';
 import type { ArchivedTab } from '../types';
 
@@ -238,7 +239,7 @@ export function ArchiveModal() {
                         <h3
                           className="font-medium text-[--text-primary] truncate"
                           dangerouslySetInnerHTML={{
-                            __html: snippets?.title || tab.title,
+                            __html: DOMPurify.sanitize(snippets?.title || tab.title, { USE_PROFILES: { html: true } }),
                           }}
                         />
                       </div>
@@ -286,7 +287,9 @@ export function ArchiveModal() {
                     {snippets?.content && (
                       <div
                         className="text-xs text-[--text-muted] mb-2 line-clamp-2"
-                        dangerouslySetInnerHTML={{ __html: snippets.content }}
+                        dangerouslySetInnerHTML={{
+                          __html: DOMPurify.sanitize(snippets.content, { USE_PROFILES: { html: true } }),
+                        }}
                       />
                     )}
 

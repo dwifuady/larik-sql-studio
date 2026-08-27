@@ -511,7 +511,7 @@ export function AppLayout() {
 
       {/* Drag-and-drop overlay */}
       {isDraggingFile && (
-        <div className="fixed inset-0 z-[100] pointer-events-none">
+        <div className="fixed inset-0 z-[60] pointer-events-none">
           <div className="absolute inset-0 bg-blue-500/10 backdrop-blur-sm" />
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="bg-[var(--bg-secondary)] border-2 border-dashed border-blue-400 rounded-2xl px-12 py-8 shadow-2xl">
