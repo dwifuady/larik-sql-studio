@@ -120,10 +120,10 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
             <div
                 ref={dialogRef}
                 tabIndex={-1}
-                className="w-full max-w-lg overflow-hidden rounded-2xl border border-white/10 bg-[var(--bg-secondary)] shadow-2xl animate-in zoom-in-95 duration-200"
+                className="w-full max-w-lg max-h-[90vh] overflow-hidden rounded-2xl border border-white/10 bg-[var(--bg-secondary)] shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col"
             >
                 {/* Header */}
-                <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 shrink-0">
                     <div className="flex items-center gap-3">
                         <div className="p-2 rounded-lg bg-white/5">
                             <svg className="w-5 h-5 text-[var(--accent-color)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -148,7 +148,7 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
                 </div>
 
                 {/* Content */}
-                <div className="px-6 py-6 space-y-8">
+                <div className="px-6 py-6 space-y-8 overflow-y-auto">
 
                     {/* Performance Settings */}
                     <div>

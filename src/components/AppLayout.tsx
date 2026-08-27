@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAppStore } from '../store';
 import { LayoutList, Database, Archive, Zap } from 'lucide-react';
 import { DatabaseExplorer } from './DatabaseExplorer/DatabaseExplorer';
+import { SpaceSwitcher } from './SpaceSwitcher';
 import { SpacesSelector } from './SpacesSelector';
 import { TabsList } from './TabsList';
 import { QueryEditor } from './QueryEditor';
@@ -50,8 +51,6 @@ export function AppLayout() {
   const spaceConnectionStatus = useAppStore(s => s.spaceConnectionStatus);
   const isConnecting = useAppStore(s => s.isConnecting);
   const connectToSpace = useAppStore(s => s.connectToSpace);
-  const disconnectFromSpace = useAppStore(s => s.disconnectFromSpace);
-
   const spaceDatabases = useAppStore(s => s.spaceDatabases);
 
   const createTab = useAppStore(s => s.createTab);
@@ -582,7 +581,7 @@ export function AppLayout() {
           {/* Content */}
           <div className="relative z-10 flex flex-col flex-1 min-h-0">
             {/* URL Bar style database selector at top */}
-            <div className="px-1.5 pt-1.5 pb-0.5">
+            <div className="px-1.5 pt-1.5 pb-0.5 flex flex-col gap-1">
               {spacesLoading && spaces.length === 0 ? (
                 /* Skeleton for database bar */
                 <div className="flex items-center gap-1.5 px-1.5 py-0.5 bg-[var(--bg-hover)] border border-[var(--border-color)] rounded-md">
@@ -592,6 +591,7 @@ export function AppLayout() {
               ) : (
                 <DatabaseSelector />
               )}
+              <SpaceSwitcher />
             </div>
 
             {/* Animated middle section */}
@@ -602,47 +602,6 @@ export function AppLayout() {
                 }`}
               onAnimationEnd={() => setAnimationDirection(null)}
             >
-              {/* Space Name & Connection Controls - Compact Header */}
-              {activeSpace && (
-                <div className="px-2 py-1.5 pb-0 flex items-center justify-between group">
-                  <span className="text-xs font-semibold text-[var(--text-primary)] truncate" title={activeSpace.name}>
-                    {activeSpace.name}
-                  </span>
-
-                  {hasConnection && (
-                    <div className="flex items-center gap-1.5">
-                      {/* Connection Status Badge */}
-                      <span
-                        className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full transition-colors ${
-                          isConnected
-                            ? 'bg-green-500/20 text-green-400'
-                            : 'bg-[var(--bg-hover)] text-[var(--text-muted)]'
-                        }`}
-                      >
-                        {isConnected ? 'Connected' : 'Disconnected'}
-                      </span>
-
-                      {/* Connect/Disconnect Button - Only visible on hover or if disconnected */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          isConnected ? disconnectFromSpace() : connectToSpace();
-                        }}
-                        disabled={isConnecting}
-                        className={`p-1 rounded hover:bg-[var(--bg-hover)] transition-all ${isConnected
-                          ? 'text-[var(--text-muted)] hover:text-red-400 opacity-0 group-hover:opacity-100'
-                          : 'text-[var(--text-muted)] hover:text-green-400 opacity-100'
-                          }`}
-                        title={isConnected ? 'Disconnect' : 'Connect'}
-                      >
-                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                        </svg>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
 
               {/* Sidebar View Toggle & Actions */}
                 <div className="px-1.5 py-1 flex items-center gap-1">

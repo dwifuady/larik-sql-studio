@@ -62,7 +62,7 @@ export function DatabaseSelector({ isCompact = false }: DatabaseSelectorProps) {
             </svg>
 
             {isConnected && spaceDatabases.length > 0 ? (
-                <div ref={dropdownRef} className="flex-1 relative min-w-0 h-full flex items-center">
+                <div ref={dropdownRef} className="flex-1 min-w-0 h-full flex items-center">
                     <button
                         onClick={() => !databasesLoading && setIsOpen(!isOpen)}
                         disabled={databasesLoading}
@@ -105,17 +105,24 @@ export function DatabaseSelector({ isCompact = false }: DatabaseSelectorProps) {
 
                     {isOpen && (
                         <div
-                            className={`absolute top-full mt-1 z-[20] py-1 rounded-md border border-[var(--border-color)] shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150 bg-[var(--bg-secondary)] backdrop-blur-xl ${isCompact ? 'left-[-30px] w-[180px]' : 'left-[-8px] right-[-8px]'}`}
+                            className={`absolute top-full mt-1 z-[20] py-1 rounded-md border border-[var(--border-color)] shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150 bg-[var(--bg-secondary)] backdrop-blur-xl ${isCompact ? 'left-[-6px] w-[180px]' : 'left-0 right-0'}`}
                             style={{ maxHeight: '280px', overflowY: 'auto' }}
                         >
+                            {/* Default database option */}
                             <button
                                 onClick={() => handleSelectDatabase(null)}
-                                className={`w-full px-3 py-1.5 text-left text-xs flex items-center gap-2 transition-colors ${!activeTab?.database
-                                    ? 'bg-[var(--bg-active)] text-[var(--text-primary)]'
-                                    : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
-                                    }`}
+                                className={`w-full px-2.5 py-1.5 text-left text-xs flex items-center gap-2 transition-colors ${
+                                    !activeTab?.database
+                                        ? 'bg-[var(--bg-active)] text-[var(--text-primary)]'
+                                        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
+                                }`}
                             >
-                                <span className="truncate">{activeSpace?.connection_database || 'Default DB'}</span>
+                                <span className="truncate flex-1">{activeSpace?.connection_database || 'Default DB'}</span>
+                                {!activeTab?.database && (
+                                    <svg className="w-3.5 h-3.5 flex-shrink-0 mr-1 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                )}
                             </button>
                             <div className="my-1 mx-2 border-t border-[var(--border-color)] opacity-50" />
                             {spaceDatabases.map((db) => (
@@ -124,12 +131,13 @@ export function DatabaseSelector({ isCompact = false }: DatabaseSelectorProps) {
                                     onClick={() => db.hasAccess ? handleSelectDatabase(db.name) : undefined}
                                     disabled={!db.hasAccess}
                                     title={!db.hasAccess ? 'You do not have access to this database' : undefined}
-                                    className={`w-full px-3 py-1.5 text-left text-xs flex items-center gap-2 transition-colors ${!db.hasAccess
+                                    className={`w-full px-2.5 py-1.5 text-left text-xs flex items-center gap-2 transition-colors ${
+                                        !db.hasAccess
                                             ? 'opacity-40 cursor-not-allowed text-[var(--text-muted)]'
                                             : activeTab?.database === db.name
                                                 ? 'bg-[var(--bg-active)] text-[var(--text-primary)]'
                                                 : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
-                                        }`}
+                                    }`}
                                 >
                                     {db.hasAccess ? (
                                         <svg className="w-3 h-3 flex-shrink-0 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -140,10 +148,14 @@ export function DatabaseSelector({ isCompact = false }: DatabaseSelectorProps) {
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                                         </svg>
                                     )}
-                                    <span className="truncate">{db.name}</span>
-                                    {!db.hasAccess && (
-                                        <span className="ml-auto text-[9px] text-[var(--text-muted)] shrink-0">No access</span>
-                                    )}
+                                    <span className="truncate flex-1">{db.name}</span>
+                                    {activeTab?.database === db.name ? (
+                                        <svg className="w-3.5 h-3.5 flex-shrink-0 mr-1 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    ) : !db.hasAccess ? (
+                                        <span className="text-[9px] text-[var(--text-muted)] shrink-0">No access</span>
+                                    ) : null}
                                 </button>
                             ))}
                         </div>
