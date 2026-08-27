@@ -139,24 +139,23 @@ export function splitSqlStatements(sql: string): string[] {
       continue;
     }
 
-    // Check for GO at line start (case-insensitive, with optional count and comments)
-    if (atLineStart && (ch === 'G' || ch === 'g')) {
-      // Peek the rest of the line
-      let j = i;
-      let lineEnd = sql.indexOf('\n', j);
+    // Check for GO batch separator (own line, optional leading spaces, case-insensitive)
+    {
+      const lineStart = sql.lastIndexOf('\n', i - 1) + 1;
+      let lineEnd = sql.indexOf('\n', lineStart);
       if (lineEnd === -1) lineEnd = len;
-      const line = sql.slice(j, lineEnd);
-      // GO pattern: GO [0-9]* (\s*(--.*|/\*.*\*/))? \s* $
-      const goMatch = line.match(/^GO(\s+\d+)?(\s+(--.*|\/\*.*\*\/))?\s*$/i);
-      if (goMatch) {
-        // Flush current before GO
-        if (current.trim()) flush();
-        // GO is a batch separator, not part of any statement
-        i = lineEnd + 1; // move past newline (or len)
-        current = '';
-        lineBuffer = '';
-        atLineStart = true;
-        continue;
+      const line = sql.slice(lineStart, lineEnd);
+      if (/^\s*GO(\s+\d+)?(\s+(--.*|\/\*.*\*\/))?\s*$/i.test(line)) {
+        const goIdx = line.search(/GO/i);
+        const goStart = lineStart + goIdx;
+        if (i >= lineStart && i <= goStart + 2) {
+          if (current.trim()) flush();
+          i = lineEnd + 1;
+          current = '';
+          lineBuffer = '';
+          atLineStart = true;
+          continue;
+        }
       }
     }
 
