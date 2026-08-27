@@ -1192,7 +1192,11 @@ impl QueryEngine {
         // DECLARE ...; UPDATE ... that should report affected rows.
         let is_dml = infer_statement_kind(query) == StatementKind::Dml;
 
-        let row_limit = max_rows.unwrap_or(0);
+        let effective_max = max_rows
+            .filter(|&m| m > 0)
+            .unwrap_or(5000)
+            .min(100_000);
+        let row_limit = effective_max;
         let use_row_limit = !is_dml && row_limit > 0;
         let fetch_limit = row_limit.saturating_add(1);
 

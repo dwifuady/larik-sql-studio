@@ -7,6 +7,7 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tiberius::{AuthMethod, Config, EncryptionLevel};
@@ -45,8 +46,8 @@ impl ConnectionConfig {
             database,
             username,
             password: SecretString::new(password.into()),
-            trust_certificate: true,
-            encrypt: false,
+            trust_certificate: false,
+            encrypt: true,
             space_id: None,
         }
     }
@@ -232,8 +233,10 @@ impl MssqlConnectionManager {
             .map_err(|e| ConnectionError::ConfigError(e.to_string()))?;
         
         let pool = Pool::builder()
-            .max_size(5)
+            .connection_timeout(Duration::from_secs(5))
+            .max_lifetime(Some(Duration::from_secs(300)))
             .min_idle(Some(1))
+            .max_size(5)
             .build(manager)
             .await
             .map_err(|e| ConnectionError::PoolError(e.to_string()))?;

@@ -167,24 +167,13 @@ impl DatabaseManager {
 
     /// Delete a folder by ID (tabs in folder become ungrouped)
     pub fn delete_folder(&self, id: &str) -> StorageResult<bool> {
-        // Get all tab IDs in this folder first
-        let tab_ids: Vec<String> = self.with_connection(|conn| {
-            let mut stmt = conn.prepare("SELECT id FROM pinned_tabs WHERE folder_id = ?1")?;
-            let ids = stmt
-                .query_map(params![id], |row| row.get(0))?
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(ids)
-        })?;
-
-        // Archive all tabs in the folder
-        for tab_id in tab_ids {
-            self.archive_tab(&tab_id)?;
-        }
-
-        // Delete the folder
+        // Ungroup tabs in this folder (do not archive) — keep tabs in space with folder_id = NULL
         self.with_connection(|conn| {
-            let rows_affected =
-                conn.execute("DELETE FROM tab_folders WHERE id = ?1", params![id])?;
+            conn.execute(
+                "UPDATE pinned_tabs SET folder_id = NULL, is_pinned = 0 WHERE folder_id = ?1",
+                params![id],
+            )?;
+            let rows_affected = conn.execute("DELETE FROM tab_folders WHERE id = ?1", params![id])?;
             Ok(rows_affected > 0)
         })
     }
@@ -192,15 +181,25 @@ impl DatabaseManager {
     /// Add a tab to a folder (also ensures the tab is pinned)
     pub fn add_tab_to_folder(&self, tab_id: &str, folder_id: &str) -> StorageResult<bool> {
         self.with_connection(|conn| {
-            // Verify folder exists and get its space_id
-            let folder_space_id: Option<String> = conn.query_row(
-                "SELECT space_id FROM tab_folders WHERE id = ?1",
-                params![folder_id],
-                |row| row.get(0),
-            ).ok();
-
-            if folder_space_id.is_none() {
-                return Ok(false);
+            // Cross-space guard: tab and folder must belong to same space
+            let tab_space_id: String = conn
+                .query_row(
+                    "SELECT space_id FROM pinned_tabs WHERE id = ?1",
+                    params![tab_id],
+                    |row| row.get(0),
+                )
+                .map_err(|_| rusqlite::Error::InvalidParameterName("tab not found".into()))?;
+            let folder_space_id: String = conn
+                .query_row(
+                    "SELECT space_id FROM tab_folders WHERE id = ?1",
+                    params![folder_id],
+                    |row| row.get(0),
+                )
+                .map_err(|_| rusqlite::Error::InvalidParameterName("folder not found".into()))?;
+            if tab_space_id != folder_space_id {
+                return Err(rusqlite::Error::InvalidParameterName(
+                    "Tab and folder belong to different spaces".into(),
+                ));
             }
 
             // Update tab: set folder_id and ensure it's pinned
