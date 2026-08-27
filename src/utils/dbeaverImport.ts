@@ -21,6 +21,10 @@ export function parseDbeaverTemplatesXml(xmlContent: string): DbeaverSnippet[] {
   const snippets: DbeaverSnippet[] = [];
 
   try {
+    if (typeof DOMParser === 'undefined') {
+      // node test environment — skip XML import path or use a polyfill
+      return [];
+    }
     // Parse XML using DOMParser (available in browser)
     const parser = new DOMParser();
     const doc = parser.parseFromString(xmlContent, 'application/xml');

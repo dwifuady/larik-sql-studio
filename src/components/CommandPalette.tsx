@@ -194,8 +194,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
             // Strip sticky notes from exported content
             let contentToExport = undefined;
             if (activeTab.content?.includes('-- @note: ')) {
-              const { removeNotes } = await import('../utils/noteManager');
-              contentToExport = removeNotes(activeTab.content);
+              contentToExport = activeTab.content.replace(/^-- @note:.*$/gm, '').trim();
             }
 
             await api.exportTabAsSql(activeTab.id, filePath, contentToExport);

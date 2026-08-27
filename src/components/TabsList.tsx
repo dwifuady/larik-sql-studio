@@ -429,8 +429,7 @@ export function TabsList({ onNewTabClick }: { onNewTabClick?: () => void }) {
       // Strip sticky notes from exported content
       let contentToExport = undefined;
       if (tab.content?.includes('-- @note: ')) {
-        const { removeNotes } = await import('../utils/noteManager');
-        contentToExport = removeNotes(tab.content);
+        contentToExport = tab.content.replace(/^-- @note:.*$/gm, '').trim();
       }
 
       await api.exportTabAsSql(tab.id, filePath, contentToExport);

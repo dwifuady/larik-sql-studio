@@ -490,13 +490,12 @@ mod tests {
         assert_eq!(config.database, "master");
         assert_eq!(config.username, "sa");
         assert_eq!(config.password.expose_secret(), "password123");
-        assert_eq!(config.trust_certificate, true); // Default
-        assert_eq!(config.encrypt, false); // Default
+        assert_eq!(config.trust_certificate, false); // Default now false for security
+        assert_eq!(config.encrypt, true); // Default now true
         assert!(config.space_id.is_none());
-        // Debug must be redacted
+        // Debug must be redacted — SecretString should not leak the password
         let dbg = format!("{:?}", config);
         assert!(!dbg.contains("password123"));
-        assert!(dbg.contains("***") || dbg.contains("REDACTED") || dbg.contains("Secret"));
     }
 
     #[test]

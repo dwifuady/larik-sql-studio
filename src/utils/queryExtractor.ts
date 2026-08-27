@@ -229,7 +229,7 @@ export function extractStatementAtCursor(
 }
 
 /**
- * MERGE statements must be terminated by a semicolon. splitBySemicolon strips
+ * MERGE statements must be terminated by a semicolon. splitSqlStatements strips
  * the terminator from the statement text, so re-attach it and extend the
  * selection range past it for statements that require one.
  */
