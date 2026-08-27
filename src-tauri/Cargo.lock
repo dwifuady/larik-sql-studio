@@ -2036,7 +2036,7 @@ dependencies = [
 
 [[package]]
 name = "larik-sql-studio"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "async-trait",
  "bb8",
