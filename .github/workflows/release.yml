@@ -43,3 +43,17 @@ jobs:
           releaseBody: 'See the assets to download this version and install.'
           releaseDraft: true
           prerelease: false
+
+      - name: prepare portable exe (windows only)
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        run: |
+          cp "src-tauri/target/release/larik-sql-studio.exe" "Larik-SQL-Studio-portable.exe"
+
+      - name: upload portable exe (windows only)
+        if: matrix.platform == 'windows-latest'
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          tag_name: ${{ github.ref_name }}
+          files: Larik-SQL-Studio-portable.exe
