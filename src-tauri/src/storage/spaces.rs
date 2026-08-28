@@ -73,7 +73,7 @@ impl DatabaseManager {
     /// Create a new space with optional connection
     pub fn create_space(&self, input: CreateSpaceInput) -> StorageResult<Space> {
         let id = Uuid::new_v4().to_string();
-        
+
         // Get the next sort order
         let max_order: i32 = self.with_connection(|conn| {
             conn.query_row(
@@ -115,26 +115,25 @@ impl DatabaseManager {
         })?;
 
         // Fetch and return the created space
-        self.get_space(&id)?
-            .ok_or_else(|| super::database::StorageError::Sqlite(
-                rusqlite::Error::QueryReturnedNoRows
-            ))
+        self.get_space(&id)?.ok_or_else(|| {
+            super::database::StorageError::Sqlite(rusqlite::Error::QueryReturnedNoRows)
+        })
     }
 
     /// Get a space by ID
     pub fn get_space(&self, id: &str) -> StorageResult<Option<Space>> {
         self.with_connection(|conn| {
             let mut stmt = conn.prepare(
-                r#"SELECT 
-                    id, name, color, icon, 
+                r#"SELECT
+                    id, name, color, icon,
                     connection_host, connection_port, connection_database,
                     connection_username, connection_password,
                     connection_trust_cert, connection_encrypt,
                     last_active_tab_id,
-                    created_at, updated_at, sort_order 
-                FROM spaces WHERE id = ?1"#
+                    created_at, updated_at, sort_order
+                FROM spaces WHERE id = ?1"#,
             )?;
-            
+
             let result = stmt.query_row(params![id], |row| {
                 Ok(Space {
                     id: row.get(0)?,
@@ -167,16 +166,16 @@ impl DatabaseManager {
     pub fn get_all_spaces(&self) -> StorageResult<Vec<Space>> {
         self.with_connection(|conn| {
             let mut stmt = conn.prepare(
-                r#"SELECT 
-                    id, name, color, icon, 
+                r#"SELECT
+                    id, name, color, icon,
                     connection_host, connection_port, connection_database,
                     connection_username, connection_password,
                     connection_trust_cert, connection_encrypt,
                     last_active_tab_id,
-                    created_at, updated_at, sort_order 
-                FROM spaces ORDER BY sort_order"#
+                    created_at, updated_at, sort_order
+                FROM spaces ORDER BY sort_order"#,
             )?;
-            
+
             let spaces = stmt
                 .query_map([], |row| {
                     Ok(Space {
@@ -199,7 +198,7 @@ impl DatabaseManager {
                 })?
                 .filter_map(|r| r.ok())
                 .collect();
-            
+
             Ok(spaces)
         })
     }
@@ -263,12 +262,12 @@ impl DatabaseManager {
 
             params_vec.push(Box::new(id.to_string()));
 
-            let sql = format!(
-                "UPDATE spaces SET {} WHERE id = ?",
-                updates.join(", ")
-            );
+            let sql = format!("UPDATE spaces SET {} WHERE id = ?", updates.join(", "));
 
-            conn.execute(&sql, rusqlite::params_from_iter(params_vec.iter().map(|p| p.as_ref())))?;
+            conn.execute(
+                &sql,
+                rusqlite::params_from_iter(params_vec.iter().map(|p| p.as_ref())),
+            )?;
             Ok(())
         })?;
 
@@ -276,7 +275,11 @@ impl DatabaseManager {
     }
 
     /// Update the last active tab ID for a space
-    pub fn update_space_last_active_tab(&self, space_id: &str, tab_id: Option<&str>) -> StorageResult<()> {
+    pub fn update_space_last_active_tab(
+        &self,
+        space_id: &str,
+        tab_id: Option<&str>,
+    ) -> StorageResult<()> {
         self.with_connection(|conn| {
             conn.execute(
                 "UPDATE spaces SET last_active_tab_id = ?, updated_at = datetime('now') WHERE id = ?",
@@ -294,7 +297,7 @@ impl DatabaseManager {
                 params![id],
                 |row| row.get::<_, Option<String>>(0),
             );
-            
+
             match result {
                 Ok(pwd) => Ok(pwd),
                 Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
@@ -306,10 +309,7 @@ impl DatabaseManager {
     /// Delete a space by ID (cascades to pinned_tabs)
     pub fn delete_space(&self, id: &str) -> StorageResult<bool> {
         self.with_connection(|conn| {
-            let rows_affected = conn.execute(
-                "DELETE FROM spaces WHERE id = ?1",
-                params![id],
-            )?;
+            let rows_affected = conn.execute("DELETE FROM spaces WHERE id = ?1", params![id])?;
             Ok(rows_affected > 0)
         })
     }
@@ -340,7 +340,11 @@ mod tests {
     fn create_test_db() -> (DatabaseManager, PathBuf) {
         let temp_dir = std::env::temp_dir();
         let counter = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let db_path = temp_dir.join(format!("larik_spaces_test_{}_{}.db", std::process::id(), counter));
+        let db_path = temp_dir.join(format!(
+            "larik_spaces_test_{}_{}.db",
+            std::process::id(),
+            counter
+        ));
         let _ = std::fs::remove_file(&db_path);
         let manager = DatabaseManager::new(db_path.clone()).unwrap();
         (manager, db_path)
@@ -350,18 +354,20 @@ mod tests {
     fn test_create_space() {
         let (manager, db_path) = create_test_db();
 
-        let space = manager.create_space(CreateSpaceInput {
-            name: "Test Space".to_string(),
-            color: Some("#FF5733".to_string()),
-            icon: None,
-            connection_host: Some("localhost".to_string()),
-            connection_port: Some(1433),
-            connection_database: Some("testdb".to_string()),
-            connection_username: Some("sa".to_string()),
-            connection_password: Some("password".to_string()),
-            connection_trust_cert: Some(true),
-            connection_encrypt: Some(false),
-        }).unwrap();
+        let space = manager
+            .create_space(CreateSpaceInput {
+                name: "Test Space".to_string(),
+                color: Some("#FF5733".to_string()),
+                icon: None,
+                connection_host: Some("localhost".to_string()),
+                connection_port: Some(1433),
+                connection_database: Some("testdb".to_string()),
+                connection_username: Some("sa".to_string()),
+                connection_password: Some("password".to_string()),
+                connection_trust_cert: Some(true),
+                connection_encrypt: Some(false),
+            })
+            .unwrap();
 
         assert_eq!(space.name, "Test Space");
         assert_eq!(space.color, Some("#FF5733".to_string()));
@@ -378,18 +384,20 @@ mod tests {
     fn test_get_space() {
         let (manager, db_path) = create_test_db();
 
-        let created = manager.create_space(CreateSpaceInput {
-            name: "My Space".to_string(),
-            color: None,
-            icon: Some("🚀".to_string()),
-            connection_host: None,
-            connection_port: None,
-            connection_database: None,
-            connection_username: None,
-            connection_password: None,
-            connection_trust_cert: None,
-            connection_encrypt: None,
-        }).unwrap();
+        let created = manager
+            .create_space(CreateSpaceInput {
+                name: "My Space".to_string(),
+                color: None,
+                icon: Some("🚀".to_string()),
+                connection_host: None,
+                connection_port: None,
+                connection_database: None,
+                connection_username: None,
+                connection_password: None,
+                connection_trust_cert: None,
+                connection_encrypt: None,
+            })
+            .unwrap();
 
         let fetched = manager.get_space(&created.id).unwrap().unwrap();
         assert_eq!(fetched.id, created.id);
@@ -414,31 +422,35 @@ mod tests {
     fn test_get_all_spaces() {
         let (manager, db_path) = create_test_db();
 
-        manager.create_space(CreateSpaceInput {
-            name: "Space A".to_string(),
-            color: None,
-            icon: None,
-            connection_host: None,
-            connection_port: None,
-            connection_database: None,
-            connection_username: None,
-            connection_password: None,
-            connection_trust_cert: None,
-            connection_encrypt: None,
-        }).unwrap();
+        manager
+            .create_space(CreateSpaceInput {
+                name: "Space A".to_string(),
+                color: None,
+                icon: None,
+                connection_host: None,
+                connection_port: None,
+                connection_database: None,
+                connection_username: None,
+                connection_password: None,
+                connection_trust_cert: None,
+                connection_encrypt: None,
+            })
+            .unwrap();
 
-        manager.create_space(CreateSpaceInput {
-            name: "Space B".to_string(),
-            color: None,
-            icon: None,
-            connection_host: None,
-            connection_port: None,
-            connection_database: None,
-            connection_username: None,
-            connection_password: None,
-            connection_trust_cert: None,
-            connection_encrypt: None,
-        }).unwrap();
+        manager
+            .create_space(CreateSpaceInput {
+                name: "Space B".to_string(),
+                color: None,
+                icon: None,
+                connection_host: None,
+                connection_port: None,
+                connection_database: None,
+                connection_username: None,
+                connection_password: None,
+                connection_trust_cert: None,
+                connection_encrypt: None,
+            })
+            .unwrap();
 
         let spaces = manager.get_all_spaces().unwrap();
         assert_eq!(spaces.len(), 2);
@@ -454,32 +466,40 @@ mod tests {
     fn test_update_space() {
         let (manager, db_path) = create_test_db();
 
-        let created = manager.create_space(CreateSpaceInput {
-            name: "Original".to_string(),
-            color: None,
-            icon: None,
-            connection_host: None,
-            connection_port: None,
-            connection_database: None,
-            connection_username: None,
-            connection_password: None,
-            connection_trust_cert: None,
-            connection_encrypt: None,
-        }).unwrap();
+        let created = manager
+            .create_space(CreateSpaceInput {
+                name: "Original".to_string(),
+                color: None,
+                icon: None,
+                connection_host: None,
+                connection_port: None,
+                connection_database: None,
+                connection_username: None,
+                connection_password: None,
+                connection_trust_cert: None,
+                connection_encrypt: None,
+            })
+            .unwrap();
 
-        let updated = manager.update_space(&created.id, UpdateSpaceInput {
-            name: Some("Updated".to_string()),
-            color: Some("#00FF00".to_string()),
-            icon: None,
-            sort_order: None,
-            connection_host: Some("localhost".to_string()),
-            connection_port: Some(1433),
-            connection_database: Some("mydb".to_string()),
-            connection_username: Some("user".to_string()),
-            connection_password: Some("pass".to_string()),
-            connection_trust_cert: Some(true),
-            connection_encrypt: Some(false),
-        }).unwrap().unwrap();
+        let updated = manager
+            .update_space(
+                &created.id,
+                UpdateSpaceInput {
+                    name: Some("Updated".to_string()),
+                    color: Some("#00FF00".to_string()),
+                    icon: None,
+                    sort_order: None,
+                    connection_host: Some("localhost".to_string()),
+                    connection_port: Some(1433),
+                    connection_database: Some("mydb".to_string()),
+                    connection_username: Some("user".to_string()),
+                    connection_password: Some("pass".to_string()),
+                    connection_trust_cert: Some(true),
+                    connection_encrypt: Some(false),
+                },
+            )
+            .unwrap()
+            .unwrap();
 
         assert_eq!(updated.name, "Updated");
         assert_eq!(updated.color, Some("#00FF00".to_string()));
@@ -493,18 +513,20 @@ mod tests {
     fn test_delete_space() {
         let (manager, db_path) = create_test_db();
 
-        let space = manager.create_space(CreateSpaceInput {
-            name: "To Delete".to_string(),
-            color: None,
-            icon: None,
-            connection_host: None,
-            connection_port: None,
-            connection_database: None,
-            connection_username: None,
-            connection_password: None,
-            connection_trust_cert: None,
-            connection_encrypt: None,
-        }).unwrap();
+        let space = manager
+            .create_space(CreateSpaceInput {
+                name: "To Delete".to_string(),
+                color: None,
+                icon: None,
+                connection_host: None,
+                connection_port: None,
+                connection_database: None,
+                connection_username: None,
+                connection_password: None,
+                connection_trust_cert: None,
+                connection_encrypt: None,
+            })
+            .unwrap();
 
         let deleted = manager.delete_space(&space.id).unwrap();
         assert!(deleted);
@@ -519,51 +541,55 @@ mod tests {
     fn test_reorder_spaces() {
         let (manager, db_path) = create_test_db();
 
-        let space_a = manager.create_space(CreateSpaceInput {
-            name: "A".to_string(),
-            color: None,
-            icon: None,
-            connection_host: None,
-            connection_port: None,
-            connection_database: None,
-            connection_username: None,
-            connection_password: None,
-            connection_trust_cert: None,
-            connection_encrypt: None,
-        }).unwrap();
+        let space_a = manager
+            .create_space(CreateSpaceInput {
+                name: "A".to_string(),
+                color: None,
+                icon: None,
+                connection_host: None,
+                connection_port: None,
+                connection_database: None,
+                connection_username: None,
+                connection_password: None,
+                connection_trust_cert: None,
+                connection_encrypt: None,
+            })
+            .unwrap();
 
-        let space_b = manager.create_space(CreateSpaceInput {
-            name: "B".to_string(),
-            color: None,
-            icon: None,
-            connection_host: None,
-            connection_port: None,
-            connection_database: None,
-            connection_username: None,
-            connection_password: None,
-            connection_trust_cert: None,
-            connection_encrypt: None,
-        }).unwrap();
+        let space_b = manager
+            .create_space(CreateSpaceInput {
+                name: "B".to_string(),
+                color: None,
+                icon: None,
+                connection_host: None,
+                connection_port: None,
+                connection_database: None,
+                connection_username: None,
+                connection_password: None,
+                connection_trust_cert: None,
+                connection_encrypt: None,
+            })
+            .unwrap();
 
-        let space_c = manager.create_space(CreateSpaceInput {
-            name: "C".to_string(),
-            color: None,
-            icon: None,
-            connection_host: None,
-            connection_port: None,
-            connection_database: None,
-            connection_username: None,
-            connection_password: None,
-            connection_trust_cert: None,
-            connection_encrypt: None,
-        }).unwrap();
+        let space_c = manager
+            .create_space(CreateSpaceInput {
+                name: "C".to_string(),
+                color: None,
+                icon: None,
+                connection_host: None,
+                connection_port: None,
+                connection_database: None,
+                connection_username: None,
+                connection_password: None,
+                connection_trust_cert: None,
+                connection_encrypt: None,
+            })
+            .unwrap();
 
         // Reorder: C, A, B
-        manager.reorder_spaces(&[
-            space_c.id.clone(),
-            space_a.id.clone(),
-            space_b.id.clone(),
-        ]).unwrap();
+        manager
+            .reorder_spaces(&[space_c.id.clone(), space_a.id.clone(), space_b.id.clone()])
+            .unwrap();
 
         let spaces = manager.get_all_spaces().unwrap();
         assert_eq!(spaces[0].name, "C");

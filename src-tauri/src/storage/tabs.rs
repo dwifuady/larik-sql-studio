@@ -347,7 +347,7 @@ impl DatabaseManager {
         self.with_connection(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT id, space_id, title, tab_type, content, metadata, database, folder_id, is_pinned, created_at, updated_at, sort_order
-                 FROM pinned_tabs 
+                 FROM pinned_tabs
                  WHERE title LIKE ?1 OR content LIKE ?2
                  ORDER BY updated_at DESC
                  LIMIT 50"

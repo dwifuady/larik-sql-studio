@@ -87,7 +87,10 @@ pub struct SchemaMetadataManager {
 }
 
 impl SchemaMetadataManager {
-    pub fn new(connection_manager: Arc<MssqlConnectionManager>, db_manager: Arc<DatabaseManager>) -> Self {
+    pub fn new(
+        connection_manager: Arc<MssqlConnectionManager>,
+        db_manager: Arc<DatabaseManager>,
+    ) -> Self {
         Self {
             connection_manager,
             db_manager,
@@ -95,8 +98,14 @@ impl SchemaMetadataManager {
     }
 
     /// Get schema info from cache
-    pub async fn get_cached_schema(&self, connection_id: &str, database: &str) -> Option<SchemaInfo> {
-        self.db_manager.get_schema(connection_id, database).unwrap_or(None)
+    pub async fn get_cached_schema(
+        &self,
+        connection_id: &str,
+        database: &str,
+    ) -> Option<SchemaInfo> {
+        self.db_manager
+            .get_schema(connection_id, database)
+            .unwrap_or(None)
     }
 
     /// Clear schema cache for a connection/database
@@ -129,7 +138,9 @@ impl SchemaMetadataManager {
         let schemas = self.fetch_schemas(&mut conn).await?;
 
         // Fetch tables and views
-        let tables = self.fetch_tables_and_views(&mut conn, schema_filter).await?;
+        let tables = self
+            .fetch_tables_and_views(&mut conn, schema_filter)
+            .await?;
 
         // Fetch foreign key relationships for join suggestions
         let relationships = self.fetch_relationships(&mut conn, schema_filter).await?;
@@ -147,7 +158,9 @@ impl SchemaMetadataManager {
         };
 
         // Cache the result
-        let _ = self.db_manager.save_schema(connection_id, database, &schema_info);
+        let _ = self
+            .db_manager
+            .save_schema(connection_id, database, &schema_info);
 
         Ok(schema_info)
     }
@@ -160,17 +173,17 @@ impl SchemaMetadataManager {
     ) -> Result<Vec<RelationshipInfo>, ConnectionError> {
         if let Some(s) = schema_filter {
             if !crate::db::ident::is_safe_ident(s) {
-                return Err(ConnectionError::QueryError(
-                    "Invalid identifier".into(),
-                ));
+                return Err(ConnectionError::QueryError("Invalid identifier".into()));
             }
         }
         let schema_condition = schema_filter
-            .map(|s| format!(
-                "AND (src_schema.name = '{}' OR tgt_schema.name = '{}')",
-                s.replace('\'', "''"),
-                s.replace('\'', "''")
-            ))
+            .map(|s| {
+                format!(
+                    "AND (src_schema.name = '{}' OR tgt_schema.name = '{}')",
+                    s.replace('\'', "''"),
+                    s.replace('\'', "''")
+                )
+            })
             .unwrap_or_default();
 
         let query = format!(
@@ -235,8 +248,8 @@ impl SchemaMetadataManager {
         conn: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
     ) -> Result<Vec<String>, ConnectionError> {
         let query = r#"
-            SELECT schema_name 
-            FROM INFORMATION_SCHEMA.SCHEMATA 
+            SELECT schema_name
+            FROM INFORMATION_SCHEMA.SCHEMATA
             WHERE schema_name NOT IN ('guest', 'INFORMATION_SCHEMA', 'sys')
             ORDER BY schema_name
         "#;
@@ -260,9 +273,7 @@ impl SchemaMetadataManager {
     ) -> Result<Vec<TableInfo>, ConnectionError> {
         if let Some(s) = schema_filter {
             if !crate::db::ident::is_safe_ident(s) {
-                return Err(ConnectionError::QueryError(
-                    "Invalid identifier".into(),
-                ));
+                return Err(ConnectionError::QueryError("Invalid identifier".into()));
             }
         }
         // First, fetch all tables and views
@@ -272,7 +283,7 @@ impl SchemaMetadataManager {
 
         let tables_query = format!(
             r#"
-            SELECT 
+            SELECT
                 t.TABLE_SCHEMA,
                 t.TABLE_NAME,
                 t.TABLE_TYPE
@@ -306,7 +317,7 @@ impl SchemaMetadataManager {
         // Fetch columns for all tables
         let columns_query = format!(
             r#"
-            SELECT 
+            SELECT
                 c.TABLE_SCHEMA,
                 c.TABLE_NAME,
                 c.COLUMN_NAME,
@@ -322,7 +333,7 @@ impl SchemaMetadataManager {
                 COLUMNPROPERTY(OBJECT_ID(c.TABLE_SCHEMA + '.' + c.TABLE_NAME), c.COLUMN_NAME, 'IsComputed') AS IS_COMPUTED
             FROM INFORMATION_SCHEMA.COLUMNS c
             LEFT JOIN (
-                SELECT 
+                SELECT
                     ku.TABLE_SCHEMA,
                     ku.TABLE_NAME,
                     ku.COLUMN_NAME
@@ -331,8 +342,8 @@ impl SchemaMetadataManager {
                     ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
                     AND tc.TABLE_SCHEMA = ku.TABLE_SCHEMA
                 WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
-            ) pk ON c.TABLE_SCHEMA = pk.TABLE_SCHEMA 
-                AND c.TABLE_NAME = pk.TABLE_NAME 
+            ) pk ON c.TABLE_SCHEMA = pk.TABLE_SCHEMA
+                AND c.TABLE_NAME = pk.TABLE_NAME
                 AND c.COLUMN_NAME = pk.COLUMN_NAME
             WHERE 1=1 {}
             ORDER BY c.TABLE_SCHEMA, c.TABLE_NAME, c.ORDINAL_POSITION
@@ -347,7 +358,7 @@ impl SchemaMetadataManager {
 
         // Group columns by table
         let mut columns_by_table: HashMap<(String, String), Vec<ColumnInfo>> = HashMap::new();
-        
+
         for row in column_rows.iter() {
             let schema_name = match row.get::<&str, _>(0) {
                 Some(s) => s.to_string(),
@@ -367,12 +378,18 @@ impl SchemaMetadataManager {
             };
             let max_length = row.get::<i32, _>(4);
             // NUMERIC_PRECISION can be tinyint (u8) or smallint (i16)
-            let precision = row.try_get::<u8, _>(5)
-                .ok().flatten().map(|v| v as i32)
+            let precision = row
+                .try_get::<u8, _>(5)
+                .ok()
+                .flatten()
+                .map(|v| v as i32)
                 .or_else(|| row.try_get::<i16, _>(5).ok().flatten().map(|v| v as i32));
             // NUMERIC_SCALE can be tinyint (u8) or int
-            let scale = row.try_get::<u8, _>(6)
-                .ok().flatten().map(|v| v as i32)
+            let scale = row
+                .try_get::<u8, _>(6)
+                .ok()
+                .flatten()
+                .map(|v| v as i32)
                 .or_else(|| row.try_get::<i32, _>(6).ok().flatten());
             let is_nullable = row.get::<&str, _>(7).map(|s| s == "YES").unwrap_or(true);
             let column_default = row.get::<&str, _>(8).map(|s| s.to_string());
@@ -403,7 +420,9 @@ impl SchemaMetadataManager {
 
         // Assign columns to tables
         for table in &mut tables {
-            if let Some(cols) = columns_by_table.remove(&(table.schema_name.clone(), table.table_name.clone())) {
+            if let Some(cols) =
+                columns_by_table.remove(&(table.schema_name.clone(), table.table_name.clone()))
+            {
                 table.columns = cols;
             }
         }
@@ -419,9 +438,7 @@ impl SchemaMetadataManager {
     ) -> Result<Vec<RoutineInfo>, ConnectionError> {
         if let Some(s) = schema_filter {
             if !crate::db::ident::is_safe_ident(s) {
-                return Err(ConnectionError::QueryError(
-                    "Invalid identifier".into(),
-                ));
+                return Err(ConnectionError::QueryError("Invalid identifier".into()));
             }
         }
         let schema_condition = schema_filter
@@ -431,7 +448,7 @@ impl SchemaMetadataManager {
         // First, fetch all routines
         let routines_query = format!(
             r#"
-            SELECT 
+            SELECT
                 ROUTINE_SCHEMA,
                 ROUTINE_NAME,
                 ROUTINE_TYPE,
@@ -467,7 +484,7 @@ impl SchemaMetadataManager {
         // Fetch parameters for all routines
         let params_query = format!(
             r#"
-            SELECT 
+            SELECT
                 SPECIFIC_SCHEMA,
                 SPECIFIC_NAME,
                 PARAMETER_NAME,
@@ -511,11 +528,17 @@ impl SchemaMetadataManager {
                 None => "unknown".to_string(),
             };
             let max_length = row.get::<i32, _>(4);
-            let precision = row.try_get::<u8, _>(5)
-                .ok().flatten().map(|v| v as i32)
+            let precision = row
+                .try_get::<u8, _>(5)
+                .ok()
+                .flatten()
+                .map(|v| v as i32)
                 .or_else(|| row.try_get::<i16, _>(5).ok().flatten().map(|v| v as i32));
-            let scale = row.try_get::<u8, _>(6)
-                .ok().flatten().map(|v| v as i32)
+            let scale = row
+                .try_get::<u8, _>(6)
+                .ok()
+                .flatten()
+                .map(|v| v as i32)
                 .or_else(|| row.try_get::<i32, _>(6).ok().flatten());
             let parameter_mode = row.get::<&str, _>(7).unwrap_or("IN").to_string();
             let ordinal_position = row.get::<i32, _>(8).unwrap_or(0);
@@ -539,7 +562,9 @@ impl SchemaMetadataManager {
 
         // Assign parameters to routines
         for routine in &mut routines {
-            if let Some(params) = params_by_routine.remove(&(routine.schema_name.clone(), routine.routine_name.clone())) {
+            if let Some(params) = params_by_routine
+                .remove(&(routine.schema_name.clone(), routine.routine_name.clone()))
+            {
                 routine.parameters = params;
             }
         }
@@ -557,9 +582,11 @@ impl SchemaMetadataManager {
     ) -> Result<Vec<ColumnInfo>, ConnectionError> {
         // Try cache first
         if let Some(schema) = self.get_cached_schema(connection_id, database).await {
-            if let Some(table) = schema.tables.iter().find(|t| {
-                t.schema_name == schema_name && t.table_name == table_name
-            }) {
+            if let Some(table) = schema
+                .tables
+                .iter()
+                .find(|t| t.schema_name == schema_name && t.table_name == table_name)
+            {
                 return Ok(table.columns.clone());
             }
         }
@@ -583,9 +610,7 @@ impl SchemaMetadataManager {
         if !crate::db::ident::is_safe_ident(schema_name)
             || !crate::db::ident::is_safe_ident(table_name)
         {
-            return Err(ConnectionError::QueryError(
-                "Invalid identifier".into(),
-            ));
+            return Err(ConnectionError::QueryError("Invalid identifier".into()));
         }
         let target = crate::db::ident::qualified_object_name(schema_name, table_name)
             .map_err(|e| ConnectionError::QueryError(e))?;
@@ -594,7 +619,7 @@ impl SchemaMetadataManager {
 
         let query = format!(
             r#"
-            SELECT 
+            SELECT
                 c.COLUMN_NAME,
                 c.DATA_TYPE,
                 c.CHARACTER_MAXIMUM_LENGTH,
@@ -632,12 +657,18 @@ impl SchemaMetadataManager {
                 let data_type = row.get::<&str, _>(1)?.to_string();
                 let max_length = row.get::<i32, _>(2);
                 // NUMERIC_PRECISION can be tinyint (u8) or smallint (i16)
-                let precision = row.try_get::<u8, _>(3)
-                    .ok().flatten().map(|v| v as i32)
+                let precision = row
+                    .try_get::<u8, _>(3)
+                    .ok()
+                    .flatten()
+                    .map(|v| v as i32)
                     .or_else(|| row.try_get::<i16, _>(3).ok().flatten().map(|v| v as i32));
                 // NUMERIC_SCALE can be tinyint (u8) or int
-                let scale = row.try_get::<u8, _>(4)
-                    .ok().flatten().map(|v| v as i32)
+                let scale = row
+                    .try_get::<u8, _>(4)
+                    .ok()
+                    .flatten()
+                    .map(|v| v as i32)
                     .or_else(|| row.try_get::<i32, _>(4).ok().flatten());
                 let is_nullable = row.get::<&str, _>(5).map(|s| s == "YES").unwrap_or(true);
                 let column_default = row.get::<&str, _>(6).map(|s| s.to_string());

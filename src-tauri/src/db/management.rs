@@ -32,7 +32,10 @@ pub async fn export_database(state: &State<'_, AppState>, destination: &str) -> 
             backup
                 .run_to_completion(100, std::time::Duration::from_millis(50), None)
                 .map_err(|e| {
-                    rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(1), Some(e.to_string()))
+                    rusqlite::Error::SqliteFailure(
+                        rusqlite::ffi::Error::new(1),
+                        Some(e.to_string()),
+                    )
                 })?;
             Ok(())
         })
@@ -61,7 +64,10 @@ pub async fn import_database(
             .query_row("PRAGMA integrity_check", [], |r| r.get(0))
             .map_err(|e| e.to_string())?;
         if integrity != "ok" {
-            return Err(format!("Source database integrity check failed: {}", integrity));
+            return Err(format!(
+                "Source database integrity check failed: {}",
+                integrity
+            ));
         }
     }
 
@@ -71,8 +77,10 @@ pub async fn import_database(
     };
 
     // Close the old handle by swapping in a temporary placeholder, dropping the old manager
-    let temp_placeholder_path =
-        std::env::temp_dir().join(format!("larik_import_placeholder_{}.db", uuid::Uuid::new_v4()));
+    let temp_placeholder_path = std::env::temp_dir().join(format!(
+        "larik_import_placeholder_{}.db",
+        uuid::Uuid::new_v4()
+    ));
     {
         let mut guard = state.db.lock().await;
         let placeholder = crate::storage::DatabaseManager::new(temp_placeholder_path.clone())

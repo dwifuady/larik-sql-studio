@@ -19,7 +19,8 @@ pub fn is_safe_ident(s: &str) -> bool {
         Some(c) if c.is_ascii_alphabetic() || matches!(c, '_' | '#' | '@') => {}
         _ => return false,
     }
-    s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '#' | '@' | '$'))
+    s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '#' | '@' | '$'))
 }
 
 /// Validate + quote in one shot. Returns `Err` with a non-revealing message

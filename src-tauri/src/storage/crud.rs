@@ -1,7 +1,7 @@
 // Basic CRUD operations for app state key-value storage
 
-use rusqlite::params;
 use super::database::{DatabaseManager, StorageResult};
+use rusqlite::params;
 
 impl DatabaseManager {
     /// Get a value from the app state store
@@ -9,7 +9,7 @@ impl DatabaseManager {
         self.with_connection(|conn| {
             let mut stmt = conn.prepare("SELECT value FROM app_state WHERE key = ?1")?;
             let result = stmt.query_row(params![key], |row| row.get(0));
-            
+
             match result {
                 Ok(value) => Ok(Some(value)),
                 Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
@@ -23,9 +23,9 @@ impl DatabaseManager {
         self.with_connection(|conn| {
             conn.execute(
                 r#"
-                INSERT INTO app_state (key, value, updated_at) 
+                INSERT INTO app_state (key, value, updated_at)
                 VALUES (?1, ?2, datetime('now'))
-                ON CONFLICT(key) DO UPDATE SET 
+                ON CONFLICT(key) DO UPDATE SET
                     value = excluded.value,
                     updated_at = datetime('now')
                 "#,
@@ -38,10 +38,8 @@ impl DatabaseManager {
     /// Delete a value from the app state store
     pub fn delete_state(&self, key: &str) -> StorageResult<bool> {
         self.with_connection(|conn| {
-            let rows_affected = conn.execute(
-                "DELETE FROM app_state WHERE key = ?1",
-                params![key],
-            )?;
+            let rows_affected =
+                conn.execute("DELETE FROM app_state WHERE key = ?1", params![key])?;
             Ok(rows_affected > 0)
         })
     }
@@ -65,13 +63,17 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
-    
+
     static TEST_COUNTER: AtomicU32 = AtomicU32::new(0);
 
     fn create_test_db() -> (DatabaseManager, PathBuf) {
         let counter = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
         let temp_dir = std::env::temp_dir();
-        let db_path = temp_dir.join(format!("larik_crud_test_{}_{}.db", std::process::id(), counter));
+        let db_path = temp_dir.join(format!(
+            "larik_crud_test_{}_{}.db",
+            std::process::id(),
+            counter
+        ));
         let _ = std::fs::remove_file(&db_path);
         let manager = DatabaseManager::new(db_path.clone()).unwrap();
         (manager, db_path)
@@ -83,7 +85,7 @@ mod tests {
 
         manager.set_state("test_key", "test_value").unwrap();
         let value = manager.get_state("test_key").unwrap();
-        
+
         assert_eq!(value, Some("test_value".to_string()));
 
         let _ = std::fs::remove_file(&db_path);
@@ -105,7 +107,7 @@ mod tests {
 
         manager.set_state("key", "value1").unwrap();
         manager.set_state("key", "value2").unwrap();
-        
+
         let value = manager.get_state("key").unwrap();
         assert_eq!(value, Some("value2".to_string()));
 
@@ -118,7 +120,7 @@ mod tests {
 
         manager.set_state("key", "value").unwrap();
         let deleted = manager.delete_state("key").unwrap();
-        
+
         assert!(deleted);
         assert_eq!(manager.get_state("key").unwrap(), None);
 

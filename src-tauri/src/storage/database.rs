@@ -33,17 +33,19 @@ impl DatabaseManager {
         }
 
         let connection = Connection::open(&db_path)?;
-        
+
         // Enable foreign keys
         connection.execute_batch("PRAGMA foreign_keys = ON;")?;
 
         // Performance optimizations
-        connection.execute_batch(r#"
+        connection.execute_batch(
+            r#"
             PRAGMA journal_mode = WAL;
             PRAGMA synchronous = NORMAL;
             PRAGMA cache_size = -64000;    -- 64MB cache
             PRAGMA busy_timeout = 5000;    -- 5s busy timeout
-        "#)?;
+        "#,
+        )?;
 
         let manager = Self {
             connection: Mutex::new(connection),
@@ -64,7 +66,7 @@ impl DatabaseManager {
     /// Initialize the database schema
     fn init_schema(&self) -> StorageResult<()> {
         let conn = self.connection.lock().unwrap();
-        
+
         conn.execute_batch(
             r#"
             -- Spaces table: work environments/workspaces with 1:1 database connection
@@ -122,7 +124,7 @@ impl DatabaseManager {
             [],
             |row| row.get(0),
         )?;
-        
+
         if !has_is_pinned {
             conn.execute(
                 "ALTER TABLE pinned_tabs ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0",
@@ -136,7 +138,7 @@ impl DatabaseManager {
             [],
             |row| row.get(0),
         )?;
-        
+
         if !has_connection_host {
             conn.execute_batch(
                 r#"
@@ -147,7 +149,7 @@ impl DatabaseManager {
                 ALTER TABLE spaces ADD COLUMN connection_password TEXT;
                 ALTER TABLE spaces ADD COLUMN connection_trust_cert INTEGER DEFAULT 1;
                 ALTER TABLE spaces ADD COLUMN connection_encrypt INTEGER DEFAULT 0;
-                "#
+                "#,
             )?;
         }
 
@@ -159,10 +161,7 @@ impl DatabaseManager {
         )?;
 
         if !has_tab_database {
-            conn.execute(
-                "ALTER TABLE pinned_tabs ADD COLUMN database TEXT",
-                [],
-            )?;
+            conn.execute("ALTER TABLE pinned_tabs ADD COLUMN database TEXT", [])?;
         }
 
         // Migration: Add last_accessed_at column to pinned_tabs for activity tracking
@@ -235,7 +234,7 @@ impl DatabaseManager {
 
             CREATE INDEX IF NOT EXISTS idx_tab_folders_space_id ON tab_folders(space_id);
             CREATE INDEX IF NOT EXISTS idx_tab_folders_sort_order ON tab_folders(sort_order);
-            "#
+            "#,
         )?;
 
         // Migration: Create schema_cache table
@@ -248,7 +247,7 @@ impl DatabaseManager {
                 updated_at TEXT NOT NULL DEFAULT (datetime('now')),
                 PRIMARY KEY (connection_id, database_name)
             );
-            "#
+            "#,
         )?;
 
         // Migration: Create virtual_references table (user-defined foreign keys)
@@ -270,7 +269,7 @@ impl DatabaseManager {
 
             CREATE INDEX IF NOT EXISTS idx_virtual_references_scope
                 ON virtual_references(connection_id, database_name);
-            "#
+            "#,
         )?;
 
         // Migration: Add folder_id column to pinned_tabs
@@ -282,10 +281,7 @@ impl DatabaseManager {
 
         if !has_folder_id {
             // Add folder_id column
-            conn.execute(
-                "ALTER TABLE pinned_tabs ADD COLUMN folder_id TEXT",
-                [],
-            )?;
+            conn.execute("ALTER TABLE pinned_tabs ADD COLUMN folder_id TEXT", [])?;
 
             // Create index
             conn.execute(
@@ -307,10 +303,7 @@ impl DatabaseManager {
         )?;
 
         if !has_last_active_tab_id {
-            conn.execute(
-                "ALTER TABLE spaces ADD COLUMN last_active_tab_id TEXT",
-                [],
-            )?;
+            conn.execute("ALTER TABLE spaces ADD COLUMN last_active_tab_id TEXT", [])?;
         }
 
         // Migration: Create sticky_notes table (v2 — gutter icon approach)
@@ -328,7 +321,7 @@ impl DatabaseManager {
             );
 
             CREATE INDEX IF NOT EXISTS idx_sticky_notes_tab_id ON sticky_notes(tab_id);
-            "#
+            "#,
         )?;
 
         // Migration: Add width column to sticky_notes (persist resized popover width)
@@ -339,10 +332,7 @@ impl DatabaseManager {
         )?;
 
         if !has_note_width {
-            conn.execute(
-                "ALTER TABLE sticky_notes ADD COLUMN width INTEGER",
-                [],
-            )?;
+            conn.execute("ALTER TABLE sticky_notes ADD COLUMN width INTEGER", [])?;
         }
 
         // Migration: Add pinned column to sticky_notes (pin popover open so
@@ -391,19 +381,21 @@ impl DatabaseManager {
                     SET title = new.title, content = COALESCE(new.content, '')
                     WHERE rowid = new.rowid;
                 END;
-                "#
+                "#,
             )?;
         } else {
             // Migration: Fix FTS5 table if it has the old schema with archived_tab_id
             // Check if the FTS5 table has the archived_tab_id column by trying to query it
-            let needs_migration = conn.query_row(
-                "SELECT sql FROM sqlite_master WHERE type='table' AND name='archived_tabs_fts'",
-                [],
-                |row| {
-                    let sql: String = row.get(0)?;
-                    Ok(sql.contains("archived_tab_id"))
-                },
-            ).unwrap_or(false);
+            let needs_migration = conn
+                .query_row(
+                    "SELECT sql FROM sqlite_master WHERE type='table' AND name='archived_tabs_fts'",
+                    [],
+                    |row| {
+                        let sql: String = row.get(0)?;
+                        Ok(sql.contains("archived_tab_id"))
+                    },
+                )
+                .unwrap_or(false);
 
             if needs_migration {
                 // Drop the old FTS5 table and triggers, then recreate
@@ -439,7 +431,7 @@ impl DatabaseManager {
                     -- Rebuild the FTS index from existing archived tabs
                     INSERT INTO archived_tabs_fts(rowid, title, content)
                     SELECT rowid, title, COALESCE(content, '') FROM archived_tabs;
-                    "#
+                    "#,
                 )?;
             }
         }
@@ -470,7 +462,7 @@ impl DatabaseManager {
 pub fn get_default_db_path() -> StorageResult<PathBuf> {
     let proj_dirs = directories::ProjectDirs::from("com", "larik", "larik-sql-studio")
         .ok_or(StorageError::AppDataDir)?;
-    
+
     let data_dir = proj_dirs.data_dir();
     Ok(data_dir.join("larik.db"))
 }
@@ -485,12 +477,12 @@ mod tests {
     fn test_database_creation() {
         let temp_dir = std::env::temp_dir();
         let db_path = temp_dir.join("larik_test.db");
-        
+
         // Clean up any existing test database
         let _ = std::fs::remove_file(&db_path);
 
         let manager = DatabaseManager::new(db_path.clone()).unwrap();
-        
+
         assert!(Path::new(&db_path).exists());
         assert_eq!(manager.db_path(), &db_path);
 
@@ -502,11 +494,11 @@ mod tests {
     fn test_schema_initialization() {
         let temp_dir = std::env::temp_dir();
         let db_path = temp_dir.join("larik_schema_test.db");
-        
+
         let _ = std::fs::remove_file(&db_path);
 
         let manager = DatabaseManager::new(db_path.clone()).unwrap();
-        
+
         // Verify tables exist
         manager.with_connection(|conn| {
             let mut stmt = conn.prepare(
@@ -516,7 +508,7 @@ mod tests {
                 .query_map([], |row| row.get(0))?
                 .filter_map(|r| r.ok())
                 .collect();
-            
+
             assert_eq!(tables.len(), 3);
             Ok(())
         }).unwrap();

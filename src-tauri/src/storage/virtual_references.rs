@@ -116,7 +116,8 @@ impl DatabaseManager {
     /// Delete a virtual reference by id.
     pub fn delete_virtual_reference(&self, id: &str) -> StorageResult<bool> {
         self.with_connection(|conn| {
-            let affected = conn.execute("DELETE FROM virtual_references WHERE id = ?1", params![id])?;
+            let affected =
+                conn.execute("DELETE FROM virtual_references WHERE id = ?1", params![id])?;
             Ok(affected > 0)
         })
     }
@@ -155,33 +156,54 @@ mod tests {
     fn test_virtual_reference_crud() {
         let (db, db_path) = create_test_db();
 
-        assert!(db.get_virtual_references("space1", "AppDb").unwrap().is_empty());
+        assert!(db
+            .get_virtual_references("space1", "AppDb")
+            .unwrap()
+            .is_empty());
 
-        db.save_virtual_reference(&sample("v1", "Status", "TransactionStatus")).unwrap();
-        db.save_virtual_reference(&sample("v2", "UserId", "User")).unwrap();
+        db.save_virtual_reference(&sample("v1", "Status", "TransactionStatus"))
+            .unwrap();
+        db.save_virtual_reference(&sample("v2", "UserId", "User"))
+            .unwrap();
 
         let all = db.get_virtual_references("space1", "AppDb").unwrap();
         assert_eq!(all.len(), 2);
 
         // Scoped by connection and database
-        assert!(db.get_virtual_references("space2", "AppDb").unwrap().is_empty());
-        assert!(db.get_virtual_references("space1", "OtherDb").unwrap().is_empty());
+        assert!(db
+            .get_virtual_references("space2", "AppDb")
+            .unwrap()
+            .is_empty());
+        assert!(db
+            .get_virtual_references("space1", "OtherDb")
+            .unwrap()
+            .is_empty());
 
         // Database name matching is case-insensitive
-        assert_eq!(db.get_virtual_references("space1", "appdb").unwrap().len(), 2);
+        assert_eq!(
+            db.get_virtual_references("space1", "appdb").unwrap().len(),
+            2
+        );
 
         // Saving the same source column again replaces the previous entry,
         // including when the identifiers differ only in case
-        db.save_virtual_reference(&sample("v3", "status", "ApplicationStatus")).unwrap();
+        db.save_virtual_reference(&sample("v3", "status", "ApplicationStatus"))
+            .unwrap();
         let all = db.get_virtual_references("space1", "AppDb").unwrap();
         assert_eq!(all.len(), 2);
-        let status = all.iter().find(|r| r.source_column.eq_ignore_ascii_case("status")).unwrap();
+        let status = all
+            .iter()
+            .find(|r| r.source_column.eq_ignore_ascii_case("status"))
+            .unwrap();
         assert_eq!(status.target_table, "ApplicationStatus");
         assert_eq!(status.id, "v3");
 
         assert!(db.delete_virtual_reference("v3").unwrap());
         assert!(!db.delete_virtual_reference("v3").unwrap());
-        assert_eq!(db.get_virtual_references("space1", "AppDb").unwrap().len(), 1);
+        assert_eq!(
+            db.get_virtual_references("space1", "AppDb").unwrap().len(),
+            1
+        );
 
         let _ = std::fs::remove_file(&db_path);
     }

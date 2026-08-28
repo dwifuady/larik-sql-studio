@@ -35,9 +35,6 @@ export function splitSqlStatements(sql: string): string[] {
         }
       }
       i++;
-      if (ch === '\n') {
-      } else {
-      }
       continue;
     }
 
@@ -72,8 +69,6 @@ export function splitSqlStatements(sql: string): string[] {
         i += 2;
         state = 'NORMAL';
         continue;
-      }
-      if (ch === '\n') {
       }
       i++;
       continue;
@@ -129,9 +124,6 @@ export function splitSqlStatements(sql: string): string[] {
     }
 
     current += ch;
-    if (ch === '\n') {
-    } else if (ch.trim() !== '') {
-    }
     i++;
   }
 

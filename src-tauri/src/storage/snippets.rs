@@ -110,7 +110,7 @@ pub fn get_builtin_snippets() -> Vec<CreateSnippetInput> {
             description: Some("Select with GROUP BY".to_string()),
             category: Some("Select".to_string()),
         },
-        
+
         // INSERT snippets
         CreateSnippetInput {
             trigger: "ins".to_string(),
@@ -126,7 +126,7 @@ pub fn get_builtin_snippets() -> Vec<CreateSnippetInput> {
             description: Some("Insert from SELECT".to_string()),
             category: Some("Insert".to_string()),
         },
-        
+
         // UPDATE snippets
         CreateSnippetInput {
             trigger: "upd".to_string(),
@@ -142,7 +142,7 @@ pub fn get_builtin_snippets() -> Vec<CreateSnippetInput> {
             description: Some("Update with JOIN".to_string()),
             category: Some("Update".to_string()),
         },
-        
+
         // DELETE snippets
         CreateSnippetInput {
             trigger: "del".to_string(),
@@ -158,7 +158,7 @@ pub fn get_builtin_snippets() -> Vec<CreateSnippetInput> {
             description: Some("Truncate table".to_string()),
             category: Some("Delete".to_string()),
         },
-        
+
         // DDL snippets
         CreateSnippetInput {
             trigger: "ct".to_string(),
@@ -195,7 +195,7 @@ pub fn get_builtin_snippets() -> Vec<CreateSnippetInput> {
             description: Some("Drop index".to_string()),
             category: Some("DDL".to_string()),
         },
-        
+
         // CTE snippets
         CreateSnippetInput {
             trigger: "cte".to_string(),
@@ -211,7 +211,7 @@ pub fn get_builtin_snippets() -> Vec<CreateSnippetInput> {
             description: Some("Recursive CTE".to_string()),
             category: Some("CTE".to_string()),
         },
-        
+
         // Procedure/Function snippets
         CreateSnippetInput {
             trigger: "cp".to_string(),
@@ -234,7 +234,7 @@ pub fn get_builtin_snippets() -> Vec<CreateSnippetInput> {
             description: Some("Execute stored procedure".to_string()),
             category: Some("Procedure".to_string()),
         },
-        
+
         // Transaction snippets
         CreateSnippetInput {
             trigger: "tran".to_string(),
@@ -250,7 +250,7 @@ pub fn get_builtin_snippets() -> Vec<CreateSnippetInput> {
             description: Some("Try-Catch block".to_string()),
             category: Some("Transaction".to_string()),
         },
-        
+
         // Variable snippets
         CreateSnippetInput {
             trigger: "decl".to_string(),
@@ -266,7 +266,7 @@ pub fn get_builtin_snippets() -> Vec<CreateSnippetInput> {
             description: Some("Declare table variable".to_string()),
             category: Some("Variable".to_string()),
         },
-        
+
         // Utility snippets
         CreateSnippetInput {
             trigger: "iff".to_string(),
@@ -296,7 +296,7 @@ pub fn get_builtin_snippets() -> Vec<CreateSnippetInput> {
             description: Some("CASE expression".to_string()),
             category: Some("Expression".to_string()),
         },
-        
+
         // Info snippets
         CreateSnippetInput {
             trigger: "cols".to_string(),
@@ -393,7 +393,7 @@ impl DatabaseManager {
         is_builtin: bool,
     ) -> StorageResult<Snippet> {
         let id = Uuid::new_v4().to_string();
-        
+
         self.with_connection(|conn| {
             conn.execute(
                 r#"
@@ -402,7 +402,7 @@ impl DatabaseManager {
                 "#,
                 params![id, trigger, name, content, description, is_builtin, category],
             )?;
-            
+
             conn.query_row(
                 "SELECT id, trigger, name, content, description, is_builtin, enabled, category, created_at, updated_at FROM snippets WHERE id = ?1",
                 params![id],
@@ -438,11 +438,11 @@ impl DatabaseManager {
     pub fn get_all_snippets(&self) -> StorageResult<Vec<Snippet>> {
         self.with_connection(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, trigger, name, content, description, is_builtin, enabled, category, created_at, updated_at 
-                 FROM snippets 
+                "SELECT id, trigger, name, content, description, is_builtin, enabled, category, created_at, updated_at
+                 FROM snippets
                  ORDER BY category NULLS LAST, trigger",
             )?;
-            
+
             let snippets = stmt
                 .query_map([], |row| {
                     Ok(Snippet {
@@ -460,7 +460,7 @@ impl DatabaseManager {
                 })?
                 .filter_map(|r| r.ok())
                 .collect();
-            
+
             Ok(snippets)
         })
     }
@@ -469,12 +469,12 @@ impl DatabaseManager {
     pub fn get_enabled_snippets(&self) -> StorageResult<Vec<Snippet>> {
         self.with_connection(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, trigger, name, content, description, is_builtin, enabled, category, created_at, updated_at 
-                 FROM snippets 
+                "SELECT id, trigger, name, content, description, is_builtin, enabled, category, created_at, updated_at
+                 FROM snippets
                  WHERE enabled = 1
                  ORDER BY category NULLS LAST, trigger",
             )?;
-            
+
             let snippets = stmt
                 .query_map([], |row| {
                     Ok(Snippet {
@@ -492,7 +492,7 @@ impl DatabaseManager {
                 })?
                 .filter_map(|r| r.ok())
                 .collect();
-            
+
             Ok(snippets)
         })
     }
@@ -501,7 +501,7 @@ impl DatabaseManager {
     pub fn get_snippet(&self, id: &str) -> StorageResult<Option<Snippet>> {
         self.with_connection(|conn| {
             let result = conn.query_row(
-                "SELECT id, trigger, name, content, description, is_builtin, enabled, category, created_at, updated_at 
+                "SELECT id, trigger, name, content, description, is_builtin, enabled, category, created_at, updated_at
                  FROM snippets WHERE id = ?1",
                 params![id],
                 |row| {
@@ -519,7 +519,7 @@ impl DatabaseManager {
                     })
                 },
             );
-            
+
             match result {
                 Ok(snippet) => Ok(Some(snippet)),
                 Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
@@ -532,7 +532,7 @@ impl DatabaseManager {
     pub fn get_snippet_by_trigger(&self, trigger: &str) -> StorageResult<Option<Snippet>> {
         self.with_connection(|conn| {
             let result = conn.query_row(
-                "SELECT id, trigger, name, content, description, is_builtin, enabled, category, created_at, updated_at 
+                "SELECT id, trigger, name, content, description, is_builtin, enabled, category, created_at, updated_at
                  FROM snippets WHERE trigger = ?1 AND enabled = 1",
                 params![trigger],
                 |row| {
@@ -550,7 +550,7 @@ impl DatabaseManager {
                     })
                 },
             );
-            
+
             match result {
                 Ok(snippet) => Ok(Some(snippet)),
                 Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
@@ -560,17 +560,21 @@ impl DatabaseManager {
     }
 
     /// Update an existing snippet
-    pub fn update_snippet(&self, id: &str, input: UpdateSnippetInput) -> StorageResult<Option<Snippet>> {
+    pub fn update_snippet(
+        &self,
+        id: &str,
+        input: UpdateSnippetInput,
+    ) -> StorageResult<Option<Snippet>> {
         // First check if snippet exists and is not builtin (if trying to change trigger/name/content)
         let existing = self.get_snippet(id)?;
         if existing.is_none() {
             return Ok(None);
         }
-        
+
         self.with_connection(|conn| {
             let mut updates = Vec::new();
             let mut values: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-            
+
             if let Some(ref trigger) = input.trigger {
                 updates.push("trigger = ?");
                 values.push(Box::new(trigger.clone()));
@@ -595,25 +599,25 @@ impl DatabaseManager {
                 updates.push("enabled = ?");
                 values.push(Box::new(enabled as i32));
             }
-            
+
             if updates.is_empty() {
                 return Ok(Some(existing.unwrap()));
             }
-            
+
             updates.push("updated_at = datetime('now')");
             values.push(Box::new(id.to_string()));
-            
+
             let sql = format!(
                 "UPDATE snippets SET {} WHERE id = ?",
                 updates.join(", ")
             );
-            
+
             let params: Vec<&dyn rusqlite::ToSql> = values.iter().map(|v| v.as_ref()).collect();
             conn.execute(&sql, params.as_slice())?;
-            
+
             // Fetch and return updated snippet
             conn.query_row(
-                "SELECT id, trigger, name, content, description, is_builtin, enabled, category, created_at, updated_at 
+                "SELECT id, trigger, name, content, description, is_builtin, enabled, category, created_at, updated_at
                  FROM snippets WHERE id = ?1",
                 params![id],
                 |row| {
@@ -653,18 +657,21 @@ impl DatabaseManager {
             if !snippet.is_builtin {
                 return Ok(None);
             }
-            
+
             // Find the original builtin
             let builtins = get_builtin_snippets();
             if let Some(original) = builtins.iter().find(|s| s.trigger == snippet.trigger) {
-                return self.update_snippet(id, UpdateSnippetInput {
-                    trigger: None,
-                    name: Some(original.name.clone()),
-                    content: Some(original.content.clone()),
-                    description: original.description.clone(),
-                    category: original.category.clone(),
-                    enabled: Some(true),
-                });
+                return self.update_snippet(
+                    id,
+                    UpdateSnippetInput {
+                        trigger: None,
+                        name: Some(original.name.clone()),
+                        content: Some(original.content.clone()),
+                        description: original.description.clone(),
+                        category: original.category.clone(),
+                        enabled: Some(true),
+                    },
+                );
             }
         }
         Ok(None)
@@ -691,13 +698,17 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
-    
+
     static TEST_COUNTER: AtomicU32 = AtomicU32::new(0);
 
     fn create_test_db() -> (DatabaseManager, PathBuf) {
         let counter = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
         let temp_dir = std::env::temp_dir();
-        let db_path = temp_dir.join(format!("larik_snippet_test_{}_{}.db", std::process::id(), counter));
+        let db_path = temp_dir.join(format!(
+            "larik_snippet_test_{}_{}.db",
+            std::process::id(),
+            counter
+        ));
         let _ = std::fs::remove_file(&db_path);
         let manager = DatabaseManager::new(db_path.clone()).unwrap();
         manager.init_snippets_schema().unwrap();
@@ -708,13 +719,15 @@ mod tests {
     fn test_create_and_get_snippet() {
         let (manager, db_path) = create_test_db();
 
-        let snippet = manager.create_snippet(CreateSnippetInput {
-            trigger: "test".to_string(),
-            name: "Test Snippet".to_string(),
-            content: "SELECT * FROM ${cursor}".to_string(),
-            description: Some("A test snippet".to_string()),
-            category: Some("Test".to_string()),
-        }).unwrap();
+        let snippet = manager
+            .create_snippet(CreateSnippetInput {
+                trigger: "test".to_string(),
+                name: "Test Snippet".to_string(),
+                content: "SELECT * FROM ${cursor}".to_string(),
+                description: Some("A test snippet".to_string()),
+                category: Some("Test".to_string()),
+            })
+            .unwrap();
 
         assert_eq!(snippet.trigger, "test");
         assert_eq!(snippet.name, "Test Snippet");
@@ -760,13 +773,15 @@ mod tests {
     fn test_delete_user_snippet() {
         let (manager, db_path) = create_test_db();
 
-        let snippet = manager.create_snippet(CreateSnippetInput {
-            trigger: "usrsnp".to_string(),
-            name: "User Snippet".to_string(),
-            content: "test".to_string(),
-            description: None,
-            category: None,
-        }).unwrap();
+        let snippet = manager
+            .create_snippet(CreateSnippetInput {
+                trigger: "usrsnp".to_string(),
+                name: "User Snippet".to_string(),
+                content: "test".to_string(),
+                description: None,
+                category: None,
+            })
+            .unwrap();
 
         let deleted = manager.delete_snippet(&snippet.id).unwrap();
         assert!(deleted);

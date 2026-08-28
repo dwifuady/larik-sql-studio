@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
-use tokio::sync::RwLock;
 use tiberius::{AuthMethod, Config, EncryptionLevel};
+use tokio::sync::RwLock;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 
 /// Connection configuration for MS-SQL
@@ -62,11 +62,11 @@ impl ConnectionConfig {
             &self.username,
             self.password.expose_secret(),
         ));
-        
+
         if self.trust_certificate {
             config.trust_cert();
         }
-        
+
         config.encryption(if self.encrypt {
             EncryptionLevel::Required
         } else {
@@ -114,22 +114,22 @@ impl From<&ConnectionConfig> for ConnectionInfo {
 pub enum ConnectionError {
     #[error("Connection failed: {0}")]
     ConnectionFailed(String),
-    
+
     #[error("Connection not found: {0}")]
     NotFound(String),
-    
+
     #[error("Connection pool error: {0}")]
     PoolError(String),
-    
+
     #[error("Configuration error: {0}")]
     ConfigError(String),
-    
+
     #[error("Query execution error: {0}")]
     QueryError(String),
-    
+
     #[error("Password expired. Please change your password using another tool properly.")]
     PasswordExpired,
-    
+
     #[error("Timeout error")]
     Timeout,
 }
@@ -183,7 +183,10 @@ impl MssqlConnectionManager {
     }
 
     /// Add a new connection configuration (does not connect yet)
-    pub async fn add_connection(&self, config: ConnectionConfig) -> Result<String, ConnectionError> {
+    pub async fn add_connection(
+        &self,
+        config: ConnectionConfig,
+    ) -> Result<String, ConnectionError> {
         let id = config.id.clone();
         let mut configs = self.configs.write().await;
         configs.insert(id.clone(), config);
@@ -191,21 +194,27 @@ impl MssqlConnectionManager {
     }
 
     /// Test a connection without adding it to the pool
-    pub async fn test_connection(&self, config: &ConnectionConfig) -> Result<bool, ConnectionError> {
+    pub async fn test_connection(
+        &self,
+        config: &ConnectionConfig,
+    ) -> Result<bool, ConnectionError> {
         let tiberius_config = config.to_tiberius_config()?;
-        
+
         // Try to establish a connection
         let tcp = tokio::net::TcpStream::connect(format!("{}:{}", config.host, config.port))
             .await
-            .map_err(|e| ConnectionError::ConnectionFailed(format!("TCP connection failed: {}", e)))?;
-        
-        tcp.set_nodelay(true)
-            .map_err(|e| ConnectionError::ConnectionFailed(format!("Failed to set TCP_NODELAY: {}", e)))?;
-        
+            .map_err(|e| {
+                ConnectionError::ConnectionFailed(format!("TCP connection failed: {}", e))
+            })?;
+
+        tcp.set_nodelay(true).map_err(|e| {
+            ConnectionError::ConnectionFailed(format!("Failed to set TCP_NODELAY: {}", e))
+        })?;
+
         let _client = tiberius::Client::connect(tiberius_config, tcp.compat_write())
             .await
             .map_err(ConnectionError::from)?;
-        
+
         Ok(true)
     }
 
@@ -222,7 +231,8 @@ impl MssqlConnectionManager {
         // Get config
         let config = {
             let configs = self.configs.read().await;
-            configs.get(connection_id)
+            configs
+                .get(connection_id)
                 .ok_or_else(|| ConnectionError::NotFound(connection_id.to_string()))?
                 .clone()
         };
@@ -231,7 +241,7 @@ impl MssqlConnectionManager {
         let tiberius_config = config.to_tiberius_config()?;
         let manager = ConnectionManager::build(tiberius_config)
             .map_err(|e| ConnectionError::ConfigError(e.to_string()))?;
-        
+
         let pool = Pool::builder()
             .connection_timeout(Duration::from_secs(5))
             .max_lifetime(Some(Duration::from_secs(300)))
@@ -242,7 +252,7 @@ impl MssqlConnectionManager {
             .map_err(|e| ConnectionError::PoolError(e.to_string()))?;
 
         let pool = Arc::new(pool);
-        
+
         // Store pool
         {
             let mut pools = self.pools.write().await;
@@ -254,27 +264,35 @@ impl MssqlConnectionManager {
 
     /// Create a dedicated (non-pooled) connection for cancellable queries
     /// Returns the TCP stream and client separately so the stream can be dropped to cancel
-    pub async fn create_dedicated_connection(&self, connection_id: &str) -> Result<tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>, ConnectionError> {
+    pub async fn create_dedicated_connection(
+        &self,
+        connection_id: &str,
+    ) -> Result<tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>, ConnectionError>
+    {
         let config = {
             let configs = self.configs.read().await;
-            configs.get(connection_id)
+            configs
+                .get(connection_id)
                 .ok_or_else(|| ConnectionError::NotFound(connection_id.to_string()))?
                 .clone()
         };
-        
+
         let tiberius_config = config.to_tiberius_config()?;
-        
+
         let tcp = tokio::net::TcpStream::connect(format!("{}:{}", config.host, config.port))
             .await
-            .map_err(|e| ConnectionError::ConnectionFailed(format!("TCP connection failed: {}", e)))?;
-        
-        tcp.set_nodelay(true)
-            .map_err(|e| ConnectionError::ConnectionFailed(format!("Failed to set TCP_NODELAY: {}", e)))?;
-        
+            .map_err(|e| {
+                ConnectionError::ConnectionFailed(format!("TCP connection failed: {}", e))
+            })?;
+
+        tcp.set_nodelay(true).map_err(|e| {
+            ConnectionError::ConnectionFailed(format!("Failed to set TCP_NODELAY: {}", e))
+        })?;
+
         let client = tiberius::Client::connect(tiberius_config, tcp.compat_write())
             .await
             .map_err(ConnectionError::from)?;
-        
+
         Ok(client)
     }
 
@@ -303,20 +321,24 @@ impl MssqlConnectionManager {
     pub async fn list_connections(&self) -> Vec<ConnectionInfo> {
         let configs = self.configs.read().await;
         let pools = self.pools.read().await;
-        
-        configs.values().map(|config| {
-            let mut info = ConnectionInfo::from(config);
-            info.is_connected = pools.contains_key(&config.id);
-            info
-        }).collect()
+
+        configs
+            .values()
+            .map(|config| {
+                let mut info = ConnectionInfo::from(config);
+                info.is_connected = pools.contains_key(&config.id);
+                info
+            })
+            .collect()
     }
 
     /// Get connections for a specific space
     pub async fn get_connections_by_space(&self, space_id: &str) -> Vec<ConnectionInfo> {
         let configs = self.configs.read().await;
         let pools = self.pools.read().await;
-        
-        configs.values()
+
+        configs
+            .values()
             .filter(|config| config.space_id.as_deref() == Some(space_id))
             .map(|config| {
                 let mut info = ConnectionInfo::from(config);
@@ -327,11 +349,16 @@ impl MssqlConnectionManager {
     }
 
     /// Update a connection configuration
-    pub async fn update_connection(&self, connection_id: &str, updates: ConnectionConfigUpdate) -> Result<ConnectionInfo, ConnectionError> {
+    pub async fn update_connection(
+        &self,
+        connection_id: &str,
+        updates: ConnectionConfigUpdate,
+    ) -> Result<ConnectionInfo, ConnectionError> {
         let mut configs = self.configs.write().await;
-        let config = configs.get_mut(connection_id)
+        let config = configs
+            .get_mut(connection_id)
             .ok_or_else(|| ConnectionError::NotFound(connection_id.to_string()))?;
-        
+
         if let Some(name) = updates.name {
             config.name = name;
         }
@@ -359,11 +386,11 @@ impl MssqlConnectionManager {
         if let Some(space_id) = updates.space_id {
             config.space_id = space_id;
         }
-        
+
         // Disconnect if connected (config changed)
         drop(configs);
         self.disconnect(connection_id).await?;
-        
+
         let configs = self.configs.read().await;
         let config = configs.get(connection_id).unwrap();
         Ok(ConnectionInfo::from(config))
@@ -385,23 +412,26 @@ impl MssqlConnectionManager {
     pub async fn get_databases(&self, connection_id: &str) -> Result<Vec<String>, ConnectionError> {
         let pool = self.connect(connection_id).await?;
         let mut conn = pool.get().await?;
-        
+
         let query = "SELECT name FROM sys.databases WHERE state_desc = 'ONLINE' AND HAS_DBACCESS(name) = 1 ORDER BY name";
         let stream = conn.simple_query(query).await?;
         let rows = stream.into_first_result().await?;
-        
+
         let databases: Vec<String> = rows
             .iter()
             .filter_map(|row| row.get::<&str, _>(0).map(|s| s.to_string()))
             .collect();
-        
+
         Ok(databases)
     }
 
     /// Get list of all online databases with an access flag (name, has_access).
     /// Uses two separate queries and merges in Rust to avoid tiberius type ambiguity
     /// with HAS_DBACCESS() returning typed I32 vs text depending on the protocol path.
-    pub async fn get_databases_with_access(&self, connection_id: &str) -> Result<Vec<(String, bool)>, ConnectionError> {
+    pub async fn get_databases_with_access(
+        &self,
+        connection_id: &str,
+    ) -> Result<Vec<(String, bool)>, ConnectionError> {
         let pool = self.connect(connection_id).await?;
         let mut conn = pool.get().await?;
 
@@ -439,7 +469,7 @@ impl MssqlConnectionManager {
     pub async fn get_connection(&self, connection_id: &str) -> Option<ConnectionInfo> {
         let configs = self.configs.read().await;
         let pools = self.pools.read().await;
-        
+
         configs.get(connection_id).map(|config| {
             let mut info = ConnectionInfo::from(config);
             info.is_connected = pools.contains_key(&config.id);
@@ -528,7 +558,7 @@ mod tests {
 
     #[test]
     fn test_tiberius_config_conversion() {
-         let mut config = ConnectionConfig::new(
+        let mut config = ConnectionConfig::new(
             "Test DB".to_string(),
             "localhost".to_string(),
             1433,
@@ -542,7 +572,7 @@ mod tests {
         let tiberius_config = config.to_tiberius_config();
         assert!(tiberius_config.is_ok());
 
-        // We can't easily inspect the internal state of tiberius::Config, 
+        // We can't easily inspect the internal state of tiberius::Config,
         // but ensuring it doesn't error is a good first step.
     }
 }

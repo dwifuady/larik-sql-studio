@@ -4,9 +4,9 @@
 pub mod crud;
 pub mod database;
 pub mod folders;
-pub mod paths;
 pub mod history;
 pub mod notes;
+pub mod paths;
 pub mod schema_cache;
 pub mod snippets;
 pub mod spaces;

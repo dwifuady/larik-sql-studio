@@ -3,9 +3,9 @@
 
 pub mod connection;
 pub mod ident;
+pub mod management;
 pub mod query;
 pub mod schema;
-pub mod management;
 
 pub use connection::{
     ConnectionConfig, ConnectionConfigUpdate, ConnectionError, ConnectionInfo,

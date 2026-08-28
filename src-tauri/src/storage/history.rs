@@ -50,20 +50,23 @@ impl DatabaseManager {
                 |row| {
                     let tab_type_str: String = row.get(3)?;
                     let tab_type = TabType::from_str(&tab_type_str).unwrap_or(TabType::Query);
-                    Ok((Tab {
-                        id: row.get(0)?,
-                        space_id: row.get(1)?,
-                        title: row.get(2)?,
-                        tab_type,
-                        content: row.get(4)?,
-                        metadata: row.get(5)?,
-                        database: row.get(6)?,
-                        folder_id: None, // Archived tabs are not in folders
-                        is_pinned: row.get::<_, i32>(7)? != 0,
-                        created_at: row.get(8)?,
-                        updated_at: row.get(9)?,
-                        sort_order: row.get(10)?,
-                    }, tab_type_str))
+                    Ok((
+                        Tab {
+                            id: row.get(0)?,
+                            space_id: row.get(1)?,
+                            title: row.get(2)?,
+                            tab_type,
+                            content: row.get(4)?,
+                            metadata: row.get(5)?,
+                            database: row.get(6)?,
+                            folder_id: None, // Archived tabs are not in folders
+                            is_pinned: row.get::<_, i32>(7)? != 0,
+                            created_at: row.get(8)?,
+                            updated_at: row.get(9)?,
+                            sort_order: row.get(10)?,
+                        },
+                        tab_type_str,
+                    ))
                 },
             )?;
 
@@ -268,17 +271,17 @@ impl DatabaseManager {
                     .chars()
                     .filter(|c| c.is_alphanumeric() || *c == '_')
                     .collect();
-                
+
                 if sanitized.is_empty() {
                     return None;
                 }
-                
+
                 // FTS5 reserved keywords need to be quoted
                 let upper = sanitized.to_uppercase();
                 if upper == "AND" || upper == "OR" || upper == "NOT" || upper == "NEAR" {
                     return Some(format!("\"{}\"", sanitized));
                 }
-                
+
                 // Append * for prefix matching
                 Some(format!("{}*", sanitized))
             })
@@ -399,7 +402,7 @@ impl DatabaseManager {
                 .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                     let title: String = row.get(4)?;
                     let content: Option<String> = row.get(6)?;
-                    
+
                     Ok(ArchiveSearchResult {
                         archived_tab: ArchivedTab {
                             id: row.get(0)?,
@@ -508,7 +511,10 @@ impl DatabaseManager {
     /// Permanently delete an archived tab
     pub fn delete_archived_tab(&self, archived_id: &str) -> StorageResult<bool> {
         self.with_connection(|conn| {
-            let affected = conn.execute("DELETE FROM archived_tabs WHERE id = ?", params![archived_id])?;
+            let affected = conn.execute(
+                "DELETE FROM archived_tabs WHERE id = ?",
+                params![archived_id],
+            )?;
             Ok(affected > 0)
         })
     }
@@ -627,9 +633,11 @@ mod tests {
         // Verify tab no longer in pinned_tabs
         let count: i64 = db
             .with_connection(|conn| {
-                conn.query_row("SELECT COUNT(*) FROM pinned_tabs WHERE id = ?", params![&tab_id], |row| {
-                    row.get(0)
-                })
+                conn.query_row(
+                    "SELECT COUNT(*) FROM pinned_tabs WHERE id = ?",
+                    params![&tab_id],
+                    |row| row.get(0),
+                )
             })
             .unwrap();
         assert_eq!(count, 0);

@@ -42,7 +42,11 @@ pub fn validate_import_path(raw: &str, expected_ext: &str) -> Result<PathBuf, St
 /// Reject Windows system directories and anything outside the user tree.
 fn deny_system_dirs(canon: &Path) -> Result<(), String> {
     let s = canon.to_string_lossy();
-    for forbidden in [r"C:\Windows", r"C:\Program Files", r"C:\Program Files (x86)"] {
+    for forbidden in [
+        r"C:\Windows",
+        r"C:\Program Files",
+        r"C:\Program Files (x86)",
+    ] {
         if s.starts_with(forbidden) {
             return Err("Cannot write to system directory".into());
         }

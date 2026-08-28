@@ -8,9 +8,9 @@ pub mod storage;
 
 use commands::AppState;
 use db::{MssqlConnectionManager, QueryEngine, SchemaMetadataManager};
-use storage::{DatabaseManager, get_default_db_path};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex as StdMutex};
+use storage::{get_default_db_path, DatabaseManager};
 use tauri::Manager;
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::{interval, Duration};
@@ -35,7 +35,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     // Log total snippet count
     if let Ok(all_snippets) = db_manager.get_all_snippets() {
-        println!("[Startup] Total snippets in database: {}", all_snippets.len());
+        println!(
+            "[Startup] Total snippets in database: {}",
+            all_snippets.len()
+        );
     }
 
     // Initialize default settings for archive/history
@@ -53,7 +56,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let schema_db_manager = DatabaseManager::new(db_path.clone())?;
     let schema_manager = Arc::new(SchemaMetadataManager::new(
         Arc::clone(&mssql_manager),
-        Arc::new(schema_db_manager)
+        Arc::new(schema_db_manager),
     ));
 
     let app_state = AppState {
@@ -264,12 +267,17 @@ fn spawn_auto_archive_task(db_path: std::path::PathBuf) -> tauri::async_runtime:
             };
 
             if !tabs_to_archive.is_empty() {
-                println!("[Auto-Archive] Found {} inactive tabs to archive", tabs_to_archive.len());
+                println!(
+                    "[Auto-Archive] Found {} inactive tabs to archive",
+                    tabs_to_archive.len()
+                );
 
                 for tab in tabs_to_archive {
                     match db.archive_tab(&tab.id) {
                         Ok(_) => println!("[Auto-Archive] Archived tab: {}", tab.title),
-                        Err(e) => eprintln!("[Auto-Archive] Failed to archive tab {}: {}", tab.id, e),
+                        Err(e) => {
+                            eprintln!("[Auto-Archive] Failed to archive tab {}: {}", tab.id, e)
+                        }
                     }
                 }
             }

@@ -173,7 +173,8 @@ impl DatabaseManager {
                 "UPDATE pinned_tabs SET folder_id = NULL, is_pinned = 0 WHERE folder_id = ?1",
                 params![id],
             )?;
-            let rows_affected = conn.execute("DELETE FROM tab_folders WHERE id = ?1", params![id])?;
+            let rows_affected =
+                conn.execute("DELETE FROM tab_folders WHERE id = ?1", params![id])?;
             Ok(rows_affected > 0)
         })
     }
