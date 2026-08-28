@@ -1,6 +1,7 @@
 import { AppLayout } from './components/AppLayout';
 import { CreateSpaceModal } from './components/CreateSpaceModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { UpdateBanner } from './components/UpdateBanner';
 import { useAppStore } from './store';
 
 function App() {
@@ -11,6 +12,7 @@ function App() {
       <ErrorBoundary>
         <AppLayout />
       </ErrorBoundary>
+      <UpdateBanner />
       <CreateSpaceModal
         isOpen={createSpaceModalOpen}
         onClose={() => setCreateSpaceModalOpen(false)}
