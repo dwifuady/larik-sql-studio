@@ -542,14 +542,6 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     });
 
     return () => {
-      if (completionProviderRef.current) {
-        completionProviderRef.current.dispose();
-        completionProviderRef.current = null;
-      }
-      if (snippetProviderRef.current) {
-        snippetProviderRef.current.dispose();
-        snippetProviderRef.current = null;
-      }
       if (codeLensProviderRef.current) {
         codeLensProviderRef.current.dispose();
         codeLensProviderRef.current = null;
