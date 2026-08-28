@@ -46,7 +46,7 @@ export function DatabaseSelector({ isCompact = false }: DatabaseSelectorProps) {
 
     return (
         <div
-            className={`text-xs flex items-center gap-1.5 bg-[var(--bg-hover)] border border-[var(--border-color)] rounded-md hover:bg-[var(--bg-active)] transition-all group relative ${isCompact ? 'px-1.5 py-0.5 h-[22px] max-w-[220px] min-w-[80px]' : 'px-1.5 py-0.5 h-6 min-w-[132px]'}`}
+            className={`text-xs flex items-center gap-1.5 bg-[var(--bg-hover)] border border-[var(--border-color)] rounded-md hover:bg-[var(--bg-active)] transition-all group relative ${isCompact ? 'pl-1.5 pr-0 py-0.5 h-[22px] max-w-[220px] min-w-[80px]' : 'pl-1.5 pr-0 py-0.5 h-6 min-w-[132px]'}`}
             style={{
                 boxShadow: isConnected ? `0 0 0 1px ${spaceColor}10` : 'none'
             }}

@@ -92,7 +92,7 @@ const TabItem = memo(({
       aria-label={`${isPinned ? 'Pinned tab' : 'Tab'}: ${tab.title}${tab.database ? ` (${tab.database})` : ''}`}
       aria-current={isActive ? 'page' : undefined}
       className={`
-        group flex items-center gap-1.5 px-2 py-1.5 mx-1 my-0.5 rounded-md cursor-pointer relative
+        group flex items-center gap-1.5 pl-2 pr-0 py-1.5 ml-1 mr-0 my-0.5 rounded-md cursor-pointer relative
         transition-all duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] focus:ring-offset-1
         ${isActive
           ? 'text-[var(--text-primary)] pl-2.5' // Active: background handled by style, extra left padding for strip
@@ -622,9 +622,9 @@ export function TabsList({ onNewTabClick }: { onNewTabClick?: () => void }) {
     return (
       <div className="flex-1 flex flex-col min-h-0 py-2">
         {/* Skeleton tabs */}
-        <div className="space-y-1 px-1">
+        <div className="space-y-1 pl-1 pr-0">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="flex items-center gap-2 px-2 py-1.5 mx-1 rounded-lg">
+            <div key={i} className="flex items-center gap-2 pl-2 pr-0 py-1.5 ml-1 mr-0 rounded-lg">
               <div className="w-4 h-4 rounded bg-white/10 animate-pulse" />
               <div className="h-3.5 rounded bg-white/10 animate-pulse" style={{ width: `${60 + i * 15}%` }} />
             </div>
@@ -647,7 +647,7 @@ export function TabsList({ onNewTabClick }: { onNewTabClick?: () => void }) {
           onDragEnd={handleDragEnd}
         >
           <div className="py-2">
-            <div className="px-4 mb-1">
+            <div className="pl-4 pr-0 mb-1">
               <span className="text-[10px] font-semibold text-[--text-muted] uppercase tracking-wider">
                 Pinned
               </span>
@@ -674,7 +674,7 @@ export function TabsList({ onNewTabClick }: { onNewTabClick?: () => void }) {
             {/* Drop zone for removing tabs from folders (only show when dragging a folder tab) */}
             {activeId && activeId.startsWith('folder-tab-') && (
               <UngroupedDropZone isOver={overId === 'drop-ungrouped'}>
-                <div className="px-3 py-2 text-xs text-[var(--text-muted)] text-center">
+                <div className="pl-3 pr-0 py-2 text-xs text-[var(--text-muted)] text-center">
                   Drop here to remove from folder
                 </div>
               </UngroupedDropZone>
@@ -766,7 +766,7 @@ export function TabsList({ onNewTabClick }: { onNewTabClick?: () => void }) {
 
       {/* Divider between sections */}
       {(ungroupedPinnedTabs.length > 0 || foldersWithTabs.length > 0) && unpinnedTabs.length > 0 && (
-        <div className="mx-4 border-t border-white/5" />
+        <div className="ml-4 mr-0 border-t border-white/5" />
       )}
 
       {/* Tabs section */}

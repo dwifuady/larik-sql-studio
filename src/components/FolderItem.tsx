@@ -85,7 +85,7 @@ const FolderTabItem = memo(({
       {...attributes}
       {...listeners}
         className={`
-          group flex items-center gap-1.5 px-1.5 py-1 ml-5 mr-1 my-0.5 rounded-md cursor-pointer relative
+          group flex items-center gap-1.5 pl-1.5 pr-0 py-1 ml-5 mr-0 my-0.5 rounded-md cursor-pointer relative
           transition-all duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] focus:ring-offset-1
           ${isActive
             ? 'text-[var(--text-primary)]'
@@ -255,7 +255,7 @@ export const FolderItem = memo(({
         tabIndex={0}
         aria-label={`Folder: ${folder.name}, ${tabs.length} tab${tabs.length !== 1 ? 's' : ''}`}
         aria-expanded={folder.is_expanded}
-        className="group flex items-center gap-1.5 px-1.5 py-1 mx-1 rounded-md cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-all duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] focus:ring-offset-1"
+        className="group flex items-center gap-1.5 pl-1.5 pr-0 py-1 ml-1 mr-0 rounded-md cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-all duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] focus:ring-offset-1"
         onClick={handleToggleExpanded}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {

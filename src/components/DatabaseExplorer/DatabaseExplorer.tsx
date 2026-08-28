@@ -219,7 +219,7 @@ export function DatabaseExplorer() {
                 <div key={node.id} className="select-none">
                     <div
                         className={`
-                        flex items-center gap-1.5 px-2 py-0.5 text-xs rounded-sm cursor-pointer 
+                        flex items-center gap-1.5 pl-2 pr-0 py-0.5 text-xs rounded-sm cursor-pointer 
                         hover:bg-[var(--bg-hover)] transition-all duration-200 group relative
                         ${hasChildren ? '' : 'pl-6'} 
                     `}
@@ -298,7 +298,7 @@ export function DatabaseExplorer() {
     return (
         <div className="flex flex-col h-full">
             {/* Header */}
-            <div className="px-2 py-1.5 flex items-center justify-between border-b border-[var(--border-subtle)] shrink-0">
+            <div className="pl-2 pr-0 py-1.5 flex items-center justify-between border-b border-[var(--border-subtle)] shrink-0">
                 <div className="flex items-center gap-1.5 overflow-hidden">
                     <Database className="w-3 h-3 flex-shrink-0" style={{ color: spaceColor }} />
                     <span className="text-xs font-semibold truncate" title={schemaInfo.database_name}>
@@ -315,7 +315,7 @@ export function DatabaseExplorer() {
             </div>
 
             {/* Search */}
-            <div className="px-2 py-1.5 shrink-0">
+            <div className="pl-2 pr-0 py-1.5 shrink-0">
                 <div className="relative">
                     <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--text-muted)] flex-shrink-0" />
                     <input
@@ -332,7 +332,7 @@ export function DatabaseExplorer() {
             </div>
 
             {/* Tree Content - Overflow handled here */}
-            <div className="flex-1 overflow-y-auto px-1 pb-2 min-h-0">
+            <div className="flex-1 overflow-y-auto pl-1 pr-0 pb-2 min-h-0">
                 {filteredTree.length === 0 ? (
                     <div className="text-center py-4 text-xs text-[var(--text-muted)]">
                         No objects found.

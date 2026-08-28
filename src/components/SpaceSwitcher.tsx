@@ -201,7 +201,7 @@ export function SpaceSwitcher() {
     <div ref={containerRef} className="relative group">
       {/* Trigger row: active space + connection controls */}
       <div
-        className="flex items-center gap-1 bg-transparent hover:bg-[var(--bg-hover)] rounded-md transition-all pl-1.5 pr-0.5 h-6"
+        className="flex items-center gap-1 bg-transparent hover:bg-[var(--bg-hover)] rounded-md transition-all pl-1.5 pr-0 h-6"
         style={{
           boxShadow: isConnected ? `0 0 0 1px ${spaceColor}10` : 'none'
         }}

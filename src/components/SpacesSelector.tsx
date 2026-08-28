@@ -227,7 +227,7 @@ export function SpacesSelector() {
 
   if (spacesLoading && spaces.length === 0) {
     return (
-      <div className="px-2 py-2 border-t border-white/5">
+      <div className="pl-2 pr-0 py-2 border-t border-white/5">
         <div className="flex items-center justify-center gap-2">
           {[1, 2, 3].map(i => (
             <div key={i} className="w-2.5 h-2.5 rounded-full bg-white/10 animate-pulse" />
