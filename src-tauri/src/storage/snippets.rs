@@ -601,9 +601,9 @@ impl DatabaseManager {
             }
 
             if updates.is_empty() {
-                return Ok(Some(existing.unwrap()));
+                // existing is Some here (checked above)
+                return Ok(existing);
             }
-
             updates.push("updated_at = datetime('now')");
             values.push(Box::new(id.to_string()));
 

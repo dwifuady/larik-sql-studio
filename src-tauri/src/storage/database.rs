@@ -1,9 +1,9 @@
 // Database connection manager for local SQLite storage
 // Handles app data directory resolution and connection pooling
 
+use parking_lot::Mutex;
 use rusqlite::{Connection, Result as SqliteResult};
 use std::path::PathBuf;
-use std::sync::Mutex;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -65,7 +65,7 @@ impl DatabaseManager {
 
     /// Initialize the database schema
     fn init_schema(&self) -> StorageResult<()> {
-        let conn = self.connection.lock().unwrap();
+        let conn = self.connection.lock();
 
         conn.execute_batch(
             r#"
@@ -444,7 +444,7 @@ impl DatabaseManager {
     where
         F: FnOnce(&Connection) -> SqliteResult<T>,
     {
-        let conn = self.connection.lock().unwrap();
+        let conn = self.connection.lock();
         f(&conn).map_err(StorageError::from)
     }
 
@@ -453,7 +453,7 @@ impl DatabaseManager {
     where
         F: FnOnce(&mut Connection) -> SqliteResult<T>,
     {
-        let mut conn = self.connection.lock().unwrap();
+        let mut conn = self.connection.lock();
         f(&mut conn).map_err(StorageError::from)
     }
 }

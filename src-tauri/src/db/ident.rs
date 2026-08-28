@@ -53,14 +53,14 @@ pub fn is_safe_relaxed_ident(s: &str) -> bool {
     }
     // First char must still be a plausible identifier start (letter, _, #, @, [, digit is allowed when bracketed)
     // — we only enforce that it is not whitespace/control/semicolon.
-    let first = s.chars().next().unwrap();
+    let Some(first) = s.chars().next() else {
+        return false;
+    };
     if first.is_whitespace() || matches!(first, ';' | '\'' | '"' | '-') {
         return false;
     }
     true
 }
-
-/// Resolve a database name for `USE`. Tries the strict path first; if that
 /// fails, falls back to the relaxed bracket-escaped path (with a warning).
 /// Injection strings containing `;` / `'` are rejected by *both* paths.
 pub fn resolve_database_name(s: &str) -> Result<String, String> {

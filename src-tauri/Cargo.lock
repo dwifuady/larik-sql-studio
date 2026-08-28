@@ -2044,6 +2044,7 @@ dependencies = [
  "chrono",
  "directories",
  "futures",
+ "parking_lot",
  "rusqlite",
  "secrecy",
  "serde",

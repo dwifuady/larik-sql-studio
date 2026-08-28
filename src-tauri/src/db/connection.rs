@@ -392,8 +392,11 @@ impl MssqlConnectionManager {
         self.disconnect(connection_id).await?;
 
         let configs = self.configs.read().await;
-        let config = configs.get(connection_id).unwrap();
-        Ok(ConnectionInfo::from(config))
+        let Some(config) = configs.get(connection_id) else {
+            return Err(ConnectionError::NotFound(connection_id.to_string()));
+        };
+        let config = config.clone();
+        Ok(ConnectionInfo::from(&config))
     }
 
     /// Check connection health
@@ -407,7 +410,6 @@ impl MssqlConnectionManager {
             false
         }
     }
-
     /// Get list of accessible databases from a connection (only databases the user has access to)
     pub async fn get_databases(&self, connection_id: &str) -> Result<Vec<String>, ConnectionError> {
         let pool = self.connect(connection_id).await?;
