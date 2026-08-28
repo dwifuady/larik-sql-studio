@@ -15,7 +15,7 @@ jobs:
       - run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
       - run: cargo test --manifest-path src-tauri/Cargo.toml
-      - run: cargo install cargo-audit && cargo audit
+      - run: cargo install cargo-audit && cargo audit --file src-tauri/Cargo.lock
   frontend:
     runs-on: ubuntu-latest
     steps:
