@@ -92,7 +92,7 @@ const TabItem = memo(({
       aria-label={`${isPinned ? 'Pinned tab' : 'Tab'}: ${tab.title}${tab.database ? ` (${tab.database})` : ''}`}
       aria-current={isActive ? 'page' : undefined}
       className={`
-        group flex items-center gap-1.5 pl-2 pr-0 py-1.5 ml-1 mr-0 my-0.5 rounded-md cursor-pointer relative
+        group flex items-center gap-1.5 px-2 py-1.5 mx-1 my-0.5 rounded-md cursor-pointer relative
         transition-all duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] focus:ring-offset-1
         ${isActive
           ? 'text-[var(--text-primary)] pl-2.5' // Active: background handled by style, extra left padding for strip
@@ -196,7 +196,7 @@ const TabItem = memo(({
             e.stopPropagation();
             onDelete(tab.id);
           }}
-          className="p-0.5 opacity-0 group-hover:opacity-100 hover:bg-[var(--bg-active)] rounded transition-all shrink-0"
+          className="p-0.5 mr-1 opacity-0 group-hover:opacity-100 hover:bg-[var(--bg-active)] rounded transition-all shrink-0"
           title="Close"
         >
           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
