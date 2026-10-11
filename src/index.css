@@ -1,35 +1,35 @@
 @import "tailwindcss";
 
-/* Arc-inspired dark theme (default) */
+/* Windows 11 (Fluent) theme — dark (default) */
 :root {
   color-scheme: dark;
 
-  /* Backgrounds - warmer, softer darks */
-  --bg-primary: #161618;
-  --bg-secondary: #1c1c1e;
-  --bg-secondary-rgb: 28, 28, 30;
-  --bg-tertiary: #232326;
+  /* Layers: bg-primary = content layer, bg-secondary = base/panels/dialogs, bg-tertiary = controls */
+  --bg-primary: #272727;
+  --bg-secondary: #202020;
+  --bg-secondary-rgb: 32, 32, 32;
+  --bg-tertiary: #2d2d2d;
   --bg-hover: rgba(255, 255, 255, 0.06);
-  --bg-active: rgba(255, 255, 255, 0.1);
+  --bg-active: rgba(255, 255, 255, 0.09);
 
   /* Text */
-  --text-primary: #f5f5f7;
-  --text-secondary: rgba(255, 255, 255, 0.7);
-  --text-muted: rgba(255, 255, 255, 0.4);
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.79);
+  --text-muted: rgba(255, 255, 255, 0.55);
 
-  /* Borders */
-  --border-color: rgba(255, 255, 255, 0.08);
-  --border-subtle: rgba(255, 255, 255, 0.04);
+  /* Strokes */
+  --border-color: rgba(255, 255, 255, 0.09);
+  --border-subtle: rgba(255, 255, 255, 0.05);
 
-  /* Accent colors - Arc-style vibrant palette */
-  --accent-color: #6366f1;
-  --accent-hover: #818cf8;
-  --accent-glow: rgba(99, 102, 241, 0.2);
+  /* Accent - Windows blue */
+  --accent-color: #0078d4;
+  --accent-hover: #4cc2ff;
+  --accent-glow: rgba(0, 120, 212, 0.25);
 
   /* Status */
-  --danger-color: #ef4444;
-  --success-color: #22c55e;
-  --warning-color: #f59e0b;
+  --danger-color: #ff99a4;
+  --success-color: #6ccb5f;
+  --warning-color: #fce100;
 
   /* Space colors */
   --space-purple: #8b5cf6;
@@ -42,49 +42,66 @@
   --space-red: #ef4444;
 
   /* Sidebar */
-  --sidebar-bg: #1c1c1e;
-  --sidebar-bg-rgb: 28, 28, 30;
+  --sidebar-bg: #202020;
+  --sidebar-bg-rgb: 32, 32, 32;
   --sidebar-width: 220px;
 
-  /* Radius */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
+  /* Window chrome surfaces (opaque by default, translucent when Mica is active) */
+  --app-bg: var(--bg-primary);
+  --sidebar-surface: rgba(var(--sidebar-bg-rgb), 0.85);
+  --titlebar-bg: var(--bg-secondary);
+
+  /* Radius - Fluent: 4px controls, 8px overlays */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+  --radius-xl: 8px;
+  --radius-2xl: 8px;
+
+  /* Fluent flyout / dialog elevation */
+  --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.26), 0 0 1px rgba(0, 0, 0, 0.3);
+  --shadow-xl: 0 8px 16px rgba(0, 0, 0, 0.26), 0 0 1px rgba(0, 0, 0, 0.3);
+  --shadow-2xl: 0 32px 64px rgba(0, 0, 0, 0.37), 0 2px 21px rgba(0, 0, 0, 0.3);
+
+  /* Dialog smoke layers are dimmed, not blurred */
+  --blur-sm: 0px;
+
+  --font-sans: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+}
+
+/* Mica: the window backdrop shows through the chrome; content sits on a solid layer */
+:root[data-mica] {
+  --app-bg: transparent;
+  --sidebar-surface: transparent;
+  --titlebar-bg: transparent;
 }
 
 /* Light theme */
 :root[data-theme="light"] {
   color-scheme: light;
 
-  /* Backgrounds - clean whites and subtle grays */
-  --bg-primary: #ffffff;
-  --bg-secondary: #f8f8f8;
-  --bg-secondary-rgb: 248, 248, 248;
-  --bg-tertiary: #f0f0f0;
+  --bg-primary: #fbfbfb;
+  --bg-secondary: #f3f3f3;
+  --bg-secondary-rgb: 243, 243, 243;
+  --bg-tertiary: #ffffff;
   --bg-hover: rgba(0, 0, 0, 0.04);
-  --bg-active: rgba(0, 0, 0, 0.08);
+  --bg-active: rgba(0, 0, 0, 0.06);
 
-  /* Text */
   --text-primary: #1a1a1a;
-  --text-secondary: rgba(0, 0, 0, 0.7);
-  --text-muted: rgba(0, 0, 0, 0.45);
+  --text-secondary: rgba(0, 0, 0, 0.62);
+  --text-muted: rgba(0, 0, 0, 0.48);
 
-  /* Borders */
-  --border-color: rgba(0, 0, 0, 0.12);
+  --border-color: rgba(0, 0, 0, 0.1);
   --border-subtle: rgba(0, 0, 0, 0.06);
 
-  /* Accent colors - slightly deeper for light mode */
-  --accent-color: #5b5fc7;
-  --accent-hover: #4f53b5;
-  --accent-glow: rgba(91, 95, 199, 0.15);
+  --accent-color: #0067c0;
+  --accent-hover: #005a9e;
+  --accent-glow: rgba(0, 103, 192, 0.18);
 
-  /* Status */
-  --danger-color: #dc2626;
-  --success-color: #16a34a;
-  --warning-color: #ea580c;
+  --danger-color: #c42b1c;
+  --success-color: #0f7b0f;
+  --warning-color: #9d5d00;
 
-  /* Space colors - slightly adjusted for light backgrounds */
   --space-purple: #7c3aed;
   --space-blue: #2563eb;
   --space-cyan: #0891b2;
@@ -94,30 +111,32 @@
   --space-pink: #db2777;
   --space-red: #dc2626;
 
-  /* Sidebar */
-  --sidebar-bg: #f8f8f8;
-  --sidebar-bg-rgb: 248, 248, 248;
+  --sidebar-bg: #f3f3f3;
+  --sidebar-bg-rgb: 243, 243, 243;
+
+  --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.14), 0 0 1px rgba(0, 0, 0, 0.2);
+  --shadow-xl: 0 8px 16px rgba(0, 0, 0, 0.14), 0 0 1px rgba(0, 0, 0, 0.2);
+  --shadow-2xl: 0 32px 64px rgba(0, 0, 0, 0.2), 0 2px 21px rgba(0, 0, 0, 0.15);
+}
+
+/* Content layer: rounded top-left corner over the Mica backdrop (Win11 pattern) */
+:root[data-mica] .win-content-layer {
+  background: var(--bg-primary);
+  border-top-left-radius: 8px;
+  border-top: 1px solid var(--border-color);
+  border-left: 1px solid var(--border-color);
+  overflow: hidden;
 }
 
 /* Light theme scrollbar styling */
 :root[data-theme="light"] ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
+  background: rgba(0, 0, 0, 0.4);
+  background-clip: content-box;
 }
 
 :root[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.25);
-}
-
-:root[data-theme="light"] .results-grid-list::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.05);
-}
-
-:root[data-theme="light"] .results-grid-list::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.2);
-}
-
-:root[data-theme="light"] .results-grid-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.3);
+  background: rgba(0, 0, 0, 0.55);
+  background-clip: content-box;
 }
 
 /* Theme-aware utility classes for semi-transparent backgrounds/borders */
@@ -341,7 +360,7 @@
 /* Ensure dark background immediately */
 html,
 body {
-  background-color: var(--bg-primary);
+  background-color: var(--app-bg);
   color: var(--text-primary);
 }
 
@@ -354,19 +373,19 @@ body,
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
-  font-size: 13px;
-  line-height: 1.5;
-  background-color: var(--bg-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.43;
+  background-color: var(--app-bg);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Scrollbar styling - thin and subtle */
+/* Scrollbar styling - Windows 11 style: slim pill thumb that thickens on hover */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 12px;
+  height: 12px;
 }
 
 ::-webkit-scrollbar-track {
@@ -374,18 +393,26 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.35);
+  background-clip: content-box;
+  border: 4px solid transparent;
+  border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.5);
+  background-clip: content-box;
+  border-width: 3px;
 }
 
-/* Focus styles */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Focus styles - Fluent focus visual */
 :focus-visible {
-  outline: 2px solid var(--accent-color);
-  outline-offset: 2px;
+  outline: 2px solid var(--text-primary);
+  outline-offset: 1px;
 }
 
 /* Button base styles */
@@ -395,7 +422,7 @@ button {
   cursor: pointer;
   border: none;
   color: inherit;
-  transition: all 0.15s ease;
+  transition: background-color 0.083s linear, color 0.083s linear, opacity 0.083s linear, transform 0.083s linear;
 }
 
 button:disabled {
@@ -535,38 +562,41 @@ textarea {
   background: var(--bg-tertiary);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
+  border-bottom-color: var(--text-muted);
   border-radius: 4px;
   /* Padding removed - use Tailwind utilities (e.g., px-3 py-2) on each input */
 }
 
+/* Fluent text box: 2px accent underline while focused */
 input:focus,
 textarea:focus {
-  border-color: var(--accent-color);
+  border-color: var(--border-color);
+  border-bottom-color: var(--accent-color);
+  box-shadow: 0 1px 0 0 var(--accent-color);
   outline: none;
+}
+
+:root[data-theme="light"] input,
+:root[data-theme="light"] textarea {
+  border-bottom-color: rgba(0, 0, 0, 0.45);
+}
+
+:root[data-theme="light"] input:focus,
+:root[data-theme="light"] textarea:focus {
+  border-bottom-color: var(--accent-color);
 }
 
 /* Results grid virtual scrolling styles */
 .results-grid-list {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
 }
 
 .results-grid-list::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 12px;
+  height: 12px;
 }
 
 .results-grid-list::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.2);
-}
-
-.results-grid-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
-}
-
-.results-grid-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: transparent;
 }
 
 /* Ensure inner container for virtual list properly handles overflow */
@@ -592,10 +622,10 @@ textarea:focus {
  * and the suggest widget is its sibling, so it is not affected.
  */
 .query-editor-container .monaco-editor {
-  border-radius: 0.75rem;
+  border-radius: 8px;
 }
 .query-editor-container .monaco-editor .overflow-guard {
-  border-radius: 0.75rem;
+  border-radius: 8px;
 }
 
 /* ===== Sticky Notes v2 — Gutter Icon ===== */

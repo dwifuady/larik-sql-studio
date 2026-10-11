@@ -59,7 +59,7 @@ export function SpaceSwitcher() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const activeSpace = spaces.find(s => s.id === activeSpaceId);
-  const spaceColor = activeSpace?.color || '#6366f1';
+  const spaceColor = activeSpace?.color || '#0078d4';
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -221,7 +221,7 @@ export function SpaceSwitcher() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
           <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: spaceColor }} />
-          <span className="text-xs font-semibold text-[var(--text-primary)] truncate">{activeSpace.name}</span>
+          <span className="text-[13px] font-semibold text-[var(--text-primary)] truncate">{activeSpace.name}</span>
         </button>
 
         {spaceHasConnection(activeSpace) && (
@@ -245,14 +245,13 @@ export function SpaceSwitcher() {
 
             {/* Connection Status Badge */}
             <span
-              className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full transition-colors ${
-                isConnected
-                  ? 'bg-green-500/20 text-green-400'
-                  : 'bg-[var(--bg-hover)] text-[var(--text-muted)]'
+              className={`w-2 h-2 rounded-full mr-1 transition-colors ${
+                isConnected ? 'bg-green-500' : 'bg-[var(--text-muted)] opacity-60'
               }`}
-            >
-              {isConnected ? 'Connected' : 'Disconnected'}
-            </span>
+              title={isConnected ? 'Connected' : 'Disconnected'}
+              role="status"
+              aria-label={isConnected ? 'Connected' : 'Disconnected'}
+            />
           </div>
         )}
       </div>

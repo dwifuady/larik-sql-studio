@@ -17,7 +17,7 @@
         "height": 800,
         "maximized": true,
         "decorations": false,
-        "backgroundColor": "#161618"
+        "transparent": true
       }
     ],
     "security": {

@@ -11,9 +11,20 @@ use db::{MssqlConnectionManager, QueryEngine, SchemaMetadataManager};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex as StdMutex};
 use storage::{get_default_db_path, DatabaseManager};
+use tauri::window::{Effect, EffectsBuilder};
 use tauri::Manager;
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::{interval, Duration};
+
+/// Whether the Windows 11 Mica backdrop was applied to the main window.
+/// The frontend only switches to translucent surfaces when this is true,
+/// so unsupported systems keep the opaque theme.
+pub struct MicaEnabled(pub bool);
+
+#[tauri::command]
+fn is_mica_enabled(state: tauri::State<'_, MicaEnabled>) -> bool {
+    state.0
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -82,6 +93,15 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .lock()
                 .map_err(|_| "AppState lock poisoned")?;
             *slot = Some(handle);
+
+            let mica = app
+                .get_webview_window("main")
+                .map(|w| {
+                    w.set_effects(EffectsBuilder::new().effect(Effect::Mica).build())
+                        .is_ok()
+                })
+                .unwrap_or(false);
+            app.manage(MicaEnabled(mica));
             Ok(())
         })
         .manage(app_state)
@@ -89,6 +109,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![
+            is_mica_enabled,
             // Space commands (T006) - with integrated connection
             commands::create_space,
             commands::get_spaces,

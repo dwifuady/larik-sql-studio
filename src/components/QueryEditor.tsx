@@ -641,7 +641,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
   // Get space color for theming
   const activeSpace = spaces.find(s => s.id === activeSpaceId);
-  const spaceColor = activeSpace?.color || '#6366f1';
+  const spaceColor = activeSpace?.color || '#0078d4';
 
   // Check connection status (1:1 model)
   const hasConnection = activeSpace ? spaceHasConnection(activeSpace) : false;
@@ -2279,7 +2279,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   const showResults = (activeResult || isExecuting) && !resultsHidden;
 
   return (
-    <div className="query-editor-container flex-1 flex flex-col min-h-0 bg-[var(--bg-secondary)]">
+    <div className="query-editor-container flex-1 flex flex-col min-h-0 bg-[var(--bg-primary)]">
       {gutterNotesPortal}
 
       {/* Monaco Editor — Arc-style frame, excludes result pane.
