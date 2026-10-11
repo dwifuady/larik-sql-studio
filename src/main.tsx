@@ -2,6 +2,9 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import { initNativeMaterial } from "./utils/nativeWindow";
+
+void initNativeMaterial();
 
 // Prevent default browser context menu globally, but allow for inputs/textareas
 const handleContextMenu = (e: MouseEvent) => {

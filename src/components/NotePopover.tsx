@@ -148,7 +148,7 @@ export const NotePopover: React.FC<NotePopoverProps> = ({
     borderRadius: '8px',
     boxShadow: '0 8px 24px rgba(0,0,0,0.25), 0 2px 8px rgba(0,0,0,0.15)',
     border: `1px solid ${theme === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)'}`,
-    fontFamily: '-apple-system, BlinkMacSystemFont, \'SF Pro Display\', \'Segoe UI\', Roboto, sans-serif',
+    fontFamily: 'var(--font-sans)',
     animation: 'larik-note-popover-in 150ms cubic-bezier(0.4, 0, 0.2, 1)',
     // Persisted width; drag the right edge to resize (vertical height
     // still auto-grows with content).

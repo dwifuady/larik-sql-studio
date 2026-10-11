@@ -17,7 +17,7 @@ export function PeekPanel() {
     const spaces = useAppStore((s) => s.spaces);
     const activeSpaceId = useAppStore((s) => s.activeSpaceId);
 
-    const spaceColor = spaces.find((s) => s.id === activeSpaceId)?.color || '#6366f1';
+    const spaceColor = spaces.find((s) => s.id === activeSpaceId)?.color || '#0078d4';
 
     // Close on Escape.
     useEffect(() => {

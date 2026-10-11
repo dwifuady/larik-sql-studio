@@ -2,6 +2,7 @@ import { StateCreator } from 'zustand';
 import type { Toast } from '../../components/Toast';
 import * as api from '../../api';
 import type { AppState } from '../index';
+import { syncNativeTheme } from '../../utils/nativeWindow';
 
 export interface UISlice {
     sidebarWidth: number;
@@ -103,6 +104,7 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
         } else {
             document.documentElement.setAttribute('data-theme', theme);
         }
+        syncNativeTheme(theme);
     },
 
     toggleTheme: () => {

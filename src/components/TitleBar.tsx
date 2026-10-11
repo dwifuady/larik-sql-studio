@@ -126,7 +126,7 @@ export function TitleBar({ sidebarWidth = 280, sidebarHidden = false, onToggleSi
   const activeSpace = activeSpaceId ? spaces.find(s => s.id === activeSpaceId) : null;
   const hasConnection = activeSpace ? spaceHasConnection(activeSpace) : false;
   const isConnected = spaceConnectionStatus?.is_connected ?? false;
-  const spaceColor = activeSpace?.color || '#6366f1';
+  const spaceColor = activeSpace?.color || '#0078d4';
 
   const dispatchEditorAction = (action: 'run' | 'run-append' | 'format' | 'add-note') => {
     window.dispatchEvent(new CustomEvent('larik:editor-action', { detail: { action } }));
@@ -135,12 +135,12 @@ export function TitleBar({ sidebarWidth = 280, sidebarHidden = false, onToggleSi
   return (
     <div
       ref={titleBarRef}
-      className={`flex items-center h-7 select-none relative pointer-events-auto transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+      className={`flex items-center h-8 select-none relative pointer-events-auto transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
         titleVisible
           ? 'translate-y-0 opacity-100'
           : '-translate-y-full opacity-0 pointer-events-none'
       }`}
-      style={{ background: 'var(--bg-secondary)' }}
+      style={{ background: 'var(--titlebar-bg)' }}
       onMouseEnter={revealTitleBar}
       onMouseLeave={scheduleHideTitleBar}
     >
@@ -157,10 +157,10 @@ export function TitleBar({ sidebarWidth = 280, sidebarHidden = false, onToggleSi
         <div className={`flex items-center h-full relative z-10 ${!sidebarHidden ? 'px-1.5' : ''}`}>
           <button
             onClick={onToggleSidebar}
-            className="p-1 rounded-md hover:bg-black/10 dark:hover:bg-white/10 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-all group flex items-center gap-1.5"
+            className="w-7 h-7 rounded-md hover:bg-[var(--bg-hover)] active:bg-[var(--bg-active)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center"
             title="Toggle Sidebar (Ctrl+Shift+S)"
           >
-            <PanelLeft className="w-3 h-3" />
+            <PanelLeft className="w-4 h-4" strokeWidth={1.5} />
           </button>
         </div>
 
@@ -177,7 +177,8 @@ export function TitleBar({ sidebarWidth = 280, sidebarHidden = false, onToggleSi
       {/* Right section - Above main content area (draggable) */}
       <div
         data-tauri-drag-region
-        className="flex-1 h-full min-w-0 flex items-center gap-1.5 px-2 pr-[140px]"
+        className="flex-1 h-full min-w-0 flex items-center gap-1.5 px-2 pr-[138px]"
+        style={{ background: 'var(--bg-secondary)' }}
       >
         {activeTab ? (
           <>
@@ -352,87 +353,48 @@ export function TitleBar({ sidebarWidth = 280, sidebarHidden = false, onToggleSi
         </div>
       </div>
 
-      {/* Window controls - Absolute positioned on the right */}
-      <div className="absolute right-0 top-0 h-full flex items-center">
-        {/* Minimize button */}
+      {/* Window controls - Windows 11 caption buttons (46x32, red close) */}
+      <div className="absolute right-0 top-0 h-full flex items-stretch">
         <button
           type="button"
           onClick={handleMinimize}
-          className="h-full px-3 flex items-center justify-center hover:bg-white/5 transition-colors group"
+          className="w-[46px] flex items-center justify-center text-[var(--text-primary)] hover:bg-[var(--bg-hover)] active:bg-[var(--bg-active)]"
           title="Minimize"
+          aria-label="Minimize"
         >
-          <svg
-            className="w-3 h-3 text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M19 12H5"
-            />
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1">
+            <path d="M0 5.5h10" />
           </svg>
         </button>
 
-        {/* Maximize/Restore button */}
         <button
           type="button"
           onClick={handleMaximize}
-          className="h-full px-3 flex items-center justify-center hover:bg-white/5 transition-colors group"
+          className="w-[46px] flex items-center justify-center text-[var(--text-primary)] hover:bg-[var(--bg-hover)] active:bg-[var(--bg-active)]"
           title={isMaximized ? 'Restore' : 'Maximize'}
+          aria-label={isMaximized ? 'Restore' : 'Maximize'}
         >
           {isMaximized ? (
-            <svg
-              className="w-3 h-3 text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25"
-              />
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1">
+              <rect x="0.5" y="2.5" width="7" height="7" rx="1" />
+              <path d="M2.5 2.5V1.5a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1" />
             </svg>
           ) : (
-            <svg
-              className="w-3 h-3 text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
-              />
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1">
+              <rect x="0.5" y="0.5" width="9" height="9" rx="1.5" />
             </svg>
           )}
         </button>
 
-        {/* Close button */}
         <button
           type="button"
           onClick={handleClose}
-          className="h-full px-3 flex items-center justify-center hover:bg-red-600 hover:text-white transition-colors group"
+          className="w-[46px] flex items-center justify-center text-[var(--text-primary)] hover:bg-[#c42b1c] hover:text-white active:bg-[#c42b1c]/80"
           title="Close"
+          aria-label="Close"
         >
-          <svg
-            className="w-3.5 h-3.5 text-[var(--text-muted)] group-hover:text-white"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M6 18L18 6M6 6l12 12"
-            />
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1">
+            <path d="M0.5 0.5l9 9M9.5 0.5l-9 9" />
           </svg>
         </button>
       </div>

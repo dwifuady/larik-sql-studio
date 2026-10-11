@@ -1,12 +1,12 @@
 import { useState, useMemo } from 'react';
 import { useAppStore } from '../../store';
-import { Database, Folder, Table, RefreshCw, Search, ChevronRight, ChevronDown, Binary } from 'lucide-react';
+import { Database, Folder, Table, RefreshCw, Search, ChevronRight, ChevronDown, Binary, Eye, X } from 'lucide-react';
 import type { TableInfo, RoutineInfo } from '../../types';
 
 interface TreeNode {
     id: string;
     label: string;
-    type: 'schema' | 'table' | 'view' | 'routine' | 'column';
+    type: 'schema' | 'folder' | 'table' | 'view' | 'routine' | 'column';
     icon?: React.ReactNode;
     children?: TreeNode[];
     data?: any;
@@ -31,7 +31,7 @@ export function DatabaseExplorer() {
 
     // Get active space color for theming
     const activeSpace = spaces.find(s => s.id === activeSpaceId);
-    const spaceColor = activeSpace?.color || '#6366f1';
+    const spaceColor = activeSpace?.color || '#0078d4';
 
     // Convert SchemaInfo to Tree Structure
     const treeData = useMemo(() => {
@@ -77,12 +77,12 @@ export function DatabaseExplorer() {
                     id: `schema-${schemaName}-tables`,
                     label: 'Tables',
                     type: 'folder',
-                    icon: <Folder className="w-3 h-3 text-blue-400 flex-shrink-0" />,
+                    icon: <Folder className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />,
                     children: tables.map(t => ({
                         id: `table-${schemaName}-${t.table_name}`,
                         label: t.table_name,
                         type: 'table',
-                        icon: <Table className="w-3 h-3 text-blue-300 flex-shrink-0" />,
+                        icon: <Table className="w-3.5 h-3.5 text-blue-300 flex-shrink-0" />,
                         data: t
                     }))
                 } as any);
@@ -95,12 +95,12 @@ export function DatabaseExplorer() {
                     id: `schema-${schemaName}-views`,
                     label: 'Views',
                     type: 'folder',
-                    icon: <Folder className="w-3 h-3 text-purple-400 flex-shrink-0" />,
+                    icon: <Folder className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />,
                     children: views.map(v => ({
                         id: `view-${schemaName}-${v.table_name}`,
                         label: v.table_name,
                         type: 'view',
-                        icon: <Table className="w-3 h-3 text-purple-300 flex-shrink-0" />,
+                        icon: <Eye className="w-3.5 h-3.5 text-purple-300 flex-shrink-0" />,
                         data: v
                     }))
                 } as any);
@@ -113,12 +113,12 @@ export function DatabaseExplorer() {
                     id: `schema-${schemaName}-routines`,
                     label: 'Procedures',
                     type: 'folder',
-                    icon: <Folder className="w-3 h-3 text-orange-400 flex-shrink-0" />,
+                    icon: <Folder className="w-3.5 h-3.5 text-orange-400 flex-shrink-0" />,
                     children: routines.map(r => ({
                         id: `routine-${schemaName}-${r.routine_name}`,
                         label: r.routine_name,
                         type: 'routine',
-                        icon: <Binary className="w-3 h-3 text-orange-300 flex-shrink-0" />,
+                        icon: <Binary className="w-3.5 h-3.5 text-orange-300 flex-shrink-0" />,
                         data: r
                     }))
                 } as any);
@@ -135,6 +135,8 @@ export function DatabaseExplorer() {
             }
         });
 
+        // A single schema (typically dbo) is just indentation noise - show its groups directly.
+        if (rootNodes.length === 1 && rootNodes[0].children) return rootNodes[0].children;
         return rootNodes;
     }, [schemaInfo]);
 
@@ -209,6 +211,30 @@ export function DatabaseExplorer() {
         if (hasChildren) toggleNodeExpansion(node.id);
     };
 
+    // Highlight the filter match inside a label
+    const renderLabel = (label: string) => {
+        const q = searchQuery.trim();
+        if (!q) return label;
+        const idx = label.toLowerCase().indexOf(q.toLowerCase());
+        if (idx < 0) return label;
+        return (
+            <>
+                {label.slice(0, idx)}
+                <mark className="bg-transparent font-semibold" style={{ color: spaceColor }}>
+                    {label.slice(idx, idx + q.length)}
+                </mark>
+                {label.slice(idx + q.length)}
+            </>
+        );
+    };
+
+    const matchCount = useMemo(() => {
+        if (!searchQuery.trim()) return 0;
+        const count = (nodes: TreeNode[]): number =>
+            nodes.reduce((n, node) => n + (node.children ? count(node.children) : 1), 0);
+        return count(filteredTree);
+    }, [filteredTree, searchQuery]);
+
     // Recursive Tree Render
     const renderTree = (nodes: TreeNode[]) => {
         return nodes.map(node => {
@@ -219,11 +245,11 @@ export function DatabaseExplorer() {
                 <div key={node.id} className="select-none">
                     <div
                         className={`
-                        flex items-center gap-1.5 pl-2 pr-0 py-0.5 text-xs rounded-sm cursor-pointer 
-                        hover:bg-[var(--bg-hover)] transition-all duration-200 group relative
-                        ${hasChildren ? '' : 'pl-6'} 
+                        flex items-center gap-1.5 pl-1.5 pr-1 py-1 text-[13px] rounded-md cursor-pointer
+                        hover:bg-[var(--bg-hover)] transition-colors duration-100 group relative
+                        ${node.type === 'folder' ? 'sticky top-0 z-[1] bg-[var(--bg-secondary)] hover:bg-[var(--bg-hover)] font-medium' : ''}
                     `}
-                        style={{ paddingLeft: hasChildren ? undefined : '1.5rem' }}
+                        style={{ paddingLeft: hasChildren ? undefined : '1.375rem' }}
                         onClick={(e) => handleNodeClick(e, node, !!hasChildren)}
                         onDoubleClick={() => handleDoubleClick(node)}
                         title={
@@ -238,13 +264,13 @@ export function DatabaseExplorer() {
                     >
                         {/* Hover Effect using space color - thinner and stronger */}
                         <div
-                            className="absolute left-0 top-1/2 -translate-y-1/2 h-3 w-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-[3px] rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                             style={{ backgroundColor: spaceColor }}
                         />
 
                         {hasChildren && (
                             <div className="text-[var(--text-muted)] group-hover:text-[var(--text-secondary)] transition-colors flex-shrink-0">
-                                {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                                {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                             </div>
                         )}
                         <div className={`flex-shrink-0 transition-transform duration-200 ${isExpanded && hasChildren ? 'scale-110' : ''}`}>
@@ -261,13 +287,16 @@ export function DatabaseExplorer() {
                             className="marquee-content truncate text-[var(--text-primary)] group-hover:translate-x-0.5 transition-transform duration-200"
                             title={node.label}
                           >
-                            {node.label}
+                            {renderLabel(node.label)}
                           </span>
                         </div>
+                        {node.type === 'folder' && node.children && (
+                            <span className="ml-auto text-[11px] text-[var(--text-muted)] tabular-nums shrink-0">{node.children.length}</span>
+                        )}
                     </div>
 
                     {hasChildren && isExpanded && (
-                        <div className="pl-3 border-l border-[var(--border-subtle)] ml-2.5 mt-0.5">
+                        <div className="pl-2 border-l border-[var(--border-subtle)] ml-3">
                             {renderTree(node.children!)}
                         </div>
                     )}
@@ -297,38 +326,41 @@ export function DatabaseExplorer() {
 
     return (
         <div className="flex flex-col h-full">
-            {/* Header */}
-            <div className="pl-2 pr-0 py-1.5 flex items-center justify-between border-b border-[var(--border-subtle)] shrink-0">
-                <div className="flex items-center gap-1.5 overflow-hidden">
-                    <Database className="w-3 h-3 flex-shrink-0" style={{ color: spaceColor }} />
-                    <span className="text-xs font-semibold truncate" title={schemaInfo.database_name}>
-                        {schemaInfo.database_name}
-                    </span>
+            {/* Filter + refresh (database name is already shown in the selector above) */}
+            <div className="pl-2 pr-1 py-1.5 shrink-0 flex items-center gap-1">
+                <div className="relative flex-1 min-w-0">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)] flex-shrink-0" />
+                    <input
+                        type="text"
+                        placeholder="Filter objects"
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Escape') setSearchQuery(''); }}
+                        className="w-full h-8 bg-[var(--bg-tertiary)] rounded-md pl-8 pr-14 text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none"
+                        style={{ '--accent-color': spaceColor } as React.CSSProperties}
+                    />
+                    {searchQuery && (
+                        <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                            <span className="text-[11px] text-[var(--text-muted)] tabular-nums">{matchCount}</span>
+                            <button
+                                onClick={() => setSearchQuery('')}
+                                className="w-5 h-5 flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+                                title="Clear (Esc)"
+                                aria-label="Clear filter"
+                            >
+                                <X className="w-3 h-3" />
+                            </button>
+                        </div>
+                    )}
                 </div>
                 <button
                     onClick={() => refreshSchema()}
-                    className="p-0.5 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors flex-shrink-0"
-                    title="Refresh Schema"
+                    className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] flex-shrink-0"
+                    title={`Refresh schema (${schemaInfo.database_name})`}
+                    aria-label="Refresh schema"
                 >
-                    <RefreshCw className={`w-3 h-3 ${schemaLoading ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`w-3.5 h-3.5 ${schemaLoading ? 'animate-spin' : ''}`} />
                 </button>
-            </div>
-
-            {/* Search */}
-            <div className="pl-2 pr-0 py-1.5 shrink-0">
-                <div className="relative">
-                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--text-muted)] flex-shrink-0" />
-                    <input
-                        type="text"
-                        placeholder="Filter objects..."
-                        value={searchQuery}
-                        onChange={e => setSearchQuery(e.target.value)}
-                        className="w-full h-7 bg-[var(--bg-primary)]/40 hover:bg-[var(--bg-primary)]/60 focus:bg-[var(--bg-primary)]/60 border border-transparent hover:border-[var(--border-subtle)] focus:border-[var(--accent-color)] rounded-md pl-8 pr-2 py-0.5 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] shadow-sm transition-all duration-200 outline-none"
-                        style={{
-                            '--accent-color': spaceColor
-                        } as React.CSSProperties}
-                    />
-                </div>
             </div>
 
             {/* Tree Content - Overflow handled here */}

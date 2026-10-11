@@ -255,8 +255,8 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-indigo-500/20 flex items-center justify-center">
-              <svg className="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-10 h-10 rounded-lg bg-[var(--accent-color)]/20 flex items-center justify-center">
+              <svg className="w-5 h-5 text-[var(--accent-hover)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
               </svg>
             </div>
@@ -293,7 +293,7 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
                   placeholder="Search snippets..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  className="w-full pl-10 pr-4 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)]"
                 />
               </div>
               
@@ -302,7 +302,7 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
                   onClick={() => setSelectedCategory(null)}
                   className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
                     selectedCategory === null
-                      ? 'bg-indigo-500 text-white'
+                      ? 'bg-[var(--accent-color)] text-white'
                       : 'bg-white/5 text-[var(--text-muted)] hover:bg-white/10'
                   }`}
                 >
@@ -314,7 +314,7 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
                     onClick={() => setSelectedCategory(cat)}
                     className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
                       selectedCategory === cat
-                        ? 'bg-indigo-500 text-white'
+                        ? 'bg-[var(--accent-color)] text-white'
                         : 'bg-white/5 text-[var(--text-muted)] hover:bg-white/10'
                     }`}
                   >
@@ -340,13 +340,13 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
                     onClick={() => handleStartEdit(snippet)}
                     className={`px-4 py-3 border-b border-white/5 cursor-pointer transition-colors ${
                       editingSnippet?.id === snippet.id
-                        ? 'bg-indigo-500/10'
+                        ? 'bg-[var(--accent-color)]/10'
                         : 'hover:bg-white/5'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">
-                        <code className="px-2 py-0.5 bg-white/10 rounded text-xs text-indigo-300 font-mono">
+                        <code className="px-2 py-0.5 bg-white/10 rounded text-xs text-[var(--accent-hover)] font-mono">
                           {snippet.trigger}
                         </code>
                         {snippet.is_builtin && (
@@ -379,7 +379,7 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
             <div className="p-4 border-t border-white/10 space-y-2">
               <button
                 onClick={handleStartCreate}
-                className="w-full px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                className="w-full px-4 py-2 bg-[var(--accent-color)] hover:brightness-110 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -433,7 +433,7 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
                         value={formTrigger}
                         onChange={(e) => setFormTrigger(e.target.value)}
                         placeholder="sel, ins, upd..."
-                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-indigo-500/50 font-mono"
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] font-mono"
                       />
                     </div>
                     <div>
@@ -445,7 +445,7 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
                         value={formName}
                         onChange={(e) => setFormName(e.target.value)}
                         placeholder="SELECT statement"
-                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)]"
                       />
                     </div>
                   </div>
@@ -461,7 +461,7 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
                       onChange={(e) => setFormCategory(e.target.value)}
                       placeholder="Select, Insert, DDL..."
                       list="category-suggestions"
-                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)]"
                     />
                     <datalist id="category-suggestions">
                       {categories.map(cat => (
@@ -480,7 +480,7 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
                       value={formDescription}
                       onChange={(e) => setFormDescription(e.target.value)}
                       placeholder="Brief description of what this snippet does"
-                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)]"
                     />
                   </div>
 
@@ -498,7 +498,7 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
                       <button
                         type="button"
                         onClick={() => insertAtCursor('formContentTextarea', '${cursor}')}
-                        className="px-2 py-1 bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 rounded-md text-[11px] font-mono font-medium transition-colors"
+                        className="px-2 py-1 bg-[var(--accent-color)]/15 hover:bg-[var(--accent-color)]/25 text-[var(--accent-hover)] rounded-md text-[11px] font-mono font-medium transition-colors"
                         title="Cursor position — snippet expansion puts the cursor here"
                       >
                         {'${cursor}'}
@@ -532,12 +532,12 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
                       onChange={(e) => setFormContent(e.target.value)}
                       placeholder={`SELECT * FROM ${'${cursor}'}\nWHERE id = ${'${1:id}'}`}
                       rows={12}
-                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-indigo-500/50 font-mono resize-none"
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-color)] font-mono resize-none"
                     />
 
                     {/* Info tip */}
                     <p className="text-[10px] text-[var(--text-muted)] mt-1.5 leading-relaxed">
-                      <span className="text-indigo-300">{'${cursor}'}</span> = cursor position after expansion &nbsp;•&nbsp;
+                      <span className="text-[var(--accent-hover)]">{'${cursor}'}</span> = cursor position after expansion &nbsp;•&nbsp;
                       <span className="text-emerald-300">{'${1:text}'}</span> = Tab stop with placeholder &nbsp;•&nbsp;
                       <span className="text-amber-300">{'${paste}'}</span> = auto-paste clipboard content
                     </p>
@@ -586,7 +586,7 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
                     </button>
                     <button
                       onClick={handleSave}
-                      className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium transition-colors"
+                      className="px-4 py-2 bg-[var(--accent-color)] hover:brightness-110 text-white rounded-lg text-sm font-medium transition-colors"
                     >
                       {isCreating ? 'Create Snippet' : 'Save Changes'}
                     </button>

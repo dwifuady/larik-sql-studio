@@ -543,7 +543,7 @@ function isCellInSelection(row: number, col: number, selection: SelectionRange |
   return col >= norm.startCol && col <= norm.endCol;
 }
 
-function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#6366f1', onLoadMore, onExecuteUpdate, canEdit = false, queryText, tabId, resultIndex }: ResultsGridProps) {
+function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#0078d4', onLoadMore, onExecuteUpdate, canEdit = false, queryText, tabId, resultIndex }: ResultsGridProps) {
   const updateResultCells = useAppStore((state) => state.updateResultCells);
   const insertResultRows = useAppStore((state) => state.insertResultRows);
   const removeResultRows = useAppStore((state) => state.removeResultRows);

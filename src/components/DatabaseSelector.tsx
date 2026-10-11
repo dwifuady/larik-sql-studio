@@ -20,7 +20,7 @@ export function DatabaseSelector({ isCompact = false }: DatabaseSelectorProps) {
 
     const activeSpace = spaces.find(s => s.id === activeSpaceId);
     const activeTab = tabs.find(t => t.id === activeTabId);
-    const spaceColor = activeSpace?.color || '#6366f1';
+    const spaceColor = activeSpace?.color || '#0078d4';
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -46,7 +46,7 @@ export function DatabaseSelector({ isCompact = false }: DatabaseSelectorProps) {
 
     return (
         <div
-            className={`text-xs flex items-center gap-1.5 bg-[var(--bg-hover)] border border-[var(--border-color)] rounded-md hover:bg-[var(--bg-active)] transition-all group relative ${isCompact ? 'pl-1.5 pr-0 py-0.5 h-[22px] max-w-[220px] min-w-[80px]' : 'pl-1.5 pr-0 py-0.5 h-6 min-w-[132px]'}`}
+            className={`text-xs flex items-center gap-1.5 bg-[var(--bg-hover)] border border-[var(--border-color)] rounded-md hover:bg-[var(--bg-active)] transition-all group relative ${isCompact ? 'pl-1.5 pr-0 py-0.5 h-[22px] max-w-[220px] min-w-[80px]' : 'pl-2 pr-0 py-0.5 h-8 min-w-[132px]'}`}
             style={{
                 boxShadow: isConnected ? `0 0 0 1px ${spaceColor}10` : 'none'
             }}
@@ -68,7 +68,7 @@ export function DatabaseSelector({ isCompact = false }: DatabaseSelectorProps) {
                         disabled={databasesLoading}
                         className="w-full h-full flex items-center justify-between gap-1 text-left disabled:opacity-50"
                     >
-                        <span className={`font-medium text-[var(--text-primary)] flex-1 overflow-hidden relative group/marquee max-w-full ${isCompact ? 'text-[10px]' : 'text-[11px]'}`}>
+                        <span className={`font-medium text-[var(--text-primary)] flex-1 overflow-hidden relative group/marquee max-w-full ${isCompact ? 'text-[11px]' : 'text-[13px]'}`}>
                             <span
                                 key={currentDatabaseValue}
                                 ref={(el) => {

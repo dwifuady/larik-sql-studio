@@ -97,7 +97,7 @@ export function AppLayout() {
 
   // Get active space for theming and info
   const activeSpace = spaces.find(s => s.id === activeSpaceId);
-  const spaceColor = activeSpace?.color || '#6366f1';
+  const spaceColor = activeSpace?.color || '#0078d4';
   const hasConnection = activeSpace ? spaceHasConnection(activeSpace) : false;
   const isConnected = spaceConnectionStatus?.is_connected ?? false;
 
@@ -498,7 +498,7 @@ export function AppLayout() {
   }, []);
 
   return (
-    <div className="flex flex-col h-full w-full overflow-hidden bg-[var(--bg-primary)] relative">
+    <div className="flex flex-col h-full w-full overflow-hidden bg-[var(--app-bg)] relative">
       {/* Arc-style gradient background that spans entire window */}
       <div
         className="absolute inset-0 pointer-events-none"
@@ -567,7 +567,7 @@ export function AppLayout() {
             transform: sidebarHidden && !isShowingSidebarHover ? 'translateX(-100%)' : 'translateX(0)',
             background: isShowingSidebarHover
               ? `rgba(var(--sidebar-bg-rgb), 0.95)`
-              : `rgba(var(--sidebar-bg-rgb), 0.85)`,
+              : 'var(--sidebar-surface)',
             position: sidebarHidden ? 'absolute' : 'relative',
             left: 0,
             top: 0,
@@ -608,7 +608,7 @@ export function AppLayout() {
                  <div className="bg-black/5 dark:bg-white/5 p-0.5 rounded-md flex gap-0.5 flex-1">
                   <button
                     onClick={() => setSidebarView('tabs')}
-                    className={`flex-1 flex items-center justify-center py-[3px] rounded-md text-[10px] font-medium transition-all duration-200 ${
+                    className={`flex-1 flex items-center justify-center py-1 rounded-md text-[11px] font-medium transition-all duration-200 ${
                       sidebarView === 'tabs'
                         ? 'shadow-sm'
                         : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
@@ -620,7 +620,7 @@ export function AppLayout() {
                    </button>
                    <button
                      onClick={() => setSidebarView('explorer')}
-                     className={`flex-1 flex items-center justify-center py-[3px] rounded-md text-[10px] font-medium transition-all duration-200 ${
+                     className={`flex-1 flex items-center justify-center py-1 rounded-md text-[11px] font-medium transition-all duration-200 ${
                        sidebarView === 'explorer'
                          ? 'shadow-sm'
                          : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
@@ -631,17 +631,6 @@ export function AppLayout() {
                      Explorer
                    </button>
                  </div>
-
-                {/* New Tab Button - Inline */}
-                <button
-                  onClick={() => setNewTabSelectorOpen(true)}
-                  className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/5 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-                  title="New Tab (Ctrl+T)"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                </button>
               </div>
 
               {/* Tabs list OR Database Explorer fills remaining space */}
@@ -652,14 +641,6 @@ export function AppLayout() {
                   <DatabaseExplorer />
                 </div>
               )}
-            </div>
-
-            {/* App name banner above footer controls */}
-            <div className="pl-3 pr-0 py-2 border-t border-[var(--border-subtle)] shrink-0 text-center">
-              <span className="text-[10px] font-medium text-[var(--text-muted)] truncate block" title={`${appInfo.name} v${appInfo.version}`}>
-                {appInfo.name || 'Larik SQL Studio'}
-                {appInfo.version && <span className="opacity-60"> v{appInfo.version}</span>}
-              </span>
             </div>
 
             {/* Footer Section: Archive | Spaces | Settings */}
@@ -683,7 +664,7 @@ export function AppLayout() {
               <button
                 onClick={() => setCommandPaletteOpen(true)}
                 className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-                title="Command Palette (Ctrl+Shift+P)"
+                title={`Command Palette (Ctrl+Shift+P)${appInfo.version ? ` · ${appInfo.name || 'Larik SQL Studio'} v${appInfo.version}` : ''}`}
               >
                 <Zap className="w-3.5 h-3.5" />
               </button>
@@ -695,7 +676,7 @@ export function AppLayout() {
         {
           !sidebarHidden && (
             <div
-              className={`w-1 cursor-col-resize transition-colors flex-shrink-0 ${isResizing ? 'bg-[var(--accent-color)]' : 'bg-[var(--bg-secondary)] hover:bg-[var(--border-subtle)]'
+              className={`w-1 cursor-col-resize transition-colors flex-shrink-0 ${isResizing ? 'bg-[var(--accent-color)]' : 'bg-transparent hover:bg-[var(--border-subtle)]'
                 }`}
               onMouseDown={startResize}
             />
@@ -703,7 +684,7 @@ export function AppLayout() {
         }
 
         {/* Main content area */}
-        <main className="flex-1 flex flex-col min-w-0 relative z-10 transition-colors duration-200">
+        <main className="win-content-layer flex-1 flex flex-col min-w-0 relative z-10 transition-colors duration-200">
           {spaces.length === 0 ? (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">

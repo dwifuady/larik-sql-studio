@@ -240,7 +240,7 @@ export function SpacesSelector() {
   return (
     <>
       {/* Bottom bar with space dots */}
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-0.5">
         {spaces.map((space, index) => {
           const color = getSpaceColor(index, space.color);
           const isActive = space.id === activeSpaceId;
@@ -253,16 +253,17 @@ export function SpacesSelector() {
                   e.preventDefault();
                   setShowMenu(showMenu === space.id ? null : space.id);
                 }}
-                className={`
-                    w-2 h-2 rounded-full transition-all duration-200 ease-out
-                    ${isActive
-                    ? 'scale-125 ring-2 ring-white/30 ring-offset-1 ring-offset-[var(--sidebar-bg)]'
-                    : 'opacity-50 hover:opacity-100 hover:scale-110'
-                  }
-                  `}
-                style={{ backgroundColor: color }}
+                className="h-6 px-1 flex items-center justify-center rounded-md hover:bg-[var(--bg-hover)] transition-colors"
                 title={space.name}
-              />
+                aria-label={`Switch to space ${space.name}`}
+                aria-current={isActive ? 'true' : undefined}
+              >
+                {/* Active space stretches into a pill (Arc/Zen style) */}
+                <span
+                  className={`h-2 rounded-full transition-all duration-200 ease-out ${isActive ? 'w-4' : 'w-2 opacity-60'}`}
+                  style={{ backgroundColor: color }}
+                />
+              </button>
 
               {/* Context menu */}
               {showMenu === space.id && (
@@ -295,12 +296,13 @@ export function SpacesSelector() {
         <div className="relative" ref={settingsMenuRef}>
           <button
             onClick={() => setShowSettingsMenu(!showSettingsMenu)}
-            className="w-2 h-2 rounded-full flex items-center justify-center
-                            hover:bg-white/10 transition-all duration-200
-                            opacity-50 hover:opacity-100"
-            title="Settings"
+            className="w-6 h-6 rounded-md flex items-center justify-center
+                            hover:bg-[var(--bg-hover)] transition-colors
+                            text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            title="Space actions"
+            aria-label="Space actions"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
             </svg>
           </button>

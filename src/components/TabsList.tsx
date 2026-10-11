@@ -131,10 +131,9 @@ const TabItem = memo(({
       {/* Active colored strip - visible when active */}
       {isActive && (
         <div
-          className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-0.5 rounded-r-full"
+          className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-[3px] rounded-full"
           style={{
             backgroundColor: spaceColor,
-            boxShadow: `0 0 8px ${spaceColor}66` // Add 40% opacity glow
           }}
         />
       )}
@@ -142,7 +141,7 @@ const TabItem = memo(({
       {/* Tab icon */}
       <div className="shrink-0 flex items-center" style={{ color: isActive ? spaceColor : 'var(--text-muted)' }}>
         {tab.tab_type === 'query' ? (
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
         ) : (
@@ -169,10 +168,10 @@ const TabItem = memo(({
         />
       ) : (
         <div className="flex-1 min-w-0 flex flex-col leading-tight">
-          <span className={`truncate text-[12px] ${isActive ? 'text-[var(--text-primary)] font-semibold' : 'text-[--text-secondary] font-medium'}`}>
+          <span className={`truncate text-[13px] ${isActive ? 'text-[var(--text-primary)] font-semibold' : 'text-[--text-secondary] font-medium'}`}>
             {tab.title}
           </span>
-          <span className={`truncate text-[10px] transition-all duration-150 ${
+          <span className={`truncate text-[11px] transition-all duration-150 ${
             isActive
               ? 'text-[var(--text-secondary)] max-h-4 opacity-100'
               : 'text-[--text-muted] max-h-0 opacity-0 overflow-hidden group-hover:max-h-4 group-hover:opacity-100'
@@ -780,7 +779,18 @@ export function TabsList({ onNewTabClick }: { onNewTabClick?: () => void }) {
           }
         }}
       >
-        {/* Browser-style New Tab button - disabled when no spaces */}
+        {/* Arc/Zen-style New Tab row: looks like a tab, sits above the unpinned tabs */}
+        <button
+          type="button"
+          onClick={handleCreateTab}
+          className="group flex items-center gap-1.5 w-[calc(100%-0.25rem)] pl-2 pr-2 py-1.5 ml-1 my-0.5 rounded-md text-left text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] active:bg-[var(--bg-active)]"
+          title="New Tab (Ctrl+T)"
+        >
+          <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 5v14m7-7H5" />
+          </svg>
+          <span className="text-[13px] font-medium">New Tab</span>
+        </button>
 
 
         {/* Unpinned tabs with drag-and-drop */}
