@@ -5,7 +5,7 @@ import type { editor, languages, IDisposable, IRange } from 'monaco-editor';
 import { useAppStore } from '../store'; // Consolidated import if possible, but just ensuring it's there
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import type { Tab, SchemaInfo, SchemaColumnInfo, ParameterInfo } from '../types';
-import { spaceHasConnection, getDisplayDataType } from '../types';
+import { spaceHasConnection, getDisplayDataType, driverOf } from '../types';
 import { ResultsGrid } from './ResultsGrid';
 import { formatSqlWithIndentation } from '../utils/sqlFormatter';
 import { formatExecutionTime } from '../utils/formatters';
@@ -22,6 +22,14 @@ import { buildJoinConditionSuggestions } from '../utils/sqlJoinSuggestions';
 import { useGutterNotes } from '../hooks/useGutterNotes';
 import { extractAllStatements } from '../utils/queryExtractor';
 import { getResultStatementLabel } from '../utils/sql';
+import { findMongoStatementAtCursor, getMongoStatementLabel, splitMongoStatements } from '../utils/mongo/shell';
+import {
+  buildMongoSuggestions,
+  getMongoCompletionContext,
+  statementTextBeforeCursor,
+  type MongoSuggestion,
+} from '../utils/mongo/completion';
+import { MONGO_LANGUAGE_ID, registerMongoLanguage } from '../utils/mongo/language';
 import { ContextMenu, ContextMenuItem } from './ContextMenu';
 import { writeText, readText } from '@tauri-apps/plugin-clipboard-manager';
 
@@ -350,6 +358,37 @@ function buildProcedureDocumentation(params: ParameterInfo[], returnType: string
   return parts.join('\n');
 }
 
+/** Map an editor-agnostic MongoDB suggestion onto a Monaco completion item */
+function toMonacoCompletion(
+  monaco: typeof import('monaco-editor'),
+  suggestion: MongoSuggestion,
+  range: IRange
+): languages.CompletionItem {
+  const kinds = monaco.languages.CompletionItemKind;
+  const kind = {
+    keyword: kinds.Keyword,
+    collection: kinds.Struct,
+    method: kinds.Method,
+    field: kinds.Field,
+    operator: kinds.Operator,
+    function: kinds.Function,
+    snippet: kinds.Snippet,
+    database: kinds.Module,
+  }[suggestion.kind];
+  return {
+    label: suggestion.label,
+    kind,
+    insertText: suggestion.insertText,
+    insertTextRules: suggestion.isSnippet
+      ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
+      : undefined,
+    detail: suggestion.detail,
+    documentation: suggestion.documentation,
+    sortText: suggestion.sortText,
+    range,
+  };
+}
+
 function QueryEditorComp({ tab }: QueryEditorProps) {
 
   // Atomic selectors to prevent re-renders
@@ -357,6 +396,9 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   const spaces = useAppStore(s => s.spaces);
   const activeSpaceId = useAppStore(s => s.activeSpaceId);
   const spaceConnectionStatus = useAppStore(s => s.spaceConnectionStatus);
+  // The tab's space driver decides the editor language and query tooling
+  const driver = useAppStore(s => driverOf(s.spaces.find(sp => sp.id === tab.space_id)?.connection_driver));
+  const isMongo = driver === 'mongodb';
 
   const addToast = useAppStore(s => s.addToast);
   const executeQuery = useAppStore(s => s.executeQuery);
@@ -409,6 +451,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   const completionProviderRef = useRef<IDisposable | null>(null);
   const snippetProviderRef = useRef<IDisposable | null>(null);
   const codeLensProviderRef = useRef<IDisposable | null>(null);
+  const mongoCompletionProviderRef = useRef<IDisposable | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTabIdRef = useRef<string>(tab.id);
   const executeQueryRef = useRef<(() => Promise<void>) | null>(null);
@@ -490,7 +533,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       codeLensProviderRef.current.dispose();
     }
 
-    codeLensProviderRef.current = monaco.languages.registerCodeLensProvider('sql', {
+    codeLensProviderRef.current = monaco.languages.registerCodeLensProvider(['sql', MONGO_LANGUAGE_ID], {
       onDidChange: (cb) => {
         const disposable = editor.onDidChangeModelContent(() => cb(editor.getModel() as any));
         return disposable;
@@ -500,7 +543,9 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         if (model !== editor.getModel()) return { lenses: [], dispose: () => { } };
 
         const sql = model.getValue();
-        const statements = extractAllStatements(sql);
+        const statements = model.getLanguageId() === MONGO_LANGUAGE_ID
+          ? splitMongoStatements(sql)
+          : extractAllStatements(sql);
 
         const lenses = statements
           .map(stmt => {
@@ -659,8 +704,10 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       }
 
       // Track recent tables for this specific statement
-      const referencedTables = extractReferencedTables(sql);
-      referencedTables.forEach(t => trackRecentTable(t.schema, t.table));
+      if (!isMongo) {
+        const referencedTables = extractReferencedTables(sql);
+        referencedTables.forEach(t => trackRecentTable(t.schema, t.table));
+      }
       setLastExecutedQuery(sql);
 
       // Use full content for context, but execute specific SQL
@@ -676,7 +723,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
     window.addEventListener(EVENT_RUN_QUERY_CODELENS, handleRunQuery);
     return () => window.removeEventListener(EVENT_RUN_QUERY_CODELENS, handleRunQuery);
-  }, [tab.id, hasConnection, executeQuery, executeQueryAppend]);
+  }, [tab.id, hasConnection, executeQuery, executeQueryAppend, isMongo]);
 
   // Handle toolbar action events dispatched from the auto-hiding title bar.
   // The title bar hosts the run/format/validate/note buttons since the editor
@@ -1498,6 +1545,37 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     };
   }, []);
 
+  // Find the statement under the cursor (driver-specific splitting)
+  const detectStatementAtCursor = useCallback((fullQuery: string, lineNumber: number, column: number) => {
+    if (isMongo) {
+      return findMongoStatementAtCursor(fullQuery, lineNumber, column);
+    }
+
+    // Try smart extraction with node-sql-parser
+    let statementLocation = extractStatementAtCursor(fullQuery, lineNumber, column);
+
+    // Fallback to regex-based detection if parsing failed
+    if (!statementLocation) {
+      statementLocation = findCurrentSqlBlockFallback(fullQuery, lineNumber, column);
+    }
+
+    // Also fallback to old method if new methods fail
+    if (!statementLocation) {
+      const block = findCurrentSqlBlock(fullQuery, lineNumber - 1, column - 1);
+      if (block) {
+        statementLocation = {
+          statement: block.text,
+          startLine: block.startLine + 1,
+          startColumn: block.startColumn + 1,
+          endLine: block.endLine + 1,
+          endColumn: block.endColumn + 1,
+          statementIndex: 0,
+        };
+      }
+    }
+    return statementLocation;
+  }, [isMongo, findCurrentSqlBlock]);
+
   // Execute query handler
   const handleExecuteQuery = useCallback(async () => {
     if (!hasConnection) {
@@ -1543,36 +1621,11 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       // No selection: use smart statement detection
       const cursorPosition = editor.getPosition();
       if (cursorPosition) {
-        // Try smart extraction with node-sql-parser
-        let statementLocation = extractStatementAtCursor(
+        const statementLocation = detectStatementAtCursor(
           fullQuery,
           cursorPosition.lineNumber,
           cursorPosition.column
         );
-
-        // Fallback to regex-based detection if parsing failed
-        if (!statementLocation) {
-          statementLocation = findCurrentSqlBlockFallback(
-            fullQuery,
-            cursorPosition.lineNumber,
-            cursorPosition.column
-          );
-        }
-
-        // Also fallback to old method if new methods fail
-        if (!statementLocation) {
-          const block = findCurrentSqlBlock(fullQuery, cursorPosition.lineNumber - 1, cursorPosition.column - 1);
-          if (block) {
-            statementLocation = {
-              statement: block.text,
-              startLine: block.startLine + 1,
-              startColumn: block.startColumn + 1,
-              endLine: block.endLine + 1,
-              endColumn: block.endColumn + 1,
-              statementIndex: 0,
-            };
-          }
-        }
 
         if (statementLocation) {
           // Auto-select the detected statement for visual feedback
@@ -1600,15 +1653,17 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     }
 
     // Track recently used tables for prioritization in autocomplete
-    const referencedTables = extractReferencedTables(queryToTrack);
-    referencedTables.forEach(t => trackRecentTable(t.schema, t.table));
+    if (!isMongo) {
+      const referencedTables = extractReferencedTables(queryToTrack);
+      referencedTables.forEach(t => trackRecentTable(t.schema, t.table));
+    }
 
     // Store the executed query for ResultsGrid table name extraction
     setLastExecutedQuery(selectedText || fullQuery);
 
     // Execute with selected text (if any) or full query
     await executeQuery(tab.id, fullQuery, selectedText);
-  }, [hasConnection, isConnected, connectToSpace, executeQuery, tab.id, findCurrentSqlBlock, spaceDatabases, updateTabDatabase, loadSchema]);
+  }, [hasConnection, isConnected, connectToSpace, executeQuery, tab.id, detectStatementAtCursor, isMongo, spaceDatabases, updateTabDatabase, loadSchema]);
 
   // Execute query and append to existing results (Ctrl+\)
   const handleExecuteQueryAppend = useCallback(async () => {
@@ -1655,36 +1710,11 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       // No selection: use smart statement detection
       const cursorPosition = editor.getPosition();
       if (cursorPosition) {
-        // Try smart extraction with node-sql-parser
-        let statementLocation = extractStatementAtCursor(
+        const statementLocation = detectStatementAtCursor(
           fullQuery,
           cursorPosition.lineNumber,
           cursorPosition.column
         );
-
-        // Fallback to regex-based detection if parsing failed
-        if (!statementLocation) {
-          statementLocation = findCurrentSqlBlockFallback(
-            fullQuery,
-            cursorPosition.lineNumber,
-            cursorPosition.column
-          );
-        }
-
-        // Also fallback to old method if new methods fail
-        if (!statementLocation) {
-          const block = findCurrentSqlBlock(fullQuery, cursorPosition.lineNumber - 1, cursorPosition.column - 1);
-          if (block) {
-            statementLocation = {
-              statement: block.text,
-              startLine: block.startLine + 1,
-              startColumn: block.startColumn + 1,
-              endLine: block.endLine + 1,
-              endColumn: block.endColumn + 1,
-              statementIndex: 0,
-            };
-          }
-        }
 
         if (statementLocation) {
           // Auto-select the detected statement for visual feedback
@@ -1712,15 +1742,17 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     }
 
     // Track recently used tables for prioritization in autocomplete
-    const referencedTables = extractReferencedTables(queryToTrack);
-    referencedTables.forEach(t => trackRecentTable(t.schema, t.table));
+    if (!isMongo) {
+      const referencedTables = extractReferencedTables(queryToTrack);
+      referencedTables.forEach(t => trackRecentTable(t.schema, t.table));
+    }
 
     // Store the executed query for ResultsGrid table name extraction
     setLastExecutedQuery(selectedText || fullQuery);
 
     // Execute with selected text (if any) or full query - APPEND to existing results
     await executeQueryAppend(tab.id, fullQuery, selectedText);
-  }, [hasConnection, isConnected, connectToSpace, executeQueryAppend, tab.id, findCurrentSqlBlock, spaceDatabases, updateTabDatabase, loadSchema]);
+  }, [hasConnection, isConnected, connectToSpace, executeQueryAppend, tab.id, detectStatementAtCursor, isMongo, spaceDatabases, updateTabDatabase, loadSchema]);
 
   // Execute UPDATE query for inline grid editing (silent - doesn't update results grid)
   const handleExecuteUpdateQuery = useCallback(async (updateQuery: string): Promise<boolean> => {
@@ -1791,6 +1823,11 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     const editor = editorRef.current;
     if (!editor) return;
 
+    if (isMongo) {
+      addToast({ type: 'info', message: 'Formatting is not available for MongoDB queries yet' });
+      return;
+    }
+
     const model = editor.getModel();
     if (!model) return;
 
@@ -1824,7 +1861,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         }
       ]);
     }
-  }, []);
+  }, [isMongo, addToast]);
 
   // Debounced autosave
   const handleChange: OnChange = useCallback((value) => {
@@ -1983,6 +2020,45 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     };
   }, [schemaInfo, createSchemaCompletions, spaceDatabases]);
 
+  // MongoDB completion provider (collections, methods, fields, operators, stages)
+  useEffect(() => {
+    const monaco = monacoRef.current;
+    if (!monaco || !editorReady) return;
+
+    mongoCompletionProviderRef.current?.dispose();
+    mongoCompletionProviderRef.current = monaco.languages.registerCompletionItemProvider(MONGO_LANGUAGE_ID, {
+      triggerCharacters: ['.', '$', '{', ',', '"', "'", '[', ' '],
+      provideCompletionItems: (model, position, completionContext) => {
+        const before = statementTextBeforeCursor(model.getValue(), position.lineNumber, position.column);
+        const context = getMongoCompletionContext(before);
+
+        // Value helpers (ObjectId, ISODate, ...) only when typing or invoked, not on every space/comma
+        if (
+          context.kind === 'value' &&
+          completionContext.triggerKind === monaco.languages.CompletionTriggerKind.TriggerCharacter
+        ) {
+          return { suggestions: [] };
+        }
+
+        const prefix = 'prefix' in context ? context.prefix : '';
+        const range: IRange = {
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          startColumn: Math.max(1, position.column - prefix.length),
+          endColumn: position.column,
+        };
+        const suggestions = buildMongoSuggestions(context, schemaInfo)
+          .map(item => toMonacoCompletion(monaco, item, range));
+        return { suggestions };
+      },
+    });
+
+    return () => {
+      mongoCompletionProviderRef.current?.dispose();
+      mongoCompletionProviderRef.current = null;
+    };
+  }, [editorReady, schemaInfo]);
+
   // Update snippet completion provider when snippets change or editor becomes ready
   useEffect(() => {
     if (!monacoRef.current || !editorRef.current || !editorReady) {
@@ -2118,7 +2194,8 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     editor: editorRef.current,
     monaco: monacoRef.current,
     schemaInfo: isConnected ? schemaInfo : null, // Only validate against schema when connected
-    enabled: validationEnabled,
+    // The SQL validator does not understand mongo-shell syntax
+    enabled: validationEnabled && !isMongo,
     showWarnings: validationShowWarnings,
     showInfo: validationShowInfo,
     debounceMs: 500,
@@ -2288,7 +2365,8 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       <div className={`flex-1 min-h-0 relative mx-1.5 mt-1.5 ${showResults ? 'mb-0' : 'mb-1.5'} rounded-xl border border-[var(--border-subtle)]`} style={{ flex: showResults ? '1 1 auto' : '1 1 100%' }} data-allow-select-all>
         <Editor
           height="100%"
-          language="sql"
+          language={isMongo ? MONGO_LANGUAGE_ID : 'sql'}
+          beforeMount={registerMongoLanguage}
           theme={monacoTheme}
           defaultValue={tab.content || ''}
           onChange={handleChange}
@@ -2364,7 +2442,9 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
                       >
                         {queryResults.map((result, index) => {
                           const customName = getResultCustomName(tab.id, index);
-                          const statementLabel = getResultStatementLabel(result.statement_text);
+                          const statementLabel = isMongo
+                            ? getMongoStatementLabel(result.statement_text)
+                            : getResultStatementLabel(result.statement_text);
                           const fallbackName = result.displayId ? `Result ${result.displayId}` : `Result ${index + 1}`;
                           const defaultName = statementLabel ?? fallbackName;
                           const displayName = customName || defaultName;
@@ -2511,7 +2591,8 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
                   spaceColor={spaceColor}
                   onExecuteUpdate={handleExecuteUpdateQuery}
                   onLoadMore={handleLoadMore}
-                  canEdit={isConnected}
+                  // Grid edits generate T-SQL, so they stay off for MongoDB
+                  canEdit={isConnected && !isMongo}
                   queryText={lastExecutedQuery ?? undefined}
                   tabId={tab.id}
                   resultIndex={activeResultIndex}

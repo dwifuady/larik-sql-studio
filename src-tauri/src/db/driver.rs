@@ -29,12 +29,15 @@ pub enum DriverKind {
     /// Microsoft SQL Server (tiberius / TDS)
     #[default]
     Mssql,
+    /// MongoDB (official driver; mongo-shell query syntax)
+    Mongodb,
 }
 
 impl DriverKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             DriverKind::Mssql => "mssql",
+            DriverKind::Mongodb => "mongodb",
         }
     }
 
@@ -42,6 +45,7 @@ impl DriverKind {
     pub fn default_port(&self) -> u16 {
         match self {
             DriverKind::Mssql => 1433,
+            DriverKind::Mongodb => 27017,
         }
     }
 }
@@ -58,6 +62,7 @@ impl FromStr for DriverKind {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim().to_ascii_lowercase().as_str() {
             "mssql" => Ok(DriverKind::Mssql),
+            "mongodb" | "mongo" => Ok(DriverKind::Mongodb),
             other => Err(ConnectionError::UnsupportedDriver(other.to_string())),
         }
     }
@@ -180,6 +185,7 @@ impl DriverRegistry {
     pub fn with_builtin_drivers() -> Self {
         let mut registry = Self::empty();
         registry.register(Arc::new(crate::db::mssql::MssqlDriver::new()));
+        registry.register(Arc::new(crate::db::mongodb::MongoDriver::new()));
         registry
     }
 
@@ -212,6 +218,20 @@ mod tests {
     }
 
     #[test]
+    fn driver_kind_parses_mongodb() {
+        assert_eq!(
+            "mongodb".parse::<DriverKind>().unwrap(),
+            DriverKind::Mongodb
+        );
+        assert_eq!("mongo".parse::<DriverKind>().unwrap(), DriverKind::Mongodb);
+        assert_eq!(DriverKind::Mongodb.default_port(), 27017);
+        assert_eq!(
+            serde_json::to_string(&DriverKind::Mongodb).unwrap(),
+            "\"mongodb\""
+        );
+    }
+
+    #[test]
     fn driver_kind_rejects_unknown() {
         let err = "oracle".parse::<DriverKind>().unwrap_err();
         assert!(matches!(err, ConnectionError::UnsupportedDriver(ref s) if s == "oracle"));
@@ -235,11 +255,10 @@ mod tests {
     }
 
     #[test]
-    fn builtin_registry_has_mssql() {
+    fn builtin_registry_has_every_driver() {
         let registry = DriverRegistry::with_builtin_drivers();
-        assert_eq!(
-            registry.get(DriverKind::Mssql).unwrap().kind(),
-            DriverKind::Mssql
-        );
+        for kind in [DriverKind::Mssql, DriverKind::Mongodb] {
+            assert_eq!(registry.get(kind).unwrap().kind(), kind);
+        }
     }
 }

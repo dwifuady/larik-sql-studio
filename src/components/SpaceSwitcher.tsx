@@ -2,8 +2,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '../store';
-import type { UpdateSpaceInput } from '../types';
-import { defaultPortFor, spaceHasConnection } from '../types';
+import type { UpdateSpaceInput, DriverKind } from '../types';
+import { DEFAULT_DRIVER, defaultPortFor, driverOf, spaceHasConnection } from '../types';
+import { DriverPicker, hostPlaceholder, withDriver } from './DriverPicker';
 import { save, open, ask } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -16,6 +17,7 @@ function getSpaceColor(index: number, customColor?: string | null): string {
 
 // Connection form state interface
 interface ConnectionFormState {
+  driver: DriverKind;
   host: string;
   port: string;
   database: string;
@@ -26,6 +28,7 @@ interface ConnectionFormState {
 }
 
 const emptyConnection: ConnectionFormState = {
+  driver: DEFAULT_DRIVER,
   host: '',
   port: String(defaultPortFor()),
   database: '',
@@ -90,12 +93,13 @@ export function SpaceSwitcher() {
       // Include connection if provided
       ...(connection.host && connection.database ? {
         connection_host: connection.host,
-        connection_port: parseInt(connection.port) || defaultPortFor(),
+        connection_port: parseInt(connection.port) || defaultPortFor(connection.driver),
         connection_database: connection.database,
         connection_username: connection.username || undefined,
         connection_password: connection.password || undefined,
         connection_trust_cert: connection.trustCert,
         connection_encrypt: connection.encrypt,
+        connection_driver: connection.driver,
       } : {}),
     };
 
@@ -114,12 +118,13 @@ export function SpaceSwitcher() {
 
     const success = await testConnection(
       connection.host,
-      parseInt(connection.port) || defaultPortFor(),
+      parseInt(connection.port) || defaultPortFor(connection.driver),
       connection.database,
       connection.username,
       connection.password,
       connection.trustCert,
-      connection.encrypt
+      connection.encrypt,
+      connection.driver
     );
 
     setTestResult(success ? 'success' : 'error');
@@ -139,6 +144,7 @@ export function SpaceSwitcher() {
     setSelectedColor(getSpaceColor(index, space.color));
     // Load existing connection data
     setConnection({
+      driver: driverOf(space.connection_driver),
       host: space.connection_host || '',
       port: String(space.connection_port || defaultPortFor(space.connection_driver)),
       database: space.connection_database || '',
@@ -410,13 +416,18 @@ export function SpaceSwitcher() {
                   Database Connection
                 </h4>
 
+                <DriverPicker
+                  value={connection.driver}
+                  onChange={(driver) => setConnection(c => withDriver(c, driver))}
+                />
+
                 <div className="grid grid-cols-3 gap-1.5 mb-1.5">
                   <div className="col-span-2">
                     <input
                       type="text"
                       value={connection.host}
                       onChange={(e) => setConnection(c => ({ ...c, host: e.target.value }))}
-                      placeholder="Host / Server"
+                      placeholder={hostPlaceholder(connection.driver)}
                       className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
                     />
                   </div>

@@ -2,6 +2,8 @@ import { useState, useMemo } from 'react';
 import { useAppStore } from '../../store';
 import { Database, Folder, Table, RefreshCw, Search, ChevronRight, ChevronDown, Binary, Eye, X } from 'lucide-react';
 import type { TableInfo, RoutineInfo } from '../../types';
+import { driverOf } from '../../types';
+import { mongoFindQuery } from '../../utils/mongo/shell';
 
 interface TreeNode {
     id: string;
@@ -32,6 +34,7 @@ export function DatabaseExplorer() {
     // Get active space color for theming
     const activeSpace = spaces.find(s => s.id === activeSpaceId);
     const spaceColor = activeSpace?.color || '#0078d4';
+    const isMongo = driverOf(activeSpace?.connection_driver) === 'mongodb';
 
     // Convert SchemaInfo to Tree Structure
     const treeData = useMemo(() => {
@@ -75,7 +78,7 @@ export function DatabaseExplorer() {
             if (tables && tables.length > 0) {
                 children.push({
                     id: `schema-${schemaName}-tables`,
-                    label: 'Tables',
+                    label: isMongo ? 'Collections' : 'Tables',
                     type: 'folder',
                     icon: <Folder className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />,
                     children: tables.map(t => ({
@@ -138,7 +141,7 @@ export function DatabaseExplorer() {
         // A single schema (typically dbo) is just indentation noise - show its groups directly.
         if (rootNodes.length === 1 && rootNodes[0].children) return rootNodes[0].children;
         return rootNodes;
-    }, [schemaInfo]);
+    }, [schemaInfo, isMongo]);
 
     // Filter Tree
     const filteredTree = useMemo(() => {
@@ -174,7 +177,9 @@ export function DatabaseExplorer() {
         if (node.type === 'table' || node.type === 'view') {
             if (!activeSpaceId) return;
             const tableInfo = node.data as TableInfo;
-            const query = `SELECT TOP 100 * FROM [${tableInfo.schema_name}].[${tableInfo.table_name}]`;
+            const query = isMongo
+                ? mongoFindQuery(tableInfo.table_name, 100)
+                : `SELECT TOP 100 * FROM [${tableInfo.schema_name}].[${tableInfo.table_name}]`;
             await createTab(tableInfo.table_name, 'query', query, schemaInfo?.database_name);
         }
     };
@@ -187,6 +192,8 @@ export function DatabaseExplorer() {
             openTablePeek(node.data as TableInfo);
             return true;
         }
+        // Definition peeks read SQL Server catalogs
+        if (isMongo) return false;
         // Alt+click a table -> CREATE TABLE definition preview
         if (e.altKey && node.type === 'table') {
             openTableSourcePeek(node.data as TableInfo);
@@ -253,7 +260,9 @@ export function DatabaseExplorer() {
                         onClick={(e) => handleNodeClick(e, node, !!hasChildren)}
                         onDoubleClick={() => handleDoubleClick(node)}
                         title={
-                            node.type === 'table'
+                            isMongo && (node.type === 'table' || node.type === 'view')
+                                ? 'Shift+click to peek documents · double-click to open'
+                                : node.type === 'table'
                                 ? 'Shift+click to peek data · Alt+click to peek definition · double-click to open'
                                 : node.type === 'view'
                                     ? 'Shift+click to peek data · Alt+click to peek source'

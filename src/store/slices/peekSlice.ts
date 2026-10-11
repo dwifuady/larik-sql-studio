@@ -2,6 +2,8 @@ import { StateCreator } from 'zustand';
 import type { QueryResult, TableInfo } from '../../types';
 import * as api from '../../api';
 import { generateCreateTableScript } from '../../utils/sql';
+import { driverOf } from '../../types';
+import { mongoFindQuery } from '../../utils/mongo/shell';
 import type { AppState } from '../index';
 
 /** What the peek popup is currently showing. */
@@ -67,7 +69,9 @@ export const createPeekSlice: StateCreator<AppState, [], [], PeekSlice> = (set, 
         }
 
         const database = get().schemaInfo?.database_name ?? null;
-        const query = `SELECT TOP 100 * FROM [${table.schema_name}].[${table.table_name}]`;
+        const query = driverOf(get().getActiveSpace()?.connection_driver) === 'mongodb'
+            ? mongoFindQuery(table.table_name, 100)
+            : `SELECT TOP 100 * FROM [${table.schema_name}].[${table.table_name}]`;
         const token = ++peekToken;
 
         set({
