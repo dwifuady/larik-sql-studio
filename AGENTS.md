@@ -23,7 +23,7 @@ This document provides an overview of the "Larik SQL Studio" project, serving as
         *   `rusqlite`: For SQLite database operations.
         *   `tiberius`: For connecting to MS-SQL servers.
         *   `bb8` & `bb8-tiberius`: For MS-SQL connection pooling.
-        *   `mongodb`: For connecting to MongoDB. Queries use mongo-shell syntax, parsed in `db/mongodb/shell.rs` (no JavaScript engine).
+        *   `mongodb`: For connecting to MongoDB. Queries use mongo-shell syntax, parsed in `db/mongodb/shell.rs` (no JavaScript engine). A read-only SQL `SELECT` subset is also accepted and compiled to an aggregation pipeline in `db/mongodb/sql.rs`; results carry the generated pipeline (`QueryResult.generated_query`).
     *   **Serialization:** `serde` (for efficient data serialization/deserialization).
     *   **Utilities:** `uuid`, `thiserror`, `directories`, `tokio` (async runtime), `chrono` (date/time), `async-trait`.
 

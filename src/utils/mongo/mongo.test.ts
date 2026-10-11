@@ -6,7 +6,9 @@ import {
   mongoFindQuery,
   isMongoConnectionString,
   databaseFromConnectionString,
+  isSqlStatement,
 } from './shell';
+import { getResultStatementLabel } from '../sql';
 import { getMongoCompletionContext, buildMongoSuggestions, statementTextBeforeCursor } from './completion';
 import type { SchemaInfo } from '../../types';
 import { defaultDatabaseFor, spaceHasConnection } from '../../types';
@@ -43,6 +45,29 @@ describe('splitMongoStatements', () => {
 
   it('does not split db.db.find()', () => {
     expect(splitMongoStatements('db.db.find()')).toHaveLength(1);
+  });
+});
+
+describe('SQL statements in MongoDB spaces', () => {
+  it('splits SQL and shell statements like the backend', () => {
+    const text = "SELECT name, db FROM users -- db.x.find()\nWHERE age > 1\n  AND db = 'select'\ndb.users.find()\nselect count(*) from orders;\nSELECT 1 FROM t\nshow dbs";
+    expect(splitMongoStatements(text).map(s => s.statement)).toEqual([
+      "SELECT name, db FROM users -- db.x.find()\nWHERE age > 1\n  AND db = 'select'",
+      'db.users.find()',
+      'select count(*) from orders',
+      'SELECT 1 FROM t',
+      'show dbs',
+    ]);
+  });
+
+  it('detects SQL after leading comments', () => {
+    expect(isSqlStatement('  -- note\n  select * from t')).toBe(true);
+    expect(isSqlStatement('/* x */ SELECT 1')).toBe(true);
+    expect(isSqlStatement('db.selected.find()')).toBe(false);
+  });
+
+  it('labels SQL results with the SQL label', () => {
+    expect(getMongoStatementLabel('SELECT * FROM users')).toBe(getResultStatementLabel('SELECT * FROM users'));
   });
 });
 
@@ -267,5 +292,52 @@ describe('optional MongoDB database', () => {
     expect(defaultDatabaseFor(space('mongodb', ''), [{ name: 'admin', hasAccess: true }])).toBe('admin');
     expect(defaultDatabaseFor(space('mssql', ''), dbs)).toBeNull();
     expect(defaultDatabaseFor(space('mongodb', null), [])).toBeNull();
+  });
+});
+
+describe('SQL completion in MongoDB spaces', () => {
+  const schema: SchemaInfo = {
+    database_name: 'shop',
+    schemas: ['shop'],
+    tables: [
+      { schema_name: 'shop', table_name: 'users', table_type: 'COLLECTION', columns: [col('_id', 'objectId'), col('name', 'string'), col('address.city', 'string')] },
+      { schema_name: 'shop', table_name: 'orders', table_type: 'COLLECTION', columns: [col('total', 'double'), col('unit price', 'double')] },
+      { schema_name: 'shop', table_name: 'order-items', table_type: 'COLLECTION', columns: [] },
+    ],
+    relationships: [],
+    routines: [],
+    fetched_at: '',
+  };
+  const suggest = (before: string, full = before) =>
+    buildMongoSuggestions(getMongoCompletionContext(before, full), schema);
+
+  it('suggests collections after FROM and JOIN', () => {
+    expect(getMongoCompletionContext('SELECT * FROM us')).toEqual({ kind: 'sqlCollection', prefix: 'us' });
+    expect(getMongoCompletionContext('select * from users u join ')).toEqual({ kind: 'sqlCollection', prefix: '' });
+    const items = suggest('SELECT * FROM ');
+    expect(items.find(i => i.label === 'order-items')?.insertText).toBe('[order-items]');
+  });
+
+  it('suggests fields of the collections named anywhere in the statement', () => {
+    const items = suggest('SELECT ', 'SELECT  FROM users');
+    expect(items.map(i => i.label)).toEqual(expect.arrayContaining(['name', 'address.city', 'COUNT(*)', 'FROM']));
+    expect(suggest('SELECT * FROM orders WHERE ').find(i => i.label === 'unit price')?.insertText).toBe('[unit price]');
+  });
+
+  it('resolves aliases to their collection', () => {
+    const full = 'SELECT o.total, u. FROM orders o JOIN users u ON o.uid = u._id';
+    const ctx = getMongoCompletionContext('SELECT o.total, u.', full);
+    expect(ctx).toEqual({ kind: 'sqlField', collections: ['users'], prefix: '', qualified: true });
+    expect(buildMongoSuggestions(ctx, schema).map(i => i.label)).toEqual(['_id', 'name', 'address.city']);
+  });
+
+  it('suggests clause keywords after a complete term and nothing inside strings', () => {
+    expect(getMongoCompletionContext('SELECT * FROM users ')).toEqual({ kind: 'sqlKeyword', prefix: '' });
+    expect(suggest('SELECT * FROM users WH').map(i => i.label)).toContain('WHERE');
+    expect(getMongoCompletionContext("SELECT * FROM users WHERE name = 'jo")).toEqual({ kind: 'none' });
+  });
+
+  it('offers SELECT at the start of a statement', () => {
+    expect(buildMongoSuggestions(getMongoCompletionContext(''), schema).map(i => i.label)).toContain('SELECT');
   });
 });

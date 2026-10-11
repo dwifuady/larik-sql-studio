@@ -53,6 +53,9 @@ pub struct QueryResult {
     pub is_selection: bool, // Indicates if this was executed from selected text
     pub statement_index: Option<usize>, // Index in batch execution (None for single query)
     pub statement_text: Option<String>, // The actual SQL text executed (useful for batch)
+    /// Native query the driver generated from `statement_text`, if any
+    #[serde(default)]
+    pub generated_query: Option<String>,
 }
 
 impl QueryResult {
@@ -70,6 +73,7 @@ impl QueryResult {
             is_selection: false,
             statement_index: None,
             statement_text: None,
+            generated_query: None,
         }
     }
 
@@ -87,6 +91,7 @@ impl QueryResult {
             is_selection: false,
             statement_index: None,
             statement_text: None,
+            generated_query: None,
         }
     }
 }
@@ -145,10 +150,15 @@ fn shape_results(
                 is_selection,
                 statement_index,
                 statement_text,
+                generated_query: None,
             }],
             affected_rows,
         ),
-        ExecutionOutput::ResultSets { sets, row_limit } => {
+        ExecutionOutput::ResultSets {
+            sets,
+            row_limit,
+            generated_query,
+        } => {
             // Statements returning multiple result sets (e.g. DECLARE + multiple
             // SELECTs) get one QueryResult per non-empty result set.
             let mut results: Vec<QueryResult> = Vec::new();
@@ -176,6 +186,7 @@ fn shape_results(
                     is_selection,
                     statement_index,
                     statement_text: statement_text.clone(),
+                    generated_query: generated_query.clone(),
                 });
             }
 
@@ -193,6 +204,7 @@ fn shape_results(
                     is_selection,
                     statement_index,
                     statement_text,
+                    generated_query,
                 });
             }
 
@@ -479,6 +491,7 @@ impl QueryEngine {
             is_selection,
             statement_index,
             statement_text,
+            generated_query: None,
         })
     }
 
@@ -622,6 +635,7 @@ mod tests {
             ExecutionOutput::ResultSets {
                 sets: vec![set(2, false), set(0, false), set(3, true)],
                 row_limit: Some(3),
+                generated_query: None,
             },
             "q",
             5,
@@ -644,6 +658,7 @@ mod tests {
             ExecutionOutput::ResultSets {
                 sets: vec![set(0, false)],
                 row_limit: Some(5000),
+                generated_query: Some("db.t.aggregate([])".to_string()),
             },
             "q",
             5,
@@ -655,5 +670,9 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].row_count, 0);
         assert_eq!(results[0].limit_applied, Some(5000));
+        assert_eq!(
+            results[0].generated_query.as_deref(),
+            Some("db.t.aggregate([])")
+        );
     }
 }

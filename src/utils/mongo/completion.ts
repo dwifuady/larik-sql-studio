@@ -8,7 +8,7 @@
  * Monaco completion items.
  */
 import type { SchemaInfo, SchemaColumnInfo } from '../../types';
-import { splitMongoStatements, offsetAt } from './shell';
+import { splitMongoStatements, offsetAt, isSqlStatement } from './shell';
 
 export type MongoCompletionContext =
   | { kind: 'statement'; prefix: string }
@@ -39,6 +39,12 @@ export type MongoCompletionContext =
     prefix: string;
   }
   | { kind: 'fieldRef'; collection: string | null; prefix: string }
+  /** SQL SELECT: after FROM / JOIN */
+  | { kind: 'sqlCollection'; prefix: string }
+  /** SQL SELECT: an expression position (fields, functions, keywords) */
+  | { kind: 'sqlField'; collections: string[]; prefix: string; qualified: boolean }
+  /** SQL SELECT: after a complete term, where a clause keyword fits */
+  | { kind: 'sqlKeyword'; prefix: string }
   | { kind: 'none' };
 
 interface Frame {
@@ -227,8 +233,54 @@ function interpretChain(chain: ChainLink[]): { collection: string | null; method
   return { collection: collection ?? (names.length ? names.join('.') : null), method: null, dbMethod: null };
 }
 
-/** Context for the cursor at the end of `textBeforeCursor` (the statement so far) */
-export function getMongoCompletionContext(textBeforeCursor: string): MongoCompletionContext {
+/** FROM / JOIN targets in a SQL statement, keyed by lowercase alias and name */
+export function sqlCollections(statement: string): Map<string, string> {
+  const found = new Map<string, string>();
+  const pattern = /\b(?:FROM|JOIN)\s+(\[[^\]]+\]|"[^"]+"|`[^`]+`|[\w$.-]+)(?:\s+(?:AS\s+)?([A-Za-z_]\w*))?/gi;
+  const reserved = /^(WHERE|GROUP|ORDER|HAVING|LIMIT|OFFSET|FETCH|JOIN|INNER|LEFT|RIGHT|FULL|CROSS|ON|UNION)$/i;
+  for (const match of statement.matchAll(pattern)) {
+    const name = match[1].replace(/^[["`]|[\]"`]$/g, '');
+    found.set(name.toLowerCase(), name);
+    if (match[2] && !reserved.test(match[2])) found.set(match[2].toLowerCase(), name);
+  }
+  return found;
+}
+
+const SQL_FIELD_POSITION = /(?:\b(?:SELECT|DISTINCT|WHERE|AND|OR|NOT|ON|BY|HAVING|WHEN|THEN|ELSE|CASE|IN|BETWEEN|LIKE|ILIKE|IS)|[,(=<>+\-*/%])$/i;
+
+function sqlContext(textBeforeCursor: string, fullStatement: string): MongoCompletionContext {
+  const tail = textBeforeCursor.match(/([\w$]+\.)?([\w$]*)$/);
+  const qualifier = tail?.[1]?.slice(0, -1) ?? null;
+  const prefix = tail?.[2] ?? '';
+  const before = textBeforeCursor.slice(0, textBeforeCursor.length - (tail?.[0].length ?? 0)).replace(/\s+$/, '');
+  const inString = ((before.match(/'/g) ?? []).length % 2) === 1;
+  if (inString) return { kind: 'none' };
+
+  if (/\b(?:FROM|JOIN)$/i.test(before) && !qualifier) return { kind: 'sqlCollection', prefix };
+
+  const collections = sqlCollections(fullStatement);
+  if (qualifier) {
+    const target = collections.get(qualifier.toLowerCase());
+    // `alias.` → that collection's fields; otherwise `address.` is a nested path
+    return target
+      ? { kind: 'sqlField', collections: [target], prefix, qualified: true }
+      : { kind: 'sqlField', collections: [...new Set(collections.values())], prefix: `${qualifier}.${prefix}`, qualified: true };
+  }
+  if (!before || SQL_FIELD_POSITION.test(before)) {
+    return { kind: 'sqlField', collections: [...new Set(collections.values())], prefix, qualified: false };
+  }
+  return { kind: 'sqlKeyword', prefix };
+}
+
+/**
+ * Context for the cursor at the end of `textBeforeCursor` (the statement so far).
+ * `fullStatement` (the whole statement, including text after the cursor) lets
+ * SQL completions see FROM / JOIN clauses written later in the statement.
+ */
+export function getMongoCompletionContext(textBeforeCursor: string, fullStatement = textBeforeCursor): MongoCompletionContext {
+  if (isSqlStatement(textBeforeCursor)) {
+    return sqlContext(textBeforeCursor, fullStatement);
+  }
   const s = scan(textBeforeCursor);
   const { collection, method } = interpretChain(s.chain);
 
@@ -460,10 +512,45 @@ const VALUE_HELPERS: [string, string, string][] = [
 
 const STATEMENT_KEYWORDS: [string, string, string][] = [
   ['db', 'db.', 'Current database'],
+  ['SELECT', 'SELECT ', 'SQL query, run as an aggregation pipeline (read-only)'],
   ['show dbs', 'show dbs', 'List databases'],
   ['show collections', 'show collections', 'List collections'],
   ['use', 'use ', 'Switch the tab to another database'],
 ];
+
+const SQL_CLAUSE_KEYWORDS = [
+  'FROM', 'WHERE', 'JOIN', 'LEFT JOIN', 'ON', 'AND', 'OR', 'NOT', 'IN', 'LIKE', 'ILIKE', 'BETWEEN',
+  'IS NULL', 'IS NOT NULL', 'AS', 'GROUP BY', 'HAVING', 'ORDER BY', 'ASC', 'DESC', 'LIMIT', 'OFFSET',
+];
+
+const SQL_FUNCTIONS: [string, string, string][] = [
+  ['COUNT(*)', 'COUNT(*)', 'Number of rows'],
+  ['COUNT', 'COUNT($1)', 'Non-null values'],
+  ['SUM', 'SUM($1)', 'Sum'],
+  ['AVG', 'AVG($1)', 'Average'],
+  ['MIN', 'MIN($1)', 'Minimum'],
+  ['MAX', 'MAX($1)', 'Maximum'],
+  ['UPPER', 'UPPER($1)', 'Uppercase'],
+  ['LOWER', 'LOWER($1)', 'Lowercase'],
+  ['CONCAT', 'CONCAT($1)', 'Join strings (NULL counts as empty)'],
+  ['COALESCE', 'COALESCE($1)', 'First non-null value'],
+  ['LEN', 'LEN($1)', 'String length'],
+  ['SUBSTRING', 'SUBSTRING($1, ${2:1}, ${3:10})', 'Substring (1-based start)'],
+  ['ROUND', 'ROUND($1, ${2:2})', 'Round'],
+  ['YEAR', 'YEAR($1)', 'Year of a date'],
+  ['CAST', 'CAST($1 AS ${2:INT})', 'Convert type'],
+  ['ISODate', "ISODate('$1')", 'Date literal'],
+  ['ObjectId', "ObjectId('$1')", 'ObjectId literal'],
+];
+
+/** SQL identifier, bracket-quoting segments that are not plain names */
+function sqlIdentifier(name: string): string {
+  return name.split('.').map(part => (/^[A-Za-z_][\w$]*$/.test(part) ? part : `[${part}]`)).join('.');
+}
+
+function sqlKeywordItems(sort: string): MongoSuggestion[] {
+  return SQL_CLAUSE_KEYWORDS.map(k => ({ label: k, kind: 'keyword' as const, insertText: `${k} `, sortText: `${sort}_${k}` }));
+}
 
 /** Stages whose object keys are field names of the input documents */
 const FIELD_KEY_STAGES = new Set(['$project', '$sort', '$addFields', '$set', '$unset', '$sortByCount']);
@@ -650,6 +737,43 @@ export function buildMongoSuggestions(ctx: MongoCompletionContext, schema: Schem
         detail: col.data_type,
         sortText: `0_${String(index).padStart(4, '0')}`,
       }));
+    case 'sqlCollection':
+      return (schema?.tables ?? []).map(t => ({
+        label: t.table_name,
+        kind: 'collection' as const,
+        insertText: sqlIdentifier(t.table_name),
+        detail: t.table_type === 'VIEW' ? 'view' : 'collection',
+        sortText: `0_${t.table_name}`,
+      }));
+    case 'sqlField': {
+      const seen = new Set<string>();
+      const fields: MongoSuggestion[] = [];
+      for (const collection of ctx.collections) {
+        fieldColumns(schema, collection).forEach((col, index) => {
+          if (seen.has(col.name)) return;
+          seen.add(col.name);
+          fields.push({
+            label: col.name,
+            kind: 'field',
+            insertText: sqlIdentifier(col.name),
+            detail: ctx.collections.length > 1 ? `${col.data_type} · ${collection}` : col.data_type,
+            sortText: `0_${String(index).padStart(4, '0')}`,
+          });
+        });
+      }
+      const functions = SQL_FUNCTIONS.map(([label, snippet, doc]) => ({
+        label,
+        kind: 'function' as const,
+        insertText: snippet,
+        isSnippet: true,
+        detail: doc,
+        sortText: `5_${label}`,
+      }));
+      // `alias.` and nested paths want fields only
+      return ctx.qualified ? fields : [...fields, ...functions, ...sqlKeywordItems('8')];
+    }
+    case 'sqlKeyword':
+      return sqlKeywordItems('0');
     case 'none':
       return [];
   }

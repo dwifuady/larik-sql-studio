@@ -100,6 +100,9 @@ pub enum ExecutionOutput {
     ResultSets {
         sets: Vec<ResultSet>,
         row_limit: Option<usize>,
+        /// The native query actually run, when it differs from what the user
+        /// wrote (e.g. the aggregation pipeline compiled from SQL on MongoDB)
+        generated_query: Option<String>,
     },
     /// A data-modifying statement; carries the number of affected rows.
     RowsAffected(usize),

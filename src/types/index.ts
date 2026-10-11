@@ -269,6 +269,8 @@ export interface QueryResult {
   is_selection: boolean; // Indicates if this was executed from selected text
   statement_index: number | null; // Index in batch execution (null for single query)
   statement_text: string | null; // The actual SQL text executed (useful for batch)
+  /** Native query the driver generated, e.g. the pipeline compiled from SQL on MongoDB */
+  generated_query?: string | null;
   displayId?: number; // Stable ID for display (e.g., Result 1, Result 2)
 }
 

@@ -127,9 +127,22 @@ fn reject_chain(call: &MethodCall, chain: &[MethodCall]) -> Result<(), Connectio
 /// Turn documents into a grid: one column per top-level field, in first-seen
 /// order with `_id` first. Missing fields are NULL.
 pub fn documents_to_result_set(docs: &[Document], truncated: bool) -> ResultSet {
+    documents_to_result_set_with(docs, truncated, None)
+}
+
+/// Like `documents_to_result_set`, but with a fixed column list (e.g. from a SQL
+/// SELECT): columns appear in that order and missing fields read as NULL.
+pub fn documents_to_result_set_with(
+    docs: &[Document],
+    truncated: bool,
+    fixed_columns: Option<&[String]>,
+) -> ResultSet {
     let mut names: Vec<String> = Vec::new();
     let mut types: Vec<Option<&'static str>> = Vec::new();
-    if docs.iter().any(|d| d.contains_key("_id")) {
+    if let Some(fixed) = fixed_columns {
+        names.extend(fixed.iter().cloned());
+        types.resize(names.len(), None);
+    } else if docs.iter().any(|d| d.contains_key("_id")) {
         names.push("_id".to_string());
         types.push(None);
     }
@@ -137,6 +150,7 @@ pub fn documents_to_result_set(docs: &[Document], truncated: bool) -> ResultSet 
         for (key, value) in doc {
             let idx = match names.iter().position(|n| n == key) {
                 Some(idx) => idx,
+                None if fixed_columns.is_some() => continue,
                 None => {
                     names.push(key.clone());
                     types.push(None);
@@ -189,6 +203,7 @@ fn result_sets(set: ResultSet, row_limit: usize) -> ExecutionOutput {
     ExecutionOutput::ResultSets {
         sets: vec![set],
         row_limit: Some(row_limit),
+        generated_query: None,
     }
 }
 
@@ -226,6 +241,7 @@ pub async fn execute(
             // The editor switches the tab's database; nothing to run server-side
             sets: Vec::new(),
             row_limit: None,
+            generated_query: None,
         }),
         Statement::Show(ShowTarget::Databases) => {
             let names = client
@@ -472,6 +488,32 @@ async fn execute_collection_call(
     }
 }
 
+/// Run a SELECT compiled from SQL. The result carries the pipeline as shell text.
+pub async fn execute_sql(
+    client: &Client,
+    database: &str,
+    compiled: super::sql::Compiled,
+    row_limit: usize,
+) -> Result<ExecutionOutput, ConnectionError> {
+    let generated = super::sql::shell_pipeline(&compiled);
+    let columns = compiled.columns.clone();
+    let cursor = client
+        .database(database)
+        .collection::<Document>(&compiled.collection)
+        .aggregate(compiled.pipeline)
+        .await?;
+    let (docs, truncated) = collect(cursor, row_limit).await?;
+    Ok(ExecutionOutput::ResultSets {
+        sets: vec![documents_to_result_set_with(
+            &docs,
+            truncated,
+            columns.as_deref(),
+        )],
+        row_limit: Some(row_limit),
+        generated_query: Some(generated),
+    })
+}
+
 async fn execute_find(
     coll: &Collection<Document>,
     call: MethodCall,
@@ -558,6 +600,18 @@ mod tests {
         assert_eq!(set.rows.len(), 2);
         assert!(matches!(set.rows[1][1], CellValue::Null)); // missing name
         assert!(matches!(set.rows[1][3], CellValue::String(ref s) if s == "b@example.test"));
+    }
+
+    #[test]
+    fn fixed_columns_keep_select_order_and_missing_fields() {
+        let docs = vec![doc! { "b": 1, "a": "x" }, doc! { "a": "y" }];
+        let fixed = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let set = documents_to_result_set_with(&docs, false, Some(&fixed));
+        let names: Vec<&str> = set.columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["a", "b", "c"]);
+        assert_eq!(set.columns[1].data_type, "int");
+        assert!(matches!(set.rows[1][1], CellValue::Null));
+        assert!(matches!(set.rows[0][2], CellValue::Null));
     }
 
     #[test]

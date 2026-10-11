@@ -13,15 +13,26 @@ const SHELL_HELPERS = [
   'Decimal128', 'Double', 'UUID', 'BinData', 'Timestamp', 'RegExp', 'MinKey', 'MaxKey',
 ];
 
+// SQL SELECT is accepted too (compiled to an aggregation pipeline)
+const SQL_KEYWORDS = [
+  'select', 'distinct', 'top', 'from', 'where', 'join', 'inner', 'left', 'outer', 'on', 'and', 'or',
+  'not', 'in', 'like', 'ilike', 'between', 'is', 'as', 'group', 'by', 'having', 'order', 'asc', 'desc',
+  'limit', 'offset', 'fetch', 'next', 'first', 'rows', 'row', 'only', 'case', 'when', 'then', 'else',
+  'end', 'cast',
+];
+
 const tokens: Monaco.languages.IMonarchLanguage = {
   defaultToken: '',
   tokenPostfix: '.mongodb',
-  keywords: ['db', 'show', 'use', 'new'],
+  // SQL keywords are case-insensitive
+  ignoreCase: true,
+  keywords: ['db', 'show', 'use', 'new', ...SQL_KEYWORDS],
   constants: ['true', 'false', 'null', 'undefined', 'NaN', 'Infinity'],
   helpers: SHELL_HELPERS,
   tokenizer: {
     root: [
       [/\/\/.*$/, 'comment'],
+      [/--.*$/, 'comment'],
       [/\/\*/, 'comment', '@comment'],
       // $operators and "$field" references stand out from plain keys
       [/\$[\w$]+/, 'keyword.operator'],

@@ -1,10 +1,16 @@
+import { getResultStatementLabel } from '../sql';
+
 /**
- * mongo-shell statement splitting for the editor.
+ * mongo-shell / SQL statement splitting for the editor.
  *
- * Mirrors the backend splitter (src-tauri/src/db/mongodb/shell.rs) closely
- * enough to find statement boundaries in partially typed text: it tracks
- * strings, comments, regex literals and bracket depth, and starts a new
- * statement at `;` or at a top-level `db` / `show` / `use`.
+ * Mirrors the backend splitter (`split_statements` in
+ * src-tauri/src/db/mongodb/shell.rs) so run-at-cursor and CodeLens agree with
+ * what the server executes:
+ * - shell statements end at `;` or where a top-level `db` / `show` / `use` /
+ *   `select` begins (not after `.`, so chains may continue on the next line)
+ * - `show` / `use` end at end of line
+ * - SQL statements (`SELECT ...`) end at `;`, or at a statement keyword that
+ *   starts a line; `--` comments are allowed in them
  */
 
 export interface MongoStatement {
@@ -19,7 +25,20 @@ export interface MongoStatement {
   endColumn: number;
 }
 
-const STATEMENT_KEYWORDS = new Set(['db', 'show', 'use']);
+type StatementKind = 'shell' | 'line' | 'sql';
+
+function keywordKind(word: string): StatementKind | null {
+  if (word === 'db') return 'shell';
+  if (word === 'show' || word === 'use') return 'line';
+  if (word.toLowerCase() === 'select') return 'sql';
+  return null;
+}
+
+/** Whether a statement is SQL (`SELECT ...`) rather than shell syntax */
+export function isSqlStatement(text: string): boolean {
+  const stripped = text.replace(/^(\s|\/\/[^\n]*|--[^\n]*|\/\*[\s\S]*?\*\/)*/, '');
+  return /^select\b/i.test(stripped);
+}
 
 function isIdentStart(c: string): boolean {
   return /[A-Za-z_$]/.test(c);
@@ -41,29 +60,29 @@ function positionAt(text: string, offset: number): { line: number; column: numbe
   return { line, column: offset - lastNewline };
 }
 
-/** Split editor text into top-level shell statements */
+/** Split editor text into top-level statements (shell or SQL) */
 export function splitMongoStatements(text: string): MongoStatement[] {
   const ranges: Array<{ start: number; end: number }> = [];
   let i = 0;
   let depth = 0;
   let start = -1; // start of the current statement
+  let kind: StatementKind = 'shell';
   let lastSignificantEnd = -1; // end offset of the last non-trivia character
   let lastSignificantChar = '';
-  let lineStatement = false; // `show ...` / `use ...` end at end of line
+  let lineHasToken = false;
 
   const finish = (end: number) => {
     if (start >= 0 && end > start) ranges.push({ start, end });
     start = -1;
-    depth = 0;
-    lineStatement = false;
   };
 
   while (i < text.length) {
     const c = text[i];
     const next = text[i + 1];
 
-    if (c === '\n' && lineStatement && depth === 0) {
-      finish(lastSignificantEnd);
+    if (c === '\n') {
+      if (kind === 'line' && depth === 0) finish(lastSignificantEnd);
+      lineHasToken = false;
       i++;
       continue;
     }
@@ -72,8 +91,9 @@ export function splitMongoStatements(text: string): MongoStatement[] {
       continue;
     }
 
-    // Comments
-    if (c === '/' && next === '/') {
+    // Comments (`--` only in SQL, where it can't be a decrement)
+    const sqlComment = c === '-' && next === '-' && (kind === 'sql' || start < 0);
+    if ((c === '/' && next === '/') || sqlComment) {
       while (i < text.length && text[i] !== '\n') i++;
       continue;
     }
@@ -87,34 +107,45 @@ export function splitMongoStatements(text: string): MongoStatement[] {
       finish(lastSignificantEnd);
       i++;
       lastSignificantChar = ';';
+      lineHasToken = true;
       continue;
     }
 
-    // A top-level statement keyword begins a new statement
+    // Words: a statement keyword may begin a new statement
     if (isIdentStart(c) && (i === 0 || !isIdentChar(text[i - 1]))) {
       let j = i;
       while (j < text.length && isIdentChar(text[j])) j++;
       const word = text.slice(i, j);
-      if (depth === 0 && STATEMENT_KEYWORDS.has(word) && lastSignificantChar !== '.' && !lineStatement) {
-        if (start >= 0) finish(lastSignificantEnd);
+      const wordKind = keywordKind(word);
+      const startsNew = depth === 0 && lastSignificantChar !== '.' && wordKind !== null && (
+        start < 0 || kind === 'shell' || (kind === 'sql' && !lineHasToken)
+      );
+      if (startsNew) {
+        finish(lastSignificantEnd);
         start = i;
-        lineStatement = word !== 'db';
+        kind = wordKind ?? 'shell';
       } else if (start < 0) {
         start = i;
+        kind = 'shell';
       }
       i = j;
       lastSignificantEnd = j;
       lastSignificantChar = word[word.length - 1];
+      lineHasToken = true;
       continue;
     }
 
-    if (start < 0) start = i;
+    if (start < 0) {
+      start = i;
+      kind = 'shell';
+    }
+    lineHasToken = true;
 
-    // Strings
+    // Strings ('' escapes in SQL read as two adjacent strings, which is fine here)
     if (c === '"' || c === "'" || c === '`') {
       let j = i + 1;
       while (j < text.length && text[j] !== c) {
-        if (text[j] === '\\') j++;
+        if (text[j] === '\\' && kind !== 'sql') j++;
         else if (text[j] === '\n' && c !== '`') break;
         j++;
       }
@@ -124,8 +155,8 @@ export function splitMongoStatements(text: string): MongoStatement[] {
       continue;
     }
 
-    // Regex literal (only where a value can start)
-    if (c === '/' && /^[(,:[{;]?$/.test(lastSignificantChar)) {
+    // Regex literal (shell only, where a value can start)
+    if (c === '/' && kind !== 'sql' && /^[(,:[{;]?$/.test(lastSignificantChar)) {
       let j = i + 1;
       let inClass = false;
       while (j < text.length && text[j] !== '\n') {
@@ -208,6 +239,7 @@ export function findMongoStatementAtCursor(
 export function getMongoStatementLabel(statement: string | null | undefined): string {
   if (!statement) return 'Result';
   const text = statement.trim();
+  if (isSqlStatement(text)) return getResultStatementLabel(text) ?? 'Result';
   const show = text.match(/^show\s+(\w+)/);
   if (show) return `show ${show[1]}`;
   const use = text.match(/^use\s+([^\s;]+)/);

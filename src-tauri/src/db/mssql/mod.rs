@@ -216,6 +216,7 @@ impl DatabaseDriver for MssqlDriver {
         Ok(ExecutionOutput::ResultSets {
             sets,
             row_limit: use_row_limit.then_some(row_limit),
+            generated_query: None,
         })
     }
 

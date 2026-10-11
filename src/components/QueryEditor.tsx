@@ -7,6 +7,7 @@ import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea
 import type { Tab, SchemaInfo, SchemaColumnInfo, ParameterInfo } from '../types';
 import { spaceHasConnection, getDisplayDataType, driverOf } from '../types';
 import { ResultsGrid } from './ResultsGrid';
+import { GeneratedQueryBar } from './GeneratedQueryBar';
 import { formatSqlWithIndentation } from '../utils/sqlFormatter';
 import { formatExecutionTime } from '../utils/formatters';
 import { useSqlValidation } from '../hooks/useSqlValidation';
@@ -2029,8 +2030,11 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     mongoCompletionProviderRef.current = monaco.languages.registerCompletionItemProvider(MONGO_LANGUAGE_ID, {
       triggerCharacters: ['.', '$', '{', ',', '"', "'", '[', ' '],
       provideCompletionItems: (model, position, completionContext) => {
-        const before = statementTextBeforeCursor(model.getValue(), position.lineNumber, position.column);
-        const context = getMongoCompletionContext(before);
+        const fullText = model.getValue();
+        const before = statementTextBeforeCursor(fullText, position.lineNumber, position.column);
+        // The whole statement lets SQL completions see a FROM written after the cursor
+        const statement = findMongoStatementAtCursor(fullText, position.lineNumber, position.column)?.statement ?? before;
+        const context = getMongoCompletionContext(before, statement);
 
         // Value helpers (ObjectId, ISODate, ...) only when typing or invoked, not on every space/comma
         if (
@@ -2579,6 +2583,10 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
                   )}
                 </div>
               </div>
+            )}
+
+            {activeResult?.generated_query && (
+              <GeneratedQueryBar query={activeResult.generated_query} database={tab.database} />
             )}
 
             {/* Results content with virtual scrolling */}

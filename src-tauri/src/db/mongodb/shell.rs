@@ -768,23 +768,217 @@ pub fn parse_single(src: &str) -> Result<Statement, ParseError> {
     }
 }
 
-/// Split editor text into statement source slices.
-/// If the text does not parse, it is returned whole so execution reports the error.
-pub fn split_statements(src: &str) -> Vec<String> {
-    match parse_statements(src) {
-        Ok(statements) => statements
-            .iter()
-            .map(|s| src[s.start..s.end].to_string())
-            .collect(),
-        Err(_) => {
-            let trimmed = src.trim();
-            if trimmed.is_empty() {
-                Vec::new()
-            } else {
-                vec![trimmed.to_string()]
-            }
+/// Whether a statement is SQL (`SELECT ...`) rather than shell syntax
+pub fn is_sql_statement(text: &str) -> bool {
+    let text = skip_leading_trivia(text);
+    let word: String = text
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect();
+    word.eq_ignore_ascii_case("select")
+}
+
+/// Skip whitespace and `//`, `/* */`, `--` comments
+fn skip_leading_trivia(mut text: &str) -> &str {
+    loop {
+        text = text.trim_start();
+        if let Some(rest) = text.strip_prefix("//").or_else(|| text.strip_prefix("--")) {
+            text = rest.find('\n').map_or("", |i| &rest[i..]);
+        } else if let Some(rest) = text.strip_prefix("/*") {
+            text = rest.find("*/").map_or("", |i| &rest[i + 2..]);
+        } else {
+            return text;
         }
     }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum StatementKind {
+    Shell,
+    /// `show ...` / `use ...`: end at end of line
+    Line,
+    Sql,
+}
+
+fn keyword_kind(word: &str) -> Option<StatementKind> {
+    match word {
+        "db" => Some(StatementKind::Shell),
+        "show" | "use" => Some(StatementKind::Line),
+        _ if word.eq_ignore_ascii_case("select") => Some(StatementKind::Sql),
+        _ => None,
+    }
+}
+
+/// Split editor text into statement source slices without parsing them, so one
+/// bad statement doesn't hide the others. Mirrors `splitMongoStatements` in
+/// src/utils/mongo/shell.ts.
+///
+/// - Shell statements end at `;` or where a top-level `db` / `show` / `use` /
+///   `select` begins (not after a `.`, so chains may continue on the next line).
+/// - `show` / `use` end at end of line.
+/// - SQL statements end at `;`, or at a statement keyword that starts a line.
+pub fn split_statements(src: &str) -> Vec<String> {
+    let chars: Vec<(usize, char)> = src.char_indices().collect();
+    let byte_at = |idx: usize| chars.get(idx).map_or(src.len(), |&(b, _)| b);
+    let mut ranges: Vec<(usize, usize)> = Vec::new();
+
+    let mut start: Option<usize> = None;
+    let mut kind = StatementKind::Shell;
+    let mut depth = 0usize;
+    let mut last_end = 0usize;
+    let mut last_char = '\0';
+    let mut line_has_token = false;
+    let mut i = 0usize;
+
+    let finish = |start: &mut Option<usize>, end: usize, ranges: &mut Vec<(usize, usize)>| {
+        if let Some(s) = start.take() {
+            if end > s {
+                ranges.push((s, end));
+            }
+        }
+    };
+
+    while i < chars.len() {
+        let (pos, c) = chars[i];
+        let next = chars.get(i + 1).map(|&(_, c)| c);
+
+        if c == '\n' {
+            if kind == StatementKind::Line && depth == 0 {
+                finish(&mut start, last_end, &mut ranges);
+            }
+            line_has_token = false;
+            i += 1;
+            continue;
+        }
+        if c.is_whitespace() {
+            i += 1;
+            continue;
+        }
+
+        // Comments (`--` only inside SQL, where it can't be a decrement)
+        let sql_comment =
+            c == '-' && next == Some('-') && (kind == StatementKind::Sql || start.is_none());
+        if (c == '/' && next == Some('/')) || sql_comment {
+            while i < chars.len() && chars[i].1 != '\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if c == '/' && next == Some('*') {
+            i += 2;
+            while i < chars.len()
+                && !(chars[i].1 == '*' && chars.get(i + 1).map(|&(_, c)| c) == Some('/'))
+            {
+                i += 1;
+            }
+            i = (i + 2).min(chars.len());
+            continue;
+        }
+
+        if c == ';' && depth == 0 {
+            finish(&mut start, last_end, &mut ranges);
+            last_char = ';';
+            line_has_token = true;
+            i += 1;
+            continue;
+        }
+
+        // Words: a statement keyword may begin a new statement
+        if c.is_alphabetic() || c == '_' || c == '$' {
+            while i < chars.len()
+                && (chars[i].1.is_alphanumeric() || chars[i].1 == '_' || chars[i].1 == '$')
+            {
+                i += 1;
+            }
+            let word = &src[pos..byte_at(i)];
+            let starts_new = depth == 0
+                && last_char != '.'
+                && keyword_kind(word).is_some()
+                && match (start, kind) {
+                    (None, _) => true,
+                    (Some(_), StatementKind::Shell) => true,
+                    (Some(_), StatementKind::Sql) => !line_has_token,
+                    (Some(_), StatementKind::Line) => false,
+                };
+            if starts_new {
+                finish(&mut start, last_end, &mut ranges);
+                start = Some(pos);
+                kind = keyword_kind(word).unwrap_or(StatementKind::Shell);
+            } else if start.is_none() {
+                start = Some(pos);
+                kind = StatementKind::Shell;
+            }
+            last_end = byte_at(i);
+            last_char = word.chars().last().unwrap_or('\0');
+            line_has_token = true;
+            continue;
+        }
+
+        if start.is_none() {
+            start = Some(pos);
+            kind = StatementKind::Shell;
+        }
+        line_has_token = true;
+
+        // Strings ('' escapes in SQL read as two adjacent strings, which is fine here)
+        if c == '"' || c == '\'' || c == '`' {
+            i += 1;
+            while i < chars.len() && chars[i].1 != c {
+                if chars[i].1 == '\\' && kind != StatementKind::Sql {
+                    i += 1;
+                } else if chars[i].1 == '\n' && c != '`' {
+                    break;
+                }
+                i += 1;
+            }
+            i = (i + 1).min(chars.len());
+            last_end = byte_at(i);
+            last_char = c;
+            continue;
+        }
+
+        // Regex literals (shell only, where a value can start)
+        if c == '/'
+            && kind != StatementKind::Sql
+            && matches!(last_char, '\0' | '(' | ',' | ':' | '[' | '{' | ';')
+        {
+            i += 1;
+            let mut in_class = false;
+            while i < chars.len() && chars[i].1 != '\n' {
+                match chars[i].1 {
+                    '\\' => i += 1,
+                    '[' => in_class = true,
+                    ']' => in_class = false,
+                    '/' if !in_class => break,
+                    _ => {}
+                }
+                i += 1;
+            }
+            i += 1;
+            while i < chars.len() && chars[i].1.is_ascii_alphabetic() {
+                i += 1;
+            }
+            i = i.min(chars.len());
+            last_end = byte_at(i);
+            last_char = '/';
+            continue;
+        }
+
+        match c {
+            '(' | '{' | '[' => depth += 1,
+            ')' | '}' | ']' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        i += 1;
+        last_end = byte_at(i);
+        last_char = c;
+    }
+    finish(&mut start, last_end, &mut ranges);
+
+    ranges
+        .into_iter()
+        .map(|(s, e)| src[s..e].to_string())
+        .collect()
 }
 
 #[cfg(test)]
@@ -958,6 +1152,45 @@ mod tests {
         assert_eq!(
             split_statements(src),
             vec!["db.a.find({ s: 'x; db.b.find()' })", "db.d.find()"]
+        );
+    }
+
+    #[test]
+    fn splits_sql_and_shell_statements() {
+        let src = "SELECT name, db FROM users -- db.x.find()
+WHERE age > 1
+  AND db = 'select'
+db.users.find()
+select count(*) from orders;
+SELECT 1 FROM t
+show dbs";
+        assert_eq!(
+            split_statements(src),
+            vec![
+                "SELECT name, db FROM users -- db.x.find()
+WHERE age > 1
+  AND db = 'select'",
+                "db.users.find()",
+                "select count(*) from orders",
+                "SELECT 1 FROM t",
+                "show dbs",
+            ]
+        );
+        assert!(is_sql_statement(
+            "  -- note
+  select * from t"
+        ));
+        assert!(!is_sql_statement("db.selected.find()"));
+    }
+
+    #[test]
+    fn a_broken_statement_does_not_swallow_the_next_one() {
+        assert_eq!(
+            split_statements(
+                "db.a.find({ x: })
+db.b.find()"
+            ),
+            vec!["db.a.find({ x: })", "db.b.find()"]
         );
     }
 

@@ -7,6 +7,7 @@ mod convert;
 mod exec;
 mod schema;
 pub mod shell;
+pub mod sql;
 
 use async_trait::async_trait;
 
@@ -139,6 +140,14 @@ impl DatabaseDriver for MongoDriver {
         statement: &str,
         options: ExecuteOptions<'_>,
     ) -> Result<ExecutionOutput, ConnectionError> {
+        // SELECT statements are compiled to an aggregation pipeline (read-only)
+        if shell::is_sql_statement(statement) {
+            let compiled = sql::compile(statement).map_err(ConnectionError::QueryError)?;
+            let client = self.clients.get_or_create(config).await?;
+            let database = Self::target_database(config, options.database, Some(&client)).await;
+            return exec::execute_sql(&client, &database, compiled, options.row_limit).await;
+        }
+
         let parsed = shell::parse_single(statement)
             .map_err(|e| ConnectionError::QueryError(e.describe(statement)))?;
         let client = self.clients.get_or_create(config).await?;
@@ -344,6 +353,125 @@ mod live_tests {
                 .unwrap(),
         );
         assert!(ping[0].columns.iter().any(|c| c.name == "ok"));
+
+        // SQL SELECT compiled to aggregation pipelines
+        affected(run(&driver, &config, &db, r#"db.orders.insertMany([
+            { user: "Ada", total: 10 }, { user: "Ada", total: 5 }, { user: "Grace", total: 7 }, { user: "Nobody", total: 1 }
+        ])"#).await.unwrap());
+        let sql_sets = |output: ExecutionOutput| match output {
+            ExecutionOutput::ResultSets {
+                sets,
+                generated_query,
+                ..
+            } => {
+                assert!(
+                    generated_query
+                        .as_deref()
+                        .is_some_and(|g| g.contains(".aggregate([")),
+                    "{generated_query:?}"
+                );
+                sets
+            }
+            other => panic!("expected result sets, got {other:?}"),
+        };
+        let cell_strings = |set: &crate::db::driver::ResultSet, col: usize| -> Vec<String> {
+            set.rows
+                .iter()
+                .map(|r| match &r[col] {
+                    CellValue::String(s) => s.clone(),
+                    other => format!("{other:?}"),
+                })
+                .collect()
+        };
+
+        let top = sql_sets(
+            run(
+                &driver,
+                &config,
+                &db,
+                "SELECT name, age FROM users WHERE age > 30 ORDER BY age DESC LIMIT 2",
+            )
+            .await
+            .unwrap(),
+        );
+        assert_eq!(cell_strings(&top[0], 0), vec!["Barbara", "Grace"]);
+
+        let by_city = sql_sets(run(&driver, &config, &db, "SELECT address.city AS city, COUNT(*) AS n FROM users WHERE address.city IS NOT NULL GROUP BY address.city ORDER BY city").await.unwrap());
+        assert_eq!(
+            cell_strings(&by_city[0], 0),
+            vec!["Boston", "London", "New York"]
+        );
+        assert!(by_city[0]
+            .rows
+            .iter()
+            .all(|r| matches!(r[1], CellValue::Int(1))));
+
+        let totals = sql_sets(run(&driver, &config, &db, "SELECT COUNT(*) AS total, COUNT(address) AS with_address, MAX(age) oldest FROM users").await.unwrap());
+        assert!(
+            matches!(
+                totals[0].rows[0][..],
+                [CellValue::Int(5), CellValue::Int(3), CellValue::Int(52)]
+            ),
+            "{:?}",
+            totals[0].rows
+        );
+
+        let like = sql_sets(
+            run(
+                &driver,
+                &config,
+                &db,
+                "SELECT name FROM users WHERE name LIKE 'G%' OR name ILIKE 'lin%'",
+            )
+            .await
+            .unwrap(),
+        );
+        assert_eq!(cell_strings(&like[0], 0), vec!["Grace", "Linus"]);
+
+        let joined = sql_sets(run(&driver, &config, &db, "SELECT u.name, SUM(o.total) AS spent FROM orders o JOIN users u ON o.user = u.name GROUP BY u.name ORDER BY spent DESC").await.unwrap());
+        assert_eq!(cell_strings(&joined[0], 0), vec!["Ada", "Grace"]);
+        assert!(matches!(joined[0].rows[0][1], CellValue::Int(15)));
+
+        let left = sql_sets(run(&driver, &config, &db, "SELECT o.user, u.age FROM orders o LEFT JOIN users u ON o.user = u.name WHERE o.total < 2").await.unwrap());
+        assert_eq!(cell_strings(&left[0], 0), vec!["Nobody"]);
+        assert!(matches!(left[0].rows[0][1], CellValue::Null));
+
+        let computed = sql_sets(run(&driver, &config, &db, "SELECT UPPER(name) AS n, CASE WHEN age >= 40 THEN 'senior' ELSE 'junior' END band FROM users WHERE tags IS NOT NULL ORDER BY n").await.unwrap());
+        assert_eq!(cell_strings(&computed[0], 0), vec!["ADA", "GRACE"]);
+        assert_eq!(cell_strings(&computed[0], 1), vec!["junior", "senior"]);
+
+        let distinct = sql_sets(
+            run(
+                &driver,
+                &config,
+                &db,
+                "SELECT DISTINCT user FROM orders ORDER BY user",
+            )
+            .await
+            .unwrap(),
+        );
+        assert_eq!(
+            cell_strings(&distinct[0], 0),
+            vec!["Ada", "Grace", "Nobody"]
+        );
+
+        // Row limit (3) still applies to SQL results
+        let limited = sql_sets(
+            run(&driver, &config, &db, "SELECT * FROM users")
+                .await
+                .unwrap(),
+        );
+        assert!(limited[0].truncated);
+
+        let sql_error = run(&driver, &config, &db, "SELECT * FROM users WHERE")
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(sql_error, ConnectionError::QueryError(ref m) if m.starts_with("SQL error")),
+            "{sql_error:?}"
+        );
+        let write = run(&driver, &config, &db, "select 1 from users; ").await;
+        assert!(write.is_ok());
 
         // update / upsert / delete
         let updated = run(
