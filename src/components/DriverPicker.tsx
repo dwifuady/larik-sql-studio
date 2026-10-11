@@ -71,9 +71,23 @@ export function connectionErrorMessage(error: unknown): string {
   return `Failed to connect: ${message}`;
 }
 
+/**
+ * Whether the form holds enough to save and test a connection.
+ * MongoDB only needs a host: databases are listed once connected.
+ */
+export function connectionIsComplete(form: { driver: DriverKind; host: string; database: string }): boolean {
+  if (!form.host.trim()) return false;
+  return form.driver === 'mongodb' || !!form.database.trim();
+}
+
+/** Database field placeholder for a driver */
+export function databasePlaceholder(driver: DriverKind): string {
+  return driver === 'mongodb' ? 'Default database (optional)' : 'Database';
+}
+
 /** Explains why the connection isn't saved or testable yet */
-export function MissingDatabaseHint({ host, database }: { host: string; database: string }) {
-  if (!host.trim() || database.trim()) return null;
+export function MissingDatabaseHint({ connection }: { connection: { driver: DriverKind; host: string; database: string } }) {
+  if (!connection.host.trim() || connectionIsComplete(connection)) return null;
   return (
     <p className="text-xs text-[var(--text-secondary)] mb-2">
       Enter a database to save and test this connection.

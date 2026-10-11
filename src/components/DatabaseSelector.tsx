@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '../store';
+import { defaultDatabaseFor } from '../types';
 
 interface DatabaseSelectorProps {
     isCompact?: boolean;
@@ -19,6 +20,7 @@ export function DatabaseSelector({ isCompact = false }: DatabaseSelectorProps) {
     const dropdownRef = useRef<HTMLDivElement>(null);
 
     const activeSpace = spaces.find(s => s.id === activeSpaceId);
+    const spaceDefaultDb = defaultDatabaseFor(activeSpace, spaceDatabases);
     const activeTab = tabs.find(t => t.id === activeTabId);
     const spaceColor = activeSpace?.color || '#0078d4';
 
@@ -42,7 +44,7 @@ export function DatabaseSelector({ isCompact = false }: DatabaseSelectorProps) {
         setIsOpen(false);
     };
 
-    const currentDatabaseValue = activeTab?.database || activeSpace?.connection_database || 'Default DB';
+    const currentDatabaseValue = activeTab?.database || spaceDefaultDb || 'Default DB';
 
     return (
         <div
@@ -117,7 +119,7 @@ export function DatabaseSelector({ isCompact = false }: DatabaseSelectorProps) {
                                         : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
                                 }`}
                             >
-                                <span className="truncate flex-1">{activeSpace?.connection_database || 'Default DB'}</span>
+                                <span className="truncate flex-1">{spaceDefaultDb || 'Default DB'}</span>
                                 {!activeTab?.database && (
                                     <svg className="w-3.5 h-3.5 flex-shrink-0 mr-1 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />

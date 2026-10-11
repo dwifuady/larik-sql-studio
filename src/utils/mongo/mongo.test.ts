@@ -9,6 +9,8 @@ import {
 } from './shell';
 import { getMongoCompletionContext, buildMongoSuggestions, statementTextBeforeCursor } from './completion';
 import type { SchemaInfo } from '../../types';
+import { defaultDatabaseFor, spaceHasConnection } from '../../types';
+import { connectionIsComplete } from '../../components/DriverPicker';
 
 describe('splitMongoStatements', () => {
   it('splits on newlines before db/show/use and on semicolons', () => {
@@ -238,3 +240,32 @@ function col(name: string, data_type: string) {
     ordinal_position: 0,
   };
 }
+
+describe('optional MongoDB database', () => {
+  const space = (driver: 'mssql' | 'mongodb', database: string | null) => ({
+    id: 's', name: 'n', color: null, icon: null, created_at: '', updated_at: '', sort_order: 0,
+    connection_host: '192.168.0.251', connection_port: 27017, connection_database: database,
+    connection_username: null, connection_trust_cert: true, connection_encrypt: false,
+    connection_driver: driver, last_active_tab_id: null,
+  });
+  const dbs = [
+    { name: 'BlazeXHub', hasAccess: true },
+    { name: 'admin', hasAccess: true },
+    { name: 'secret', hasAccess: false },
+  ];
+
+  it('treats a MongoDB host alone as a connection', () => {
+    expect(spaceHasConnection(space('mongodb', ''))).toBe(true);
+    expect(spaceHasConnection(space('mssql', ''))).toBe(false);
+    expect(connectionIsComplete({ driver: 'mongodb', host: '192.168.0.251', database: '' })).toBe(true);
+    expect(connectionIsComplete({ driver: 'mssql', host: 'sql01', database: '' })).toBe(false);
+  });
+
+  it('defaults to the first accessible non-system database', () => {
+    expect(defaultDatabaseFor(space('mongodb', ''), dbs)).toBe('BlazeXHub');
+    expect(defaultDatabaseFor(space('mongodb', 'shop'), dbs)).toBe('shop');
+    expect(defaultDatabaseFor(space('mongodb', ''), [{ name: 'admin', hasAccess: true }])).toBe('admin');
+    expect(defaultDatabaseFor(space('mssql', ''), dbs)).toBeNull();
+    expect(defaultDatabaseFor(space('mongodb', null), [])).toBeNull();
+  });
+});

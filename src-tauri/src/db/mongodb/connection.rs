@@ -96,14 +96,17 @@ pub async fn client_options(config: &ConnectionConfig) -> Result<ClientOptions, 
     Ok(options)
 }
 
-/// The database used when a tab has none selected
-pub fn default_database(config: &ConnectionConfig, options: Option<&ClientOptions>) -> String {
+/// The database set on the connection, or in its connection string's path
+pub fn configured_database(
+    config: &ConnectionConfig,
+    options: Option<&ClientOptions>,
+) -> Option<String> {
     if !config.database.trim().is_empty() {
-        return config.database.trim().to_string();
+        return Some(config.database.trim().to_string());
     }
     options
         .and_then(|o| o.default_database.clone())
-        .unwrap_or_else(|| "test".to_string())
+        .filter(|d| !d.is_empty())
 }
 
 /// Create a client and verify the server responds
@@ -221,7 +224,10 @@ mod tests {
         // Separately entered credentials win, the string's authSource is kept
         assert_eq!(credential.username.as_deref(), Some("app"));
         assert_eq!(credential.source.as_deref(), Some("admin"));
-        assert_eq!(default_database(&cfg, Some(&options)), "shop");
+        assert_eq!(
+            configured_database(&cfg, Some(&options)).as_deref(),
+            Some("shop")
+        );
     }
 
     #[tokio::test]
@@ -247,10 +253,13 @@ mod tests {
     }
 
     #[test]
-    fn default_database_falls_back_to_test() {
-        assert_eq!(default_database(&config("h"), None), "test");
+    fn configured_database_comes_from_the_connection() {
+        assert_eq!(configured_database(&config("h"), None), None);
         let mut cfg = config("h");
         cfg.database = "inventory".to_string();
-        assert_eq!(default_database(&cfg, None), "inventory");
+        assert_eq!(
+            configured_database(&cfg, None).as_deref(),
+            Some("inventory")
+        );
     }
 }

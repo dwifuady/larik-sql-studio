@@ -54,7 +54,27 @@ export interface Space {
 
 /** Check if a space has a connection configured */
 export function spaceHasConnection(space: Space): boolean {
-  return !!(space.connection_host && space.connection_database);
+  if (!space.connection_host) return false;
+  // MongoDB lists its databases once connected, so a default database is optional
+  return !!space.connection_database || driverOf(space.connection_driver) === 'mongodb';
+}
+
+/** Server databases that are never a sensible default */
+const SYSTEM_DATABASES = new Set(['admin', 'config', 'local']);
+
+/**
+ * Database used when a tab has none selected: the space's database, or for
+ * MongoDB spaces without one, the first accessible non-system database.
+ */
+export function defaultDatabaseFor(
+  space: Space | null | undefined,
+  databases: { name: string; hasAccess: boolean }[]
+): string | null {
+  if (!space) return null;
+  if (space.connection_database) return space.connection_database;
+  if (driverOf(space.connection_driver) !== 'mongodb') return null;
+  const accessible = databases.filter(d => d.hasAccess);
+  return accessible.find(d => !SYSTEM_DATABASES.has(d.name))?.name ?? accessible[0]?.name ?? null;
 }
 
 /** Input for creating a new space with optional connection */

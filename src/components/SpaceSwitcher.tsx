@@ -4,7 +4,16 @@ import { createPortal } from 'react-dom';
 import { useAppStore } from '../store';
 import type { UpdateSpaceInput, DriverKind } from '../types';
 import { DEFAULT_DRIVER, defaultPortFor, driverOf, spaceHasConnection } from '../types';
-import { DriverPicker, MissingDatabaseHint, connectionErrorMessage, hostPlaceholder, withDriver, withHost } from './DriverPicker';
+import {
+  DriverPicker,
+  MissingDatabaseHint,
+  connectionErrorMessage,
+  connectionIsComplete,
+  databasePlaceholder,
+  hostPlaceholder,
+  withDriver,
+  withHost,
+} from './DriverPicker';
 import { save, open, ask } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -91,7 +100,7 @@ export function SpaceSwitcher() {
       name: editName.trim(),
       color: selectedColor,
       // Include connection if provided
-      ...(connection.host && connection.database ? {
+      ...(connectionIsComplete(connection) ? {
         connection_host: connection.host,
         connection_port: parseInt(connection.port) || defaultPortFor(connection.driver),
         connection_database: connection.database,
@@ -111,7 +120,7 @@ export function SpaceSwitcher() {
   };
 
   const handleTestConnection = async () => {
-    if (!connection.host || !connection.database) return;
+    if (!connectionIsComplete(connection)) return;
 
     setIsTesting(true);
     setTestResult(null);
@@ -449,7 +458,7 @@ export function SpaceSwitcher() {
                   type="text"
                   value={connection.database}
                   onChange={(e) => setConnection(c => ({ ...c, database: e.target.value }))}
-                  placeholder="Database"
+                  placeholder={databasePlaceholder(connection.driver)}
                   className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-sm mb-1.5 focus:border-[var(--accent-color)] outline-none"
                 />
 
@@ -492,8 +501,8 @@ export function SpaceSwitcher() {
                 </div>
 
                 {/* Test connection button */}
-                <MissingDatabaseHint host={connection.host} database={connection.database} />
-                {connection.host && connection.database && (
+                <MissingDatabaseHint connection={connection} />
+                {connectionIsComplete(connection) && (
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={handleTestConnection}

@@ -4,7 +4,16 @@ import { createPortal } from 'react-dom';
 import { useAppStore } from '../store';
 import type { CreateSpaceInput, DriverKind } from '../types';
 import { DEFAULT_DRIVER, defaultPortFor } from '../types';
-import { DriverPicker, MissingDatabaseHint, connectionErrorMessage, hostPlaceholder, withDriver, withHost } from './DriverPicker';
+import {
+  DriverPicker,
+  MissingDatabaseHint,
+  connectionErrorMessage,
+  connectionIsComplete,
+  databasePlaceholder,
+  hostPlaceholder,
+  withDriver,
+  withHost,
+} from './DriverPicker';
 
 import { SPACE_COLORS } from '@/utils/spaceColors';
 
@@ -66,7 +75,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
       name: newName.trim(),
       color: selectedColor,
       // Include connection if provided
-      ...(connection.host && connection.database ? {
+      ...(connectionIsComplete(connection) ? {
         connection_host: connection.host,
         connection_port: parseInt(connection.port) || defaultPortFor(connection.driver),
         connection_database: connection.database,
@@ -91,7 +100,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
   };
 
   const handleTestConnection = async () => {
-    if (!connection.host || !connection.database) return;
+    if (!connectionIsComplete(connection)) return;
 
     setIsTesting(true);
     setTestResult(null);
@@ -204,7 +213,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
             type="text"
             value={connection.database}
             onChange={(e) => setConnection(c => ({ ...c, database: e.target.value }))}
-            placeholder="Database"
+            placeholder={databasePlaceholder(connection.driver)}
             className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm mb-2 focus:border-[var(--accent-color)] outline-none"
           />
 
@@ -247,8 +256,8 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
           </div>
 
           {/* Test connection button */}
-          <MissingDatabaseHint host={connection.host} database={connection.database} />
-          {connection.host && connection.database && (
+          <MissingDatabaseHint connection={connection} />
+          {connectionIsComplete(connection) && (
             <div className="flex items-center gap-2">
               <button
                 onClick={handleTestConnection}

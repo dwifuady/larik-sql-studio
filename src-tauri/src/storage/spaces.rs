@@ -34,9 +34,13 @@ pub struct Space {
 }
 
 impl Space {
-    /// Check if this space has a connection configured
+    /// Check if this space has a connection configured.
+    /// MongoDB lists its databases once connected, so its database is optional.
     pub fn has_connection(&self) -> bool {
-        self.connection_host.is_some() && self.connection_database.is_some()
+        let filled = |v: &Option<String>| v.as_deref().is_some_and(|s| !s.trim().is_empty());
+        filled(&self.connection_host)
+            && (filled(&self.connection_database)
+                || self.connection_driver == DriverKind::Mongodb.as_str())
     }
 }
 
@@ -424,6 +428,14 @@ mod tests {
         assert_eq!(fetched.name, "My Space");
         assert_eq!(fetched.icon, Some("🚀".to_string()));
         assert!(!fetched.has_connection());
+
+        // A host alone is a connection only for MongoDB
+        let mut host_only = fetched.clone();
+        host_only.connection_host = Some("192.168.0.10".to_string());
+        host_only.connection_database = Some(String::new());
+        assert!(!host_only.has_connection());
+        host_only.connection_driver = "mongodb".to_string();
+        assert!(host_only.has_connection());
 
         let _ = std::fs::remove_file(&db_path);
     }

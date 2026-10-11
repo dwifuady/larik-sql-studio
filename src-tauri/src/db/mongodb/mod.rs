@@ -30,8 +30,13 @@ impl MongoDriver {
     }
 
     /// Resolve the database a statement runs in: the tab's selection, else the
-    /// connection's database, else the connection string's default, else `test`.
-    async fn target_database(config: &ConnectionConfig, requested: Option<&str>) -> String {
+    /// connection's database, else the connection string's default, else the
+    /// first accessible non-system database, else `test`.
+    async fn target_database(
+        config: &ConnectionConfig,
+        requested: Option<&str>,
+        client: Option<&mongodb::Client>,
+    ) -> String {
         if let Some(db) = requested.map(str::trim).filter(|d| !d.is_empty()) {
             return db.to_string();
         }
@@ -40,7 +45,25 @@ impl MongoDriver {
         } else {
             None
         };
-        connection::default_database(config, options.as_ref())
+        if let Some(db) = connection::configured_database(config, options.as_ref()) {
+            return db;
+        }
+        if let Some(client) = client {
+            if let Ok(mut names) = client
+                .list_database_names()
+                .authorized_databases(true)
+                .await
+            {
+                names.sort();
+                if let Some(first) = names
+                    .into_iter()
+                    .find(|n| !matches!(n.as_str(), "admin" | "config" | "local"))
+                {
+                    return first;
+                }
+            }
+        }
+        "test".to_string()
     }
 }
 
@@ -97,7 +120,7 @@ impl DatabaseDriver for MongoDriver {
             }
             // Users without listDatabases can still work in their own database
             Err(_) => Ok(vec![DatabaseEntry {
-                name: Self::target_database(config, None).await,
+                name: Self::target_database(config, None, None).await,
                 has_access: true,
             }]),
         }
@@ -119,7 +142,7 @@ impl DatabaseDriver for MongoDriver {
         let parsed = shell::parse_single(statement)
             .map_err(|e| ConnectionError::QueryError(e.describe(statement)))?;
         let client = self.clients.get_or_create(config).await?;
-        let database = Self::target_database(config, options.database).await;
+        let database = Self::target_database(config, options.database, Some(&client)).await;
         exec::execute(&client, &database, parsed, options.row_limit).await
     }
 
