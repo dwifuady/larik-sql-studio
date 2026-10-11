@@ -267,21 +267,17 @@ export const createSpacesSlice: StateCreator<AppState, [], [], SpacesSlice> = (s
         }
     },
 
+    // Rejects with the server's error so the form can show why it failed
     testConnection: async (host, port, database, username, password, trustCertificate, encrypt, driver) => {
-        try {
-            return await api.testConnection(
-                host,
-                port,
-                database,
-                username,
-                password,
-                trustCertificate,
-                encrypt,
-                driver
-            );
-        } catch (error) {
-            console.error('Connection test failed:', error);
-            return false;
-        }
+        return api.testConnection(
+            host,
+            port,
+            database,
+            username,
+            password,
+            trustCertificate,
+            encrypt,
+            driver
+        );
     }
 });

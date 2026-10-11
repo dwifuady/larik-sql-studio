@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { useAppStore } from '../store';
 import type { UpdateSpaceInput, DriverKind } from '../types';
 import { DEFAULT_DRIVER, defaultPortFor, driverOf, spaceHasConnection } from '../types';
-import { DriverPicker, hostPlaceholder, withDriver } from './DriverPicker';
+import { DriverPicker, MissingDatabaseHint, connectionErrorMessage, hostPlaceholder, withDriver, withHost } from './DriverPicker';
 import { save, open, ask } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -57,7 +57,7 @@ export function SpaceSwitcher() {
   const [selectedColor, setSelectedColor] = useState(SPACE_COLORS[0]);
   const [connection, setConnection] = useState<ConnectionFormState>(emptyConnection);
   const [isTesting, setIsTesting] = useState(false);
-  const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
+  const [testResult, setTestResult] = useState<'success' | string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -116,18 +116,21 @@ export function SpaceSwitcher() {
     setIsTesting(true);
     setTestResult(null);
 
-    const success = await testConnection(
-      connection.host,
-      parseInt(connection.port) || defaultPortFor(connection.driver),
-      connection.database,
-      connection.username,
-      connection.password,
-      connection.trustCert,
-      connection.encrypt,
-      connection.driver
-    );
-
-    setTestResult(success ? 'success' : 'error');
+    try {
+      const success = await testConnection(
+        connection.host,
+        parseInt(connection.port) || defaultPortFor(connection.driver),
+        connection.database,
+        connection.username,
+        connection.password,
+        connection.trustCert,
+        connection.encrypt,
+        connection.driver
+      );
+      setTestResult(success ? 'success' : 'Failed to connect');
+    } catch (e) {
+      setTestResult(connectionErrorMessage(e));
+    }
     setIsTesting(false);
   };
 
@@ -426,7 +429,7 @@ export function SpaceSwitcher() {
                     <input
                       type="text"
                       value={connection.host}
-                      onChange={(e) => setConnection(c => ({ ...c, host: e.target.value }))}
+                      onChange={(e) => setConnection(c => withHost(c, e.target.value))}
                       placeholder={hostPlaceholder(connection.driver)}
                       className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
                     />
@@ -489,6 +492,7 @@ export function SpaceSwitcher() {
                 </div>
 
                 {/* Test connection button */}
+                <MissingDatabaseHint host={connection.host} database={connection.database} />
                 {connection.host && connection.database && (
                   <div className="flex items-center gap-1.5">
                     <button
@@ -499,7 +503,7 @@ export function SpaceSwitcher() {
                       {isTesting ? 'Testing...' : 'Test Connection'}
                     </button>
                     {testResult === 'success' && <span className="text-xs text-green-400">✓ Connected!</span>}
-                    {testResult === 'error' && <span className="text-xs text-red-400">✗ Failed</span>}
+                    {testResult && testResult !== 'success' && <span className="text-xs text-red-400 break-words">✗ {testResult}</span>}
                   </div>
                 )}
               </div>

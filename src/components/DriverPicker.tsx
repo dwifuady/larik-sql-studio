@@ -1,6 +1,7 @@
 // Database driver selector shared by the space connection forms
 import type { DriverKind } from '../types';
 import { DRIVER_LABELS, defaultPortFor } from '../types';
+import { databaseFromConnectionString, isMongoConnectionString } from '../utils/mongo/shell';
 
 const DRIVERS = Object.keys(DRIVER_LABELS) as DriverKind[];
 
@@ -47,4 +48,35 @@ export function withDriver<T extends { driver: DriverKind; port: string }>(form:
 /** Host field placeholder for a driver */
 export function hostPlaceholder(driver: DriverKind): string {
   return driver === 'mongodb' ? 'Host or mongodb+srv:// string' : 'Host / Server';
+}
+
+/**
+ * Update the host field. Pasting a mongodb:// or mongodb+srv:// string switches
+ * the form to MongoDB and fills the database from the string's path.
+ */
+export function withHost<T extends { driver: DriverKind; port: string; host: string; database: string }>(form: T, host: string): T {
+  let next = { ...form, host };
+  if (isMongoConnectionString(host)) {
+    if (next.driver !== 'mongodb') next = withDriver(next, 'mongodb');
+    const database = databaseFromConnectionString(host);
+    if (database && !form.database.trim()) next = { ...next, database };
+  }
+  return next;
+}
+
+/** Readable message from a failed connection test */
+export function connectionErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes('Password expired')) return 'Password expired. Please change it using another tool.';
+  return `Failed to connect: ${message}`;
+}
+
+/** Explains why the connection isn't saved or testable yet */
+export function MissingDatabaseHint({ host, database }: { host: string; database: string }) {
+  if (!host.trim() || database.trim()) return null;
+  return (
+    <p className="text-xs text-[var(--text-secondary)] mb-2">
+      Enter a database to save and test this connection.
+    </p>
+  );
 }

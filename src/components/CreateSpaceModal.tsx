@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { useAppStore } from '../store';
 import type { CreateSpaceInput, DriverKind } from '../types';
 import { DEFAULT_DRIVER, defaultPortFor } from '../types';
-import { DriverPicker, hostPlaceholder, withDriver } from './DriverPicker';
+import { DriverPicker, MissingDatabaseHint, connectionErrorMessage, hostPlaceholder, withDriver, withHost } from './DriverPicker';
 
 import { SPACE_COLORS } from '@/utils/spaceColors';
 
@@ -109,13 +109,8 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
       );
 
       setTestResult(success ? 'success' : 'Failed to connect');
-    } catch (e: any) {
-      const errorMsg = e.message || String(e);
-      if (errorMsg.includes("Password expired")) {
-        setTestResult("Password expired. Please change it using another tool.");
-      } else {
-        setTestResult('Failed to connect: ' + errorMsg);
-      }
+    } catch (e) {
+      setTestResult(connectionErrorMessage(e));
     }
     setIsTesting(false);
   };
@@ -189,7 +184,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
               <input
                 type="text"
                 value={connection.host}
-                onChange={(e) => setConnection(c => ({ ...c, host: e.target.value }))}
+                onChange={(e) => setConnection(c => withHost(c, e.target.value))}
                 placeholder={hostPlaceholder(connection.driver)}
                 className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
               />
@@ -252,6 +247,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
           </div>
 
           {/* Test connection button */}
+          <MissingDatabaseHint host={connection.host} database={connection.database} />
           {connection.host && connection.database && (
             <div className="flex items-center gap-2">
               <button

@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { splitMongoStatements, findMongoStatementAtCursor, getMongoStatementLabel, mongoFindQuery } from './shell';
+import {
+  splitMongoStatements,
+  findMongoStatementAtCursor,
+  getMongoStatementLabel,
+  mongoFindQuery,
+  isMongoConnectionString,
+  databaseFromConnectionString,
+} from './shell';
 import { getMongoCompletionContext, buildMongoSuggestions, statementTextBeforeCursor } from './completion';
 import type { SchemaInfo } from '../../types';
 
@@ -71,6 +78,21 @@ describe('mongoFindQuery', () => {
   it('uses dot access for identifiers and getCollection otherwise', () => {
     expect(mongoFindQuery('users', 100)).toBe('db.users.find({}).limit(100)');
     expect(mongoFindQuery('order-items', 5)).toBe('db.getCollection("order-items").find({}).limit(5)');
+  });
+});
+
+describe('connection strings', () => {
+  it('detects mongodb:// and mongodb+srv:// hosts', () => {
+    expect(isMongoConnectionString('mongodb://192.168.0.251:27017/')).toBe(true);
+    expect(isMongoConnectionString(' MONGODB+SRV://cluster0.example.net')).toBe(true);
+    expect(isMongoConnectionString('192.168.0.251')).toBe(false);
+  });
+
+  it('reads the database from the path', () => {
+    expect(databaseFromConnectionString('mongodb://192.168.0.251:27017/')).toBeNull();
+    expect(databaseFromConnectionString('mongodb://192.168.0.251:27017')).toBeNull();
+    expect(databaseFromConnectionString('mongodb://u:p%40ss@h1,h2/shop?replicaSet=rs0')).toBe('shop');
+    expect(databaseFromConnectionString('mongodb+srv://cluster0.example.net/my%20db')).toBe('my db');
   });
 });
 

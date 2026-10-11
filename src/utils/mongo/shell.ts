@@ -237,3 +237,19 @@ export function mongoCollectionExpression(collection: string): string {
 export function mongoFindQuery(collection: string, limit: number): string {
   return `${mongoCollectionExpression(collection)}.find({}).limit(${limit})`;
 }
+
+/** Whether a host field holds a MongoDB connection string */
+export function isMongoConnectionString(host: string): boolean {
+  return /^\s*mongodb(\+srv)?:\/\//i.test(host);
+}
+
+/** Database named in a connection string path (`mongodb://h:27017/shop?x=y` → `shop`), if any */
+export function databaseFromConnectionString(uri: string): string | null {
+  const match = uri.trim().match(/^mongodb(?:\+srv)?:\/\/([^/?#]*)\/([^?#]*)/i);
+  if (!match || !match[2]) return null;
+  try {
+    return decodeURIComponent(match[2]) || null;
+  } catch {
+    return match[2];
+  }
+}

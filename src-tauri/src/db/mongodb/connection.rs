@@ -79,6 +79,17 @@ pub async fn client_options(config: &ConnectionConfig) -> Result<ClientOptions, 
         options.credential = Some(credential);
     }
 
+    // Like mongosh and Compass: a single host without a replica set name is a
+    // direct connection, so a replica-set member that advertises internal
+    // hostnames (e.g. Docker) is still reachable by the address the user typed.
+    if options.direct_connection.is_none()
+        && options.hosts.len() == 1
+        && options.repl_set_name.is_none()
+        && !host.starts_with("mongodb+srv://")
+    {
+        options.direct_connection = Some(true);
+    }
+
     options.app_name = Some("Larik SQL Studio".to_string());
     options.server_selection_timeout.get_or_insert(TIMEOUT);
     options.connect_timeout.get_or_insert(TIMEOUT);
@@ -211,6 +222,22 @@ mod tests {
         assert_eq!(credential.username.as_deref(), Some("app"));
         assert_eq!(credential.source.as_deref(), Some("admin"));
         assert_eq!(default_database(&cfg, Some(&options)), "shop");
+    }
+
+    #[tokio::test]
+    async fn single_host_connects_directly_unless_a_replica_set_is_named() {
+        for host in ["192.168.0.251", "mongodb://192.168.0.251:27017/"] {
+            let options = client_options(&config(host)).await.unwrap();
+            assert_eq!(options.direct_connection, Some(true), "{host}");
+        }
+        let rs = client_options(&config("mongodb://h1:27017/?replicaSet=rs0"))
+            .await
+            .unwrap();
+        assert_eq!(rs.direct_connection, None);
+        let explicit = client_options(&config("mongodb://h1:27017/?directConnection=false"))
+            .await
+            .unwrap();
+        assert_eq!(explicit.direct_connection, Some(false));
     }
 
     #[tokio::test]
