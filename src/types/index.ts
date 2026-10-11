@@ -3,6 +3,22 @@
 /** Tab type enum matching backend */
 export type TabType = 'query' | 'results' | 'schema' | 'settings';
 
+/** Database engine a connection uses. Mirrors the backend `DriverKind`. */
+export type DriverKind = 'mssql';
+
+/** Driver used when none is specified (and for spaces created before drivers existed) */
+export const DEFAULT_DRIVER: DriverKind = 'mssql';
+
+/** Port each driver uses when a connection does not specify one */
+export const DRIVER_DEFAULT_PORTS: Record<DriverKind, number> = {
+  mssql: 1433,
+};
+
+/** Default port for a driver; unknown/missing drivers fall back to the default driver */
+export function defaultPortFor(driver?: string | null): number {
+  return DRIVER_DEFAULT_PORTS[driver as DriverKind] ?? DRIVER_DEFAULT_PORTS[DEFAULT_DRIVER];
+}
+
 /** A Space represents a work environment containing related tabs and 1:1 connection */
 export interface Space {
   id: string;
@@ -20,6 +36,7 @@ export interface Space {
   // Note: password is not returned from backend for security
   connection_trust_cert: boolean | null;
   connection_encrypt: boolean | null;
+  connection_driver: DriverKind;
   last_active_tab_id: string | null;
 }
 
@@ -41,6 +58,7 @@ export interface CreateSpaceInput {
   connection_password?: string | null;
   connection_trust_cert?: boolean | null;
   connection_encrypt?: boolean | null;
+  connection_driver?: DriverKind | null;
 }
 
 /** Input for updating an existing space */
@@ -57,6 +75,7 @@ export interface UpdateSpaceInput {
   connection_password?: string | null;
   connection_trust_cert?: boolean | null;
   connection_encrypt?: boolean | null;
+  connection_driver?: DriverKind | null;
 }
 
 /** A Tab represents a tab within a space (can be pinned or unpinned) */
@@ -141,6 +160,7 @@ export interface PinnedTabsGrouped {
 /** Database connection configuration info (without password) */
 export interface ConnectionInfo {
   id: string;
+  driver: DriverKind;
   name: string;
   host: string;
   port: number;

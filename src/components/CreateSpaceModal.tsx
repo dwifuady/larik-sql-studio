@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '../store';
 import type { CreateSpaceInput } from '../types';
+import { defaultPortFor } from '../types';
 
 import { SPACE_COLORS } from '@/utils/spaceColors';
 
@@ -19,7 +20,7 @@ interface ConnectionFormState {
 
 const emptyConnection: ConnectionFormState = {
   host: '',
-  port: '1433',
+  port: String(defaultPortFor()),
   database: '',
   username: '',
   password: '',
@@ -64,7 +65,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
       // Include connection if provided
       ...(connection.host && connection.database ? {
         connection_host: connection.host,
-        connection_port: parseInt(connection.port) || 1433,
+        connection_port: parseInt(connection.port) || defaultPortFor(),
         connection_database: connection.database,
         connection_username: connection.username || undefined,
         connection_password: connection.password || undefined,
@@ -94,7 +95,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
     try {
       const success = await testConnection(
         connection.host,
-        parseInt(connection.port) || 1433,
+        parseInt(connection.port) || defaultPortFor(),
         connection.database,
         connection.username,
         connection.password,

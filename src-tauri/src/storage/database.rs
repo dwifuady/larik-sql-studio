@@ -306,6 +306,21 @@ impl DatabaseManager {
             conn.execute("ALTER TABLE spaces ADD COLUMN last_active_tab_id TEXT", [])?;
         }
 
+        // Migration: Add connection_driver column to spaces (multi-database support).
+        // Every space created before this existed is a SQL Server space.
+        let has_connection_driver: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('spaces') WHERE name = 'connection_driver'",
+            [],
+            |row| row.get(0),
+        )?;
+
+        if !has_connection_driver {
+            conn.execute(
+                "ALTER TABLE spaces ADD COLUMN connection_driver TEXT NOT NULL DEFAULT 'mssql'",
+                [],
+            )?;
+        }
+
         // Migration: Create sticky_notes table (v2 — gutter icon approach)
         conn.execute_batch(
             r#"

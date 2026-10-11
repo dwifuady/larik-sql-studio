@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '../store';
 import type { UpdateSpaceInput } from '../types';
-import { spaceHasConnection } from '../types';
+import { defaultPortFor, spaceHasConnection } from '../types';
 import { save, open, ask } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -27,7 +27,7 @@ interface ConnectionFormState {
 
 const emptyConnection: ConnectionFormState = {
   host: '',
-  port: '1433',
+  port: String(defaultPortFor()),
   database: '',
   username: '',
   password: '',
@@ -90,7 +90,7 @@ export function SpaceSwitcher() {
       // Include connection if provided
       ...(connection.host && connection.database ? {
         connection_host: connection.host,
-        connection_port: parseInt(connection.port) || 1433,
+        connection_port: parseInt(connection.port) || defaultPortFor(),
         connection_database: connection.database,
         connection_username: connection.username || undefined,
         connection_password: connection.password || undefined,
@@ -114,7 +114,7 @@ export function SpaceSwitcher() {
 
     const success = await testConnection(
       connection.host,
-      parseInt(connection.port) || 1433,
+      parseInt(connection.port) || defaultPortFor(),
       connection.database,
       connection.username,
       connection.password,
@@ -140,7 +140,7 @@ export function SpaceSwitcher() {
     // Load existing connection data
     setConnection({
       host: space.connection_host || '',
-      port: String(space.connection_port || 1433),
+      port: String(space.connection_port || defaultPortFor(space.connection_driver)),
       database: space.connection_database || '',
       username: space.connection_username || '',
       password: '', // Password is not returned from backend
