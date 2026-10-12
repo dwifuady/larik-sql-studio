@@ -4,8 +4,9 @@ import Editor, { OnMount, OnChange } from '@monaco-editor/react';
 import type { editor, languages, IDisposable, IRange } from 'monaco-editor';
 import { useAppStore } from '../store'; // Consolidated import if possible, but just ensuring it's there
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
-import type { Tab, SchemaInfo, SchemaColumnInfo, ParameterInfo } from '../types';
+import type { Tab, SchemaInfo, SchemaColumnInfo, ParameterInfo, DriverKind } from '../types';
 import { spaceHasConnection, getDisplayDataType, driverOf } from '../types';
+import { quoteSqlIdent, quoteQualifiedSqlIdent } from '../utils/sql/ident';
 import { ResultsGrid } from './ResultsGrid';
 import { GeneratedQueryBar } from './GeneratedQueryBar';
 import { formatSqlWithIndentation } from '../utils/sqlFormatter';
@@ -316,21 +317,30 @@ function getParameterDisplayType(param: ParameterInfo): string {
 function buildProcedureInsertText(
   procName: string,
   schemaName: string,
-  parameters: ParameterInfo[]
+  parameters: ParameterInfo[],
+  driver: DriverKind
 ): string {
-  const fullName = schemaName === 'dbo' ? procName : `[${schemaName}].[${procName}]`;
+  const defaultSchema = driver === 'postgres' ? 'public' : 'dbo';
+  const fullName = schemaName === defaultSchema
+    ? procName
+    : quoteQualifiedSqlIdent(schemaName, procName, driver);
 
   if (parameters.length === 0) {
     return fullName;
   }
 
-  // Build parameter list with named parameters
-  const paramList = parameters
-    .filter(p => p.parameter_mode !== 'OUT') // Only include input parameters by default
-    .map((param, index) => {
-      // Use tab stops for snippet navigation: ${n:default}
-      return `${param.name} = \${${index + 1}:NULL}`;
-    })
+  const callable = parameters.filter(p => p.parameter_mode !== 'OUT'); // Only input parameters by default
+  if (driver === 'postgres') {
+    // Postgres calls use positional arguments
+    const placeholders = callable
+      .map((_, index) => `\${${index + 1}:NULL}`)
+      .join(', ');
+    return placeholders ? `${fullName}(${placeholders})` : `${fullName}()`;
+  }
+
+  // T-SQL named parameters with tab stops for snippet navigation: ${n:default}
+  const paramList = callable
+    .map((param, index) => `${param.name} = \${${index + 1}:NULL}`)
     .join(', ');
 
   return paramList ? `${fullName} ${paramList}` : fullName;
@@ -875,8 +885,9 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   // Create completion suggestions from schema
   const createSchemaCompletions = useCallback((
     monaco: typeof import('monaco-editor'),
+    driver: DriverKind,
     schemaData: SchemaInfo | null,
-    context: ReturnType<typeof getCompletionContext>,
+    context: CompletionContext,
     tableAliases: Map<string, { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } }>,
     range: IRange,
     fullText: string,
@@ -888,8 +899,12 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     const suggestions: languages.CompletionItem[] = [];
     const recentTables = getRecentTables();
 
-    // Database completion (after USE)
+    // Database completion (after USE) — T-SQL only; PostgreSQL switches
+    // databases per tab, there is no USE statement.
     if (context.type === 'database') {
+      if (driver === 'postgres') {
+        return suggestions;
+      }
       databases.forEach(dbName => {
         suggestions.push({
           label: `[${dbName}]`,
@@ -905,10 +920,8 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       return suggestions;
     }
 
-    if (!schemaData) return suggestions;
-
     if (context.type === 'column') {
-      const joinSuggestions = buildJoinConditionSuggestions(textBeforeCursor, schemaData);
+      const joinSuggestions = buildJoinConditionSuggestions(textBeforeCursor, schemaData, driver);
       joinSuggestions.forEach((suggestion, index) => {
         suggestions.push({
           label: suggestion.label,
@@ -921,6 +934,8 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         });
       });
     }
+
+    if (!schemaData) return suggestions;
 
     // UPDATE column completion (only columns from the table being updated)
     if (context.type === 'update_column' && context.targetTable) {
@@ -939,7 +954,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
             kind: monaco.languages.CompletionItemKind.Field,
             detail: getDisplayDataType(col),
             documentation: { value: buildColumnDocumentation(col, targetTable.table_name), isTrusted: true },
-            insertText: isSetClause ? `[${col.name}] = ` : `[${col.name}]`,
+            insertText: isSetClause ? `${quoteSqlIdent(col.name, driver)} = ` : quoteSqlIdent(col.name, driver),
             sortText: `0_${col.ordinal_position.toString().padStart(3, '0')}`,
             range,
           });
@@ -967,7 +982,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
             kind: monaco.languages.CompletionItemKind.Field,
             detail: getDisplayDataType(col),
             documentation: { value: buildColumnDocumentation(col, targetTable.table_name), isTrusted: true },
-            insertText: `[${col.name}]`,
+            insertText: quoteSqlIdent(col.name, driver),
             sortText: `0_${col.ordinal_position.toString().padStart(3, '0')}`,
             range,
           });
@@ -1150,7 +1165,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         .filter(r => r.routine_type === 'PROCEDURE')
         .forEach(proc => {
           const hasParams = proc.parameters && proc.parameters.length > 0;
-          const insertText = buildProcedureInsertText(proc.routine_name, proc.schema_name, proc.parameters || []);
+          const insertText = buildProcedureInsertText(proc.routine_name, proc.schema_name, proc.parameters || [], driver);
           const paramCount = (proc.parameters || []).filter(p => p.parameter_mode !== 'OUT').length;
 
           suggestions.push({
@@ -1165,9 +1180,10 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
           });
 
           // Add schema-qualified version for non-dbo
-          if (proc.schema_name !== 'dbo') {
+          const isNonDefaultSchema = proc.schema_name !== (driver === 'postgres' ? 'public' : 'dbo');
+          if (isNonDefaultSchema) {
             suggestions.push({
-              label: `[${proc.schema_name}].[${proc.routine_name}]`,
+              label: quoteQualifiedSqlIdent(proc.schema_name, proc.routine_name, driver),
               kind: monaco.languages.CompletionItemKind.Method,
               detail: `Stored Procedure${paramCount > 0 ? ` (${paramCount} params)` : ''}`,
               documentation: { value: buildProcedureDocumentation(proc.parameters || [], proc.return_type), isTrusted: true },
@@ -1232,8 +1248,9 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         });
       });
 
+
       schemaData.tables.forEach(table => {
-        const fullName = `[${table.schema_name}].[${table.table_name}]`;
+        const fullName = quoteQualifiedSqlIdent(table.schema_name, table.table_name, driver);
         const isView = table.table_type === 'VIEW';
         const isRecent = recentTables.has(`${table.schema_name}.${table.table_name}`);
 
@@ -1252,13 +1269,13 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
           // NOTE: Don't add to usedAliases here - we only track aliases already in the query,
           // not the ones we're suggesting. Each table gets its own suggestion independently.
 
-          // Insert text with proper formatting: [schema].[Table] AS [alias]
-          const insertTextWithAlias = `[${table.schema_name}].[${table.table_name}] AS [${alias}]`;
+          // Insert text with proper formatting: schema.Table AS alias (dialect-quoted)
+          const insertTextWithAlias = `${quoteQualifiedSqlIdent(table.schema_name, table.table_name, driver)} AS ${quoteSqlIdent(alias, driver)}`;
 
           suggestions.push({
             label: table.table_name,
             kind: isView ? monaco.languages.CompletionItemKind.Interface : monaco.languages.CompletionItemKind.Struct,
-            detail: `${table.schema_name} • ${isView ? 'View' : 'Table'} → AS [${alias}]`,
+            detail: `${table.schema_name} • ${isView ? 'View' : 'Table'} → AS ${quoteSqlIdent(alias, driver)}`,
             documentation: { value: `**Inserts:** \`${insertTextWithAlias}\`\n\n**Columns:**\n${columnDocs}${hasMore}\n\n🔑 = Primary Key, * = NOT NULL`, isTrusted: true },
             insertText: insertTextWithAlias,
             sortText: isRecent ? `0_${table.table_name}` : `1_${table.table_name}`,
@@ -1293,9 +1310,10 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       schemaData.routines
         .filter(r => r.routine_type === 'FUNCTION')
         .forEach(func => {
-          const fullName = func.schema_name === 'dbo'
+          const defaultSchema = driver === 'postgres' ? 'public' : 'dbo';
+          const fullName = func.schema_name === defaultSchema
             ? func.routine_name
-            : `[${func.schema_name}].[${func.routine_name}]`;
+            : quoteQualifiedSqlIdent(func.schema_name, func.routine_name, driver);
 
           suggestions.push({
             label: func.routine_name + '()',
@@ -1389,14 +1407,15 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
                   }
                 : range;
 
+              const qualifiedColumn = `${quoteSqlIdent(alias, driver)}.${quoteSqlIdent(col.name, driver)}`;
               suggestions.push({
-                label: `[${alias}].[${col.name}]`,
+                label: qualifiedColumn,
                 kind: monaco.languages.CompletionItemKind.Field,
                 detail: `${getDisplayDataType(col)} • ${table.table_name}`,
                 documentation: { value: buildColumnDocumentation(col, table.table_name), isTrusted: true },
-                insertText: `[${alias}].[${col.name}]`,
-                // Allow filtering by column name OR alias - so typing "id" finds "[a].[Id]"
-                filterText: `${col.name} ${alias}.${col.name} [${alias}].[${col.name}]`,
+                insertText: qualifiedColumn,
+                // Allow filtering by column name OR alias - so typing "id" finds "e.id"
+                filterText: `${col.name} ${alias}.${col.name} ${qualifiedColumn}`,
                 sortText: `0_${alias}_${col.name}`,
                 range: aliasColumnRange,
               });
@@ -1970,18 +1989,20 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
         const suggestions: languages.CompletionItem[] = [];
 
-        // Add local variable suggestions from DECLARE statements above cursor.
-        const declaredVariables = extractDeclaredVariables(textBeforeCursor);
-        declaredVariables.forEach(variableName => {
-          suggestions.push({
-            label: variableName,
-            kind: monaco.languages.CompletionItemKind.Variable,
-            detail: 'Local variable',
-            insertText: variableName,
-            sortText: `00_${variableName}`,
-            range: completionRange,
+        // T-SQL DECLARE @variables — not a PostgreSQL construct
+        if (driver === 'mssql') {
+          const declaredVariables = extractDeclaredVariables(textBeforeCursor);
+          declaredVariables.forEach(variableName => {
+            suggestions.push({
+              label: variableName,
+              kind: monaco.languages.CompletionItemKind.Variable,
+              detail: 'Local variable',
+              insertText: variableName,
+              sortText: `00_${variableName}`,
+              range: completionRange,
+            });
           });
-        });
+        }
 
         // Add SQL keywords (lower priority)
         if (context.type === 'keyword' || context.type === 'column') {
@@ -1999,6 +2020,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         // Add schema-based completions (use current block text for context-aware suggestions)
         const schemaCompletions = createSchemaCompletions(
           monaco,
+          driver,
           schemaInfo,
           context,
           tableAliases,
@@ -2020,7 +2042,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         completionProviderRef.current.dispose();
       }
     };
-  }, [schemaInfo, createSchemaCompletions, spaceDatabases]);
+  }, [schemaInfo, createSchemaCompletions, spaceDatabases, driver]);
 
   // MongoDB completion provider (collections, methods, fields, operators, stages)
   useEffect(() => {
