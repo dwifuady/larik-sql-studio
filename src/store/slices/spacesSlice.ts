@@ -1,5 +1,5 @@
 import { StateCreator } from 'zustand';
-import type { Space, CreateSpaceInput, UpdateSpaceInput, ConnectionInfo } from '../../types';
+import type { Space, CreateSpaceInput, UpdateSpaceInput, ConnectionInfo, DriverKind } from '../../types';
 import * as api from '../../api';
 import type { AppState } from '../index';
 
@@ -30,7 +30,8 @@ export interface SpacesSlice {
         username: string,
         password: string,
         trustCertificate?: boolean,
-        encrypt?: boolean
+        encrypt?: boolean,
+        driver?: DriverKind
     ) => Promise<boolean>;
 
     getActiveSpace: () => Space | null;
@@ -266,20 +267,17 @@ export const createSpacesSlice: StateCreator<AppState, [], [], SpacesSlice> = (s
         }
     },
 
-    testConnection: async (host, port, database, username, password, trustCertificate, encrypt) => {
-        try {
-            return await api.testConnection(
-                host,
-                port,
-                database,
-                username,
-                password,
-                trustCertificate,
-                encrypt
-            );
-        } catch (error) {
-            console.error('Connection test failed:', error);
-            return false;
-        }
+    // Rejects with the server's error so the form can show why it failed
+    testConnection: async (host, port, database, username, password, trustCertificate, encrypt, driver) => {
+        return api.testConnection(
+            host,
+            port,
+            database,
+            username,
+            password,
+            trustCertificate,
+            encrypt,
+            driver
+        );
     }
 });

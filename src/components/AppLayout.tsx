@@ -22,6 +22,7 @@ import { spaceHasConnection } from '../types';
 import * as api from '../api';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getName, getVersion } from '@tauri-apps/api/app';
+import { defaultDatabaseFor } from '../types';
 
 export function AppLayout() {
   // Atomic selectors to prevent re-renders
@@ -97,6 +98,7 @@ export function AppLayout() {
 
   // Get active space for theming and info
   const activeSpace = spaces.find(s => s.id === activeSpaceId);
+  const spaceDefaultDb = defaultDatabaseFor(activeSpace, spaceDatabases);
   const spaceColor = activeSpace?.color || '#0078d4';
   const hasConnection = activeSpace ? spaceHasConnection(activeSpace) : false;
   const isConnected = spaceConnectionStatus?.is_connected ?? false;
@@ -231,7 +233,7 @@ export function AppLayout() {
   );
 
   // Check if default DB matches search
-  const defaultDbName = activeSpace?.connection_database || 'Default DB';
+  const defaultDbName = spaceDefaultDb || 'Default DB';
   const showDefaultDb = defaultDbName.toLowerCase().includes(dbSearchQuery.toLowerCase());
 
   // Handle keyboard navigation for database selector
@@ -255,7 +257,7 @@ export function AppLayout() {
         // Get the selected database from filtered list
         if (isConnected && (showDefaultDb || filteredDatabases.length > 0)) {
           if (showDefaultDb && selectedDbIndex === 0) {
-            handleCreateNewTab(activeSpace?.connection_database || null);
+            handleCreateNewTab(spaceDefaultDb);
           } else {
             const dbIndex = showDefaultDb ? selectedDbIndex - 1 : selectedDbIndex;
             const selectedDb = filteredDatabases[dbIndex];
@@ -811,7 +813,7 @@ export function AppLayout() {
                     {showDefaultDb && (
                       <button
                         type="button"
-                        onClick={() => handleCreateNewTab(activeSpace?.connection_database || null)}
+                        onClick={() => handleCreateNewTab(spaceDefaultDb)}
                         onMouseEnter={() => setSelectedDbIndex(0)}
                         className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors border-0 ${selectedDbIndex === 0
                           ? 'bg-[var(--bg-active)] text-[var(--text-primary)]'
@@ -821,7 +823,7 @@ export function AppLayout() {
                         <svg className="w-3.5 h-3.5 flex-shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
                         </svg>
-                        <span className="truncate">{activeSpace?.connection_database || 'Default DB'}</span>
+                        <span className="truncate">{spaceDefaultDb || 'Default DB'}</span>
                         <svg className="w-4 h-4 ml-auto flex-shrink-0 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>

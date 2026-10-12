@@ -7,7 +7,7 @@ pub mod export;
 pub mod storage;
 
 use commands::AppState;
-use db::{MssqlConnectionManager, QueryEngine, SchemaMetadataManager};
+use db::{ConnectionManager, DriverRegistry, QueryEngine, SchemaMetadataManager};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex as StdMutex};
 use storage::{get_default_db_path, DatabaseManager};
@@ -57,22 +57,24 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .init_default_settings()
         .map_err(|e| format!("Failed to initialize default settings: {e}"))?;
 
-    // Initialize MS-SQL connection manager (T015, T016)
-    let mssql_manager = Arc::new(MssqlConnectionManager::new());
+    // Initialize connection manager with all built-in database drivers (T015, T016)
+    let connections = Arc::new(ConnectionManager::new(
+        DriverRegistry::with_builtin_drivers(),
+    ));
 
     // Initialize query engine (T017)
-    let query_engine = Arc::new(QueryEngine::new(Arc::clone(&mssql_manager)));
+    let query_engine = Arc::new(QueryEngine::new(Arc::clone(&connections)));
 
     // Initialize schema metadata manager (T024)
     let schema_db_manager = DatabaseManager::new(db_path.clone())?;
     let schema_manager = Arc::new(SchemaMetadataManager::new(
-        Arc::clone(&mssql_manager),
+        Arc::clone(&connections),
         Arc::new(schema_db_manager),
     ));
 
     let app_state = AppState {
         db: Mutex::new(db_manager),
-        mssql_manager,
+        connections,
         query_engine,
         schema_manager,
         export_cancel_flags: RwLock::new(HashMap::new()),

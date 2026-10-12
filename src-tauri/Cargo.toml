@@ -41,6 +41,10 @@ chrono = { version = "0.4", features = ["serde"] }
 tauri-plugin-dialog = "2.6.0"
 tauri-plugin-clipboard-manager = "2"
 parking_lot = "0.12"
+
+# MongoDB driver (dns-resolver enables mongodb+srv:// connection strings)
+mongodb = { version = "3", default-features = false, features = ["rustls-tls", "dns-resolver", "compat-3-0-0"] }
+base64 = "0.22"
 [lints.clippy]
 unwrap_used = "deny"
 expect_used = "deny"

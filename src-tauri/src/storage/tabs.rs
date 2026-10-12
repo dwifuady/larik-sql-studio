@@ -416,6 +416,7 @@ mod tests {
                 connection_password: None,
                 connection_trust_cert: None,
                 connection_encrypt: None,
+                connection_driver: None,
             })
             .unwrap()
             .id
@@ -649,6 +650,7 @@ mod tests {
                 connection_password: None,
                 connection_trust_cert: None,
                 connection_encrypt: None,
+                connection_driver: None,
             })
             .unwrap();
 

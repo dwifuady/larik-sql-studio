@@ -2,6 +2,7 @@ import { StateCreator } from 'zustand';
 import type { CreateVirtualReferenceInput, VirtualReference } from '../../types';
 import * as api from '../../api';
 import type { AppState } from '../index';
+import { defaultDatabaseFor } from '../../types';
 
 /** The column a user-defined reference is being defined for. */
 export interface ReferenceEditorSource {
@@ -56,7 +57,7 @@ export const createVirtualReferencesSlice: StateCreator<AppState, [], [], Virtua
             database ??
             get().schemaInfo?.database_name ??
             get().getActiveTab()?.database ??
-            get().getActiveSpace()?.connection_database;
+            defaultDatabaseFor(get().getActiveSpace(), get().spaceDatabases);
 
         if (!spaceId || !targetDb) {
             set({ virtualReferences: [] });

@@ -1,7 +1,7 @@
 // Tauri IPC API wrapper functions
 import { invokeSafe } from './client';
 import { save, open } from '@tauri-apps/plugin-dialog';
-import type { Space, Tab, ConnectionInfo, QueryResult, QueryInfo, CreateSpaceInput, UpdateSpaceInput, SchemaInfo, SchemaColumnInfo } from '../types';
+import type { Space, Tab, ConnectionInfo, DriverKind, QueryResult, QueryInfo, CreateSpaceInput, UpdateSpaceInput, SchemaInfo, SchemaColumnInfo } from '../types';
 import type { TabFolder } from '../types';
 import type { Snippet, CreateSnippetInput, UpdateSnippetInput } from '../types';
 import type { ArchivedTab, ArchiveSearchResult, AutoArchiveSettings, AppSettings } from '../types';
@@ -23,6 +23,7 @@ export async function createSpace(input: CreateSpaceInput): Promise<Space> {
     connectionPassword: input.connection_password,
     connectionTrustCert: input.connection_trust_cert,
     connectionEncrypt: input.connection_encrypt,
+    connectionDriver: input.connection_driver,
   });
 }
 
@@ -48,6 +49,7 @@ export async function updateSpace(id: string, input: UpdateSpaceInput): Promise<
     connectionPassword: input.connection_password,
     connectionTrustCert: input.connection_trust_cert,
     connectionEncrypt: input.connection_encrypt,
+    connectionDriver: input.connection_driver,
   });
 }
 
@@ -209,7 +211,8 @@ export async function createConnection(
   password: string,
   spaceId?: string | null,
   trustCertificate?: boolean,
-  encrypt?: boolean
+  encrypt?: boolean,
+  driver?: DriverKind
 ): Promise<ConnectionInfo> {
   return invokeSafe<ConnectionInfo>('create_connection', {
     name,
@@ -221,6 +224,7 @@ export async function createConnection(
     spaceId,
     trustCertificate,
     encrypt,
+    driver,
   });
 }
 
@@ -231,7 +235,8 @@ export async function testConnection(
   username: string,
   password: string,
   trustCertificate?: boolean,
-  encrypt?: boolean
+  encrypt?: boolean,
+  driver?: DriverKind
 ): Promise<boolean> {
   return invokeSafe<boolean>('test_connection', {
     host,
@@ -241,6 +246,7 @@ export async function testConnection(
     password,
     trustCertificate,
     encrypt,
+    driver,
   });
 }
 
@@ -266,7 +272,8 @@ export async function updateConnection(
   password?: string | null,
   spaceId?: string | null,
   trustCertificate?: boolean,
-  encrypt?: boolean
+  encrypt?: boolean,
+  driver?: DriverKind
 ): Promise<ConnectionInfo> {
   return invokeSafe<ConnectionInfo>('update_connection', {
     id,
@@ -279,6 +286,7 @@ export async function updateConnection(
     spaceId,
     trustCertificate,
     encrypt,
+    driver,
   });
 }
 

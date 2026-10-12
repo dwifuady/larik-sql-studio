@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::database::{DatabaseManager, StorageResult};
+use crate::db::DriverKind;
 
 /// A Space represents a work environment with exactly one database connection
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,6 +24,9 @@ pub struct Space {
     pub connection_password: Option<String>,
     pub connection_trust_cert: bool,
     pub connection_encrypt: bool,
+    /// Database driver kind (`DriverKind` as a string, e.g. "mssql"). Kept as a raw
+    /// string so a space saved by a newer build still loads; it is parsed on connect.
+    pub connection_driver: String,
     pub last_active_tab_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -30,9 +34,13 @@ pub struct Space {
 }
 
 impl Space {
-    /// Check if this space has a connection configured
+    /// Check if this space has a connection configured.
+    /// MongoDB lists its databases once connected, so its database is optional.
     pub fn has_connection(&self) -> bool {
-        self.connection_host.is_some() && self.connection_database.is_some()
+        let filled = |v: &Option<String>| v.as_deref().is_some_and(|s| !s.trim().is_empty());
+        filled(&self.connection_host)
+            && (filled(&self.connection_database)
+                || self.connection_driver == DriverKind::Mongodb.as_str())
     }
 }
 
@@ -50,6 +58,7 @@ pub struct CreateSpaceInput {
     pub connection_password: Option<String>,
     pub connection_trust_cert: Option<bool>,
     pub connection_encrypt: Option<bool>,
+    pub connection_driver: Option<DriverKind>,
 }
 
 /// Input for updating an existing space
@@ -67,6 +76,7 @@ pub struct UpdateSpaceInput {
     pub connection_password: Option<String>,
     pub connection_trust_cert: Option<bool>,
     pub connection_encrypt: Option<bool>,
+    pub connection_driver: Option<DriverKind>,
 }
 
 impl DatabaseManager {
@@ -83,6 +93,7 @@ impl DatabaseManager {
             )
         })?;
         let sort_order = max_order + 1;
+        let driver = input.connection_driver.unwrap_or_default();
 
         self.with_connection(|conn| {
             conn.execute(
@@ -91,10 +102,10 @@ impl DatabaseManager {
                     id, name, color, icon, sort_order,
                     connection_host, connection_port, connection_database,
                     connection_username, connection_password,
-                    connection_trust_cert, connection_encrypt,
+                    connection_trust_cert, connection_encrypt, connection_driver,
                     created_at, updated_at
                 )
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, datetime('now'), datetime('now'))
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, datetime('now'), datetime('now'))
                 "#,
                 params![
                     id,
@@ -103,12 +114,13 @@ impl DatabaseManager {
                     input.icon,
                     sort_order,
                     input.connection_host,
-                    input.connection_port.unwrap_or(1433),
+                    input.connection_port.unwrap_or(i32::from(driver.default_port())),
                     input.connection_database,
                     input.connection_username,
                     input.connection_password,
                     input.connection_trust_cert.unwrap_or(true),
-                    input.connection_encrypt.unwrap_or(false)
+                    input.connection_encrypt.unwrap_or(false),
+                    driver.as_str()
                 ],
             )?;
             Ok(())
@@ -130,7 +142,8 @@ impl DatabaseManager {
                     connection_username, connection_password,
                     connection_trust_cert, connection_encrypt,
                     last_active_tab_id,
-                    created_at, updated_at, sort_order
+                    created_at, updated_at, sort_order,
+                    connection_driver
                 FROM spaces WHERE id = ?1"#,
             )?;
 
@@ -151,6 +164,7 @@ impl DatabaseManager {
                     created_at: row.get(12)?,
                     updated_at: row.get(13)?,
                     sort_order: row.get(14)?,
+                    connection_driver: row.get(15)?,
                 })
             });
 
@@ -172,7 +186,8 @@ impl DatabaseManager {
                     connection_username, connection_password,
                     connection_trust_cert, connection_encrypt,
                     last_active_tab_id,
-                    created_at, updated_at, sort_order
+                    created_at, updated_at, sort_order,
+                    connection_driver
                 FROM spaces ORDER BY sort_order"#,
             )?;
 
@@ -194,6 +209,7 @@ impl DatabaseManager {
                         created_at: row.get(12)?,
                         updated_at: row.get(13)?,
                         sort_order: row.get(14)?,
+                        connection_driver: row.get(15)?,
                     })
                 })?
                 .filter_map(|r| r.ok())
@@ -258,6 +274,10 @@ impl DatabaseManager {
             if let Some(encrypt) = input.connection_encrypt {
                 updates.push("connection_encrypt = ?");
                 params_vec.push(Box::new(encrypt as i32));
+            }
+            if let Some(driver) = input.connection_driver {
+                updates.push("connection_driver = ?");
+                params_vec.push(Box::new(driver.as_str()));
             }
 
             params_vec.push(Box::new(id.to_string()));
@@ -366,6 +386,7 @@ mod tests {
                 connection_password: Some("password".to_string()),
                 connection_trust_cert: Some(true),
                 connection_encrypt: Some(false),
+                connection_driver: None,
             })
             .unwrap();
 
@@ -376,6 +397,8 @@ mod tests {
         assert_eq!(space.connection_host, Some("localhost".to_string()));
         assert_eq!(space.connection_database, Some("testdb".to_string()));
         assert!(space.has_connection());
+        // Spaces default to the SQL Server driver
+        assert_eq!(space.connection_driver, "mssql");
 
         let _ = std::fs::remove_file(&db_path);
     }
@@ -396,6 +419,7 @@ mod tests {
                 connection_password: None,
                 connection_trust_cert: None,
                 connection_encrypt: None,
+                connection_driver: None,
             })
             .unwrap();
 
@@ -404,6 +428,14 @@ mod tests {
         assert_eq!(fetched.name, "My Space");
         assert_eq!(fetched.icon, Some("🚀".to_string()));
         assert!(!fetched.has_connection());
+
+        // A host alone is a connection only for MongoDB
+        let mut host_only = fetched.clone();
+        host_only.connection_host = Some("192.168.0.10".to_string());
+        host_only.connection_database = Some(String::new());
+        assert!(!host_only.has_connection());
+        host_only.connection_driver = "mongodb".to_string();
+        assert!(host_only.has_connection());
 
         let _ = std::fs::remove_file(&db_path);
     }
@@ -434,6 +466,7 @@ mod tests {
                 connection_password: None,
                 connection_trust_cert: None,
                 connection_encrypt: None,
+                connection_driver: None,
             })
             .unwrap();
 
@@ -449,6 +482,7 @@ mod tests {
                 connection_password: None,
                 connection_trust_cert: None,
                 connection_encrypt: None,
+                connection_driver: None,
             })
             .unwrap();
 
@@ -478,6 +512,7 @@ mod tests {
                 connection_password: None,
                 connection_trust_cert: None,
                 connection_encrypt: None,
+                connection_driver: None,
             })
             .unwrap();
 
@@ -496,6 +531,7 @@ mod tests {
                     connection_password: Some("pass".to_string()),
                     connection_trust_cert: Some(true),
                     connection_encrypt: Some(false),
+                    connection_driver: Some(DriverKind::Mssql),
                 },
             )
             .unwrap()
@@ -505,6 +541,7 @@ mod tests {
         assert_eq!(updated.color, Some("#00FF00".to_string()));
         assert_eq!(updated.connection_host, Some("localhost".to_string()));
         assert!(updated.has_connection());
+        assert_eq!(updated.connection_driver, "mssql");
 
         let _ = std::fs::remove_file(&db_path);
     }
@@ -525,6 +562,7 @@ mod tests {
                 connection_password: None,
                 connection_trust_cert: None,
                 connection_encrypt: None,
+                connection_driver: None,
             })
             .unwrap();
 
@@ -553,6 +591,7 @@ mod tests {
                 connection_password: None,
                 connection_trust_cert: None,
                 connection_encrypt: None,
+                connection_driver: None,
             })
             .unwrap();
 
@@ -568,6 +607,7 @@ mod tests {
                 connection_password: None,
                 connection_trust_cert: None,
                 connection_encrypt: None,
+                connection_driver: None,
             })
             .unwrap();
 
@@ -583,6 +623,7 @@ mod tests {
                 connection_password: None,
                 connection_trust_cert: None,
                 connection_encrypt: None,
+                connection_driver: None,
             })
             .unwrap();
 

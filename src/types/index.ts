@@ -3,6 +3,34 @@
 /** Tab type enum matching backend */
 export type TabType = 'query' | 'results' | 'schema' | 'settings';
 
+/** Database engine a connection uses. Mirrors the backend `DriverKind`. */
+export type DriverKind = 'mssql' | 'mongodb';
+
+/** Driver used when none is specified (and for spaces created before drivers existed) */
+export const DEFAULT_DRIVER: DriverKind = 'mssql';
+
+/** Port each driver uses when a connection does not specify one */
+export const DRIVER_DEFAULT_PORTS: Record<DriverKind, number> = {
+  mssql: 1433,
+  mongodb: 27017,
+};
+
+/** Human-readable driver names, in the order shown in connection forms */
+export const DRIVER_LABELS: Record<DriverKind, string> = {
+  mssql: 'SQL Server',
+  mongodb: 'MongoDB',
+};
+
+/** Normalize a driver value from storage (unknown values fall back to the default) */
+export function driverOf(driver?: string | null): DriverKind {
+  return driver && driver in DRIVER_DEFAULT_PORTS ? (driver as DriverKind) : DEFAULT_DRIVER;
+}
+
+/** Default port for a driver; unknown/missing drivers fall back to the default driver */
+export function defaultPortFor(driver?: string | null): number {
+  return DRIVER_DEFAULT_PORTS[driver as DriverKind] ?? DRIVER_DEFAULT_PORTS[DEFAULT_DRIVER];
+}
+
 /** A Space represents a work environment containing related tabs and 1:1 connection */
 export interface Space {
   id: string;
@@ -20,12 +48,33 @@ export interface Space {
   // Note: password is not returned from backend for security
   connection_trust_cert: boolean | null;
   connection_encrypt: boolean | null;
+  connection_driver: DriverKind;
   last_active_tab_id: string | null;
 }
 
 /** Check if a space has a connection configured */
 export function spaceHasConnection(space: Space): boolean {
-  return !!(space.connection_host && space.connection_database);
+  if (!space.connection_host) return false;
+  // MongoDB lists its databases once connected, so a default database is optional
+  return !!space.connection_database || driverOf(space.connection_driver) === 'mongodb';
+}
+
+/** Server databases that are never a sensible default */
+const SYSTEM_DATABASES = new Set(['admin', 'config', 'local']);
+
+/**
+ * Database used when a tab has none selected: the space's database, or for
+ * MongoDB spaces without one, the first accessible non-system database.
+ */
+export function defaultDatabaseFor(
+  space: Space | null | undefined,
+  databases: { name: string; hasAccess: boolean }[]
+): string | null {
+  if (!space) return null;
+  if (space.connection_database) return space.connection_database;
+  if (driverOf(space.connection_driver) !== 'mongodb') return null;
+  const accessible = databases.filter(d => d.hasAccess);
+  return accessible.find(d => !SYSTEM_DATABASES.has(d.name))?.name ?? accessible[0]?.name ?? null;
 }
 
 /** Input for creating a new space with optional connection */
@@ -41,6 +90,7 @@ export interface CreateSpaceInput {
   connection_password?: string | null;
   connection_trust_cert?: boolean | null;
   connection_encrypt?: boolean | null;
+  connection_driver?: DriverKind | null;
 }
 
 /** Input for updating an existing space */
@@ -57,6 +107,7 @@ export interface UpdateSpaceInput {
   connection_password?: string | null;
   connection_trust_cert?: boolean | null;
   connection_encrypt?: boolean | null;
+  connection_driver?: DriverKind | null;
 }
 
 /** A Tab represents a tab within a space (can be pinned or unpinned) */
@@ -141,6 +192,7 @@ export interface PinnedTabsGrouped {
 /** Database connection configuration info (without password) */
 export interface ConnectionInfo {
   id: string;
+  driver: DriverKind;
   name: string;
   host: string;
   port: number;
@@ -217,6 +269,8 @@ export interface QueryResult {
   is_selection: boolean; // Indicates if this was executed from selected text
   statement_index: number | null; // Index in batch execution (null for single query)
   statement_text: string | null; // The actual SQL text executed (useful for batch)
+  /** Native query the driver generated, e.g. the pipeline compiled from SQL on MongoDB */
+  generated_query?: string | null;
   displayId?: number; // Stable ID for display (e.g., Result 1, Result 2)
 }
 

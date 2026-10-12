@@ -16,8 +16,8 @@ use crate::storage::{
 
 use crate::db::{
     management::{export_database as export_db, import_database as import_db},
-    ConnectionConfig, ConnectionConfigUpdate, ConnectionInfo, MssqlConnectionManager, QueryEngine,
-    QueryInfo, QueryResult, SchemaColumnInfo, SchemaInfo, SchemaMetadataManager,
+    ConnectionConfig, ConnectionConfigUpdate, ConnectionInfo, ConnectionManager, DriverKind,
+    QueryEngine, QueryInfo, QueryResult, SchemaColumnInfo, SchemaInfo, SchemaMetadataManager,
 };
 
 use crate::export::{CsvExporter, ExportOptions, ExportProgress, JsonExporter};
@@ -28,7 +28,7 @@ mod validate;
 /// Application state managed by Tauri
 pub struct AppState {
     pub db: Mutex<DatabaseManager>,
-    pub mssql_manager: Arc<MssqlConnectionManager>,
+    pub connections: Arc<ConnectionManager>,
     pub query_engine: Arc<QueryEngine>,
     pub schema_manager: Arc<SchemaMetadataManager>,
     pub export_cancel_flags: RwLock<HashMap<String, Arc<AtomicBool>>>,
@@ -101,6 +101,39 @@ impl From<crate::export::ExportError> for ApiError {
     }
 }
 
+/// Parse an optional driver name from the frontend (`None` = not specified).
+fn parse_driver(driver: Option<String>) -> Result<Option<DriverKind>, ApiError> {
+    driver
+        .map(|d| d.parse::<DriverKind>())
+        .transpose()
+        .map_err(|e| ApiError::Validation(e.to_string()))
+}
+
+/// Build the connection config for a space's (1:1) connection.
+/// The space ID doubles as the connection ID.
+fn connection_config_for_space(
+    space: &Space,
+    password: String,
+) -> Result<ConnectionConfig, ApiError> {
+    let driver: DriverKind = space.connection_driver.parse()?;
+    let mut config = ConnectionConfig::new(
+        driver,
+        space.name.clone(),
+        space.connection_host.clone().unwrap_or_default(),
+        space
+            .connection_port
+            .and_then(|p| u16::try_from(p).ok())
+            .unwrap_or(driver.default_port()),
+        space.connection_database.clone().unwrap_or_default(),
+        space.connection_username.clone().unwrap_or_default(),
+        password,
+    );
+    config.id = space.id.clone();
+    config.trust_certificate = space.connection_trust_cert;
+    config.encrypt = space.connection_encrypt;
+    Ok(config)
+}
+
 // ============================================================================
 // Space Commands (T006) - Now with integrated connection (1:1)
 // ============================================================================
@@ -120,9 +153,11 @@ pub async fn create_space(
     connection_password: Option<String>,
     connection_trust_cert: Option<bool>,
     connection_encrypt: Option<bool>,
+    connection_driver: Option<String>,
 ) -> Result<Space, ApiError> {
     let name = validate::validate_name(&name).map_err(ApiError::Validation)?;
     let connection_port = validate::validate_port(connection_port).map_err(ApiError::Validation)?;
+    let connection_driver = parse_driver(connection_driver)?;
     let space = {
         let db = state.db.lock().await;
         db.create_space(CreateSpaceInput {
@@ -136,26 +171,15 @@ pub async fn create_space(
             connection_password: connection_password.clone(),
             connection_trust_cert,
             connection_encrypt,
+            connection_driver,
         })
         .map_err(|e| ApiError::from(e))?
     };
 
-    // If connection is configured, register it with the MssqlConnectionManager
-    if let (Some(host), Some(database)) = (&space.connection_host, &space.connection_database) {
-        let config = ConnectionConfig::new(
-            space.name.clone(),
-            host.clone(),
-            space.connection_port.unwrap_or(1433) as u16,
-            database.clone(),
-            space.connection_username.clone().unwrap_or_default(),
-            connection_password.unwrap_or_default(),
-        );
-        let mut config = config;
-        config.id = space.id.clone(); // Use space ID as connection ID
-        config.trust_certificate = space.connection_trust_cert;
-        config.encrypt = space.connection_encrypt;
-
-        let _ = state.mssql_manager.add_connection(config).await;
+    // If connection is configured, register it with the ConnectionManager
+    if space.has_connection() {
+        let config = connection_config_for_space(&space, connection_password.unwrap_or_default())?;
+        let _ = state.connections.add_connection(config).await;
     }
 
     Ok(space)
@@ -204,12 +228,14 @@ pub async fn update_space(
     connection_password: Option<String>,
     connection_trust_cert: Option<bool>,
     connection_encrypt: Option<bool>,
+    connection_driver: Option<String>,
 ) -> Result<Option<Space>, ApiError> {
     let name = match name {
         Some(n) => Some(validate::validate_name(&n).map_err(ApiError::Validation)?),
         None => None,
     };
     let connection_port = validate::validate_port(connection_port).map_err(ApiError::Validation)?;
+    let connection_driver = parse_driver(connection_driver)?;
     let space = {
         let db = state.db.lock().await;
         db.update_space(
@@ -226,6 +252,7 @@ pub async fn update_space(
                 connection_password: connection_password.clone(),
                 connection_trust_cert,
                 connection_encrypt,
+                connection_driver,
             },
         )
         .map_err(|e| ApiError::from(e))?
@@ -234,10 +261,10 @@ pub async fn update_space(
     // Update connection manager if space has connection
     if let Some(ref space) = space {
         // Disconnect existing connection if any
-        let _ = state.mssql_manager.disconnect(&id).await;
+        let _ = state.connections.disconnect(&id).await;
 
         // Re-register if connection is configured
-        if let (Some(host), Some(database)) = (&space.connection_host, &space.connection_database) {
+        if space.has_connection() {
             // Get password from DB (it's not sent back from get)
             let password = {
                 let db = state.db.lock().await;
@@ -246,20 +273,8 @@ pub async fn update_space(
                     .unwrap_or_default()
             };
 
-            let config = ConnectionConfig::new(
-                space.name.clone(),
-                host.clone(),
-                space.connection_port.unwrap_or(1433) as u16,
-                database.clone(),
-                space.connection_username.clone().unwrap_or_default(),
-                password,
-            );
-            let mut config = config;
-            config.id = space.id.clone();
-            config.trust_certificate = space.connection_trust_cert;
-            config.encrypt = space.connection_encrypt;
-
-            let _ = state.mssql_manager.add_connection(config).await;
+            let config = connection_config_for_space(space, password)?;
+            let _ = state.connections.add_connection(config).await;
         }
     }
 
@@ -270,8 +285,8 @@ pub async fn update_space(
 #[command]
 pub async fn delete_space(state: State<'_, AppState>, id: String) -> Result<bool, ApiError> {
     // Disconnect any active connection
-    let _ = state.mssql_manager.disconnect(&id).await;
-    let _ = state.mssql_manager.remove_connection(&id).await;
+    let _ = state.connections.disconnect(&id).await;
+    let _ = state.connections.remove_connection(&id).await;
 
     let db = state.db.lock().await;
     db.delete_space(&id).map_err(|e| ApiError::from(e))
@@ -572,27 +587,11 @@ pub async fn connect_to_space(
     };
 
     // Register connection if not exists
-    if state
-        .mssql_manager
-        .get_connection(&space_id)
-        .await
-        .is_none()
-    {
-        let config = ConnectionConfig::new(
-            space.name.clone(),
-            space.connection_host.clone().unwrap_or_default(),
-            space.connection_port.unwrap_or(1433) as u16,
-            space.connection_database.clone().unwrap_or_default(),
-            space.connection_username.clone().unwrap_or_default(),
-            password,
-        );
-        let mut config = config;
-        config.id = space_id.clone();
-        config.trust_certificate = space.connection_trust_cert;
-        config.encrypt = space.connection_encrypt;
+    if state.connections.get_connection(&space_id).await.is_none() {
+        let config = connection_config_for_space(&space, password)?;
 
         state
-            .mssql_manager
+            .connections
             .add_connection(config)
             .await
             .map_err(|e| ApiError::from(e))?;
@@ -600,7 +599,7 @@ pub async fn connect_to_space(
 
     // Connect
     state
-        .mssql_manager
+        .connections
         .connect(&space_id)
         .await
         .map_err(|e| ApiError::from(e))?;
@@ -614,7 +613,7 @@ pub async fn disconnect_from_space(
     space_id: String,
 ) -> Result<bool, ApiError> {
     state
-        .mssql_manager
+        .connections
         .disconnect(&space_id)
         .await
         .map_err(|e| ApiError::from(e))?;
@@ -627,7 +626,7 @@ pub async fn get_space_connection_status(
     state: State<'_, AppState>,
     space_id: String,
 ) -> Result<Option<ConnectionInfo>, ApiError> {
-    Ok(state.mssql_manager.get_connection(&space_id).await)
+    Ok(state.connections.get_connection(&space_id).await)
 }
 
 /// Get list of databases from a space's server connection
@@ -637,13 +636,13 @@ pub async fn get_space_databases(
     space_id: String,
 ) -> Result<Vec<String>, ApiError> {
     // Ensure connected
-    if !state.mssql_manager.is_healthy(&space_id).await {
+    if !state.connections.is_healthy(&space_id).await {
         // Try to connect first
         let _connected = connect_to_space(state.clone(), space_id.clone()).await?;
     }
 
     state
-        .mssql_manager
+        .connections
         .get_databases(&space_id)
         .await
         .map_err(|e| ApiError::from(e))
@@ -663,19 +662,22 @@ pub async fn get_space_databases_with_access(
     space_id: String,
 ) -> Result<Vec<DatabaseInfo>, ApiError> {
     // Ensure connected
-    if !state.mssql_manager.is_healthy(&space_id).await {
+    if !state.connections.is_healthy(&space_id).await {
         let _connected = connect_to_space(state.clone(), space_id.clone()).await?;
     }
 
     let results = state
-        .mssql_manager
+        .connections
         .get_databases_with_access(&space_id)
         .await
         .map_err(|e| ApiError::from(e))?;
 
     Ok(results
         .into_iter()
-        .map(|(name, has_access)| DatabaseInfo { name, has_access })
+        .map(|db| DatabaseInfo {
+            name: db.name,
+            has_access: db.has_access,
+        })
         .collect())
 }
 
@@ -692,14 +694,16 @@ pub async fn create_connection(
     space_id: Option<String>,
     trust_certificate: Option<bool>,
     encrypt: Option<bool>,
+    driver: Option<String>,
 ) -> Result<ConnectionInfo, ApiError> {
-    let mut config = ConnectionConfig::new(name, host, port, database, username, password);
+    let driver = parse_driver(driver)?.unwrap_or_default();
+    let mut config = ConnectionConfig::new(driver, name, host, port, database, username, password);
     config.space_id = space_id;
     config.trust_certificate = trust_certificate.unwrap_or(true);
     config.encrypt = encrypt.unwrap_or(false);
 
     let _id = state
-        .mssql_manager
+        .connections
         .add_connection(config.clone())
         .await
         .map_err(|e| ApiError::from(e))?;
@@ -718,14 +722,23 @@ pub async fn test_connection(
     password: String,
     trust_certificate: Option<bool>,
     encrypt: Option<bool>,
+    driver: Option<String>,
 ) -> Result<bool, ApiError> {
-    let mut config =
-        ConnectionConfig::new("test".to_string(), host, port, database, username, password);
+    let driver = parse_driver(driver)?.unwrap_or_default();
+    let mut config = ConnectionConfig::new(
+        driver,
+        "test".to_string(),
+        host,
+        port,
+        database,
+        username,
+        password,
+    );
     config.trust_certificate = trust_certificate.unwrap_or(true);
     config.encrypt = encrypt.unwrap_or(false);
 
     state
-        .mssql_manager
+        .connections
         .test_connection(&config)
         .await
         .map_err(|e| ApiError::from(e))
@@ -734,7 +747,7 @@ pub async fn test_connection(
 /// Get all connections
 #[command]
 pub async fn get_connections(state: State<'_, AppState>) -> Result<Vec<ConnectionInfo>, ApiError> {
-    Ok(state.mssql_manager.list_connections().await)
+    Ok(state.connections.list_connections().await)
 }
 
 /// Get connections for a specific space
@@ -743,10 +756,7 @@ pub async fn get_connections_by_space(
     state: State<'_, AppState>,
     space_id: String,
 ) -> Result<Vec<ConnectionInfo>, ApiError> {
-    Ok(state
-        .mssql_manager
-        .get_connections_by_space(&space_id)
-        .await)
+    Ok(state.connections.get_connections_by_space(&space_id).await)
 }
 
 /// Get a single connection by ID
@@ -755,7 +765,7 @@ pub async fn get_connection(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<Option<ConnectionInfo>, ApiError> {
-    Ok(state.mssql_manager.get_connection(&id).await)
+    Ok(state.connections.get_connection(&id).await)
 }
 
 /// Update a connection
@@ -772,8 +782,10 @@ pub async fn update_connection(
     space_id: Option<Option<String>>,
     trust_certificate: Option<bool>,
     encrypt: Option<bool>,
+    driver: Option<String>,
 ) -> Result<ConnectionInfo, ApiError> {
     let updates = ConnectionConfigUpdate {
+        driver: parse_driver(driver)?,
         name,
         host,
         port,
@@ -786,7 +798,7 @@ pub async fn update_connection(
     };
 
     state
-        .mssql_manager
+        .connections
         .update_connection(&id, updates)
         .await
         .map_err(|e| ApiError::from(e))
@@ -796,7 +808,7 @@ pub async fn update_connection(
 #[command]
 pub async fn delete_connection(state: State<'_, AppState>, id: String) -> Result<bool, ApiError> {
     state
-        .mssql_manager
+        .connections
         .remove_connection(&id)
         .await
         .map_err(|e| ApiError::from(e))?;
@@ -810,7 +822,7 @@ pub async fn connect_database(
     connection_id: String,
 ) -> Result<bool, ApiError> {
     state
-        .mssql_manager
+        .connections
         .connect(&connection_id)
         .await
         .map_err(|e| ApiError::from(e))?;
@@ -824,7 +836,7 @@ pub async fn disconnect_database(
     connection_id: String,
 ) -> Result<bool, ApiError> {
     state
-        .mssql_manager
+        .connections
         .disconnect(&connection_id)
         .await
         .map_err(|e| ApiError::from(e))?;
@@ -838,7 +850,7 @@ pub async fn get_connection_databases(
     connection_id: String,
 ) -> Result<Vec<String>, ApiError> {
     state
-        .mssql_manager
+        .connections
         .get_databases(&connection_id)
         .await
         .map_err(|e| ApiError::from(e))
@@ -850,7 +862,7 @@ pub async fn check_connection_health(
     state: State<'_, AppState>,
     connection_id: String,
 ) -> Result<bool, ApiError> {
-    Ok(state.mssql_manager.is_healthy(&connection_id).await)
+    Ok(state.connections.is_healthy(&connection_id).await)
 }
 
 // ============================================================================

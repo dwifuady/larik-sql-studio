@@ -2,12 +2,24 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '../store';
-import type { CreateSpaceInput } from '../types';
+import type { CreateSpaceInput, DriverKind } from '../types';
+import { DEFAULT_DRIVER, defaultPortFor } from '../types';
+import {
+  DriverPicker,
+  MissingDatabaseHint,
+  connectionErrorMessage,
+  connectionIsComplete,
+  databasePlaceholder,
+  hostPlaceholder,
+  withDriver,
+  withHost,
+} from './DriverPicker';
 
 import { SPACE_COLORS } from '@/utils/spaceColors';
 
 // Connection form state interface
 interface ConnectionFormState {
+  driver: DriverKind;
   host: string;
   port: string;
   database: string;
@@ -18,8 +30,9 @@ interface ConnectionFormState {
 }
 
 const emptyConnection: ConnectionFormState = {
+  driver: DEFAULT_DRIVER,
   host: '',
-  port: '1433',
+  port: String(defaultPortFor()),
   database: '',
   username: '',
   password: '',
@@ -62,14 +75,15 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
       name: newName.trim(),
       color: selectedColor,
       // Include connection if provided
-      ...(connection.host && connection.database ? {
+      ...(connectionIsComplete(connection) ? {
         connection_host: connection.host,
-        connection_port: parseInt(connection.port) || 1433,
+        connection_port: parseInt(connection.port) || defaultPortFor(connection.driver),
         connection_database: connection.database,
         connection_username: connection.username || undefined,
         connection_password: connection.password || undefined,
         connection_trust_cert: connection.trustCert,
         connection_encrypt: connection.encrypt,
+        connection_driver: connection.driver,
       } : {}),
     };
 
@@ -86,7 +100,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
   };
 
   const handleTestConnection = async () => {
-    if (!connection.host || !connection.database) return;
+    if (!connectionIsComplete(connection)) return;
 
     setIsTesting(true);
     setTestResult(null);
@@ -94,22 +108,18 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
     try {
       const success = await testConnection(
         connection.host,
-        parseInt(connection.port) || 1433,
+        parseInt(connection.port) || defaultPortFor(connection.driver),
         connection.database,
         connection.username,
         connection.password,
         connection.trustCert,
-        connection.encrypt
+        connection.encrypt,
+        connection.driver
       );
 
       setTestResult(success ? 'success' : 'Failed to connect');
-    } catch (e: any) {
-      const errorMsg = e.message || String(e);
-      if (errorMsg.includes("Password expired")) {
-        setTestResult("Password expired. Please change it using another tool.");
-      } else {
-        setTestResult('Failed to connect: ' + errorMsg);
-      }
+    } catch (e) {
+      setTestResult(connectionErrorMessage(e));
     }
     setIsTesting(false);
   };
@@ -173,13 +183,18 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
             Database Connection <span className="text-xs text-[var(--text-secondary)] font-normal">(optional)</span>
           </h4>
 
+          <DriverPicker
+            value={connection.driver}
+            onChange={(driver) => setConnection(c => withDriver(c, driver))}
+          />
+
           <div className="grid grid-cols-3 gap-2 mb-2">
             <div className="col-span-2">
               <input
                 type="text"
                 value={connection.host}
-                onChange={(e) => setConnection(c => ({ ...c, host: e.target.value }))}
-                placeholder="Host / Server"
+                onChange={(e) => setConnection(c => withHost(c, e.target.value))}
+                placeholder={hostPlaceholder(connection.driver)}
                 className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
               />
             </div>
@@ -198,7 +213,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
             type="text"
             value={connection.database}
             onChange={(e) => setConnection(c => ({ ...c, database: e.target.value }))}
-            placeholder="Database"
+            placeholder={databasePlaceholder(connection.driver)}
             className="w-full px-2 py-1.5 bg-white/5 border border-white/10 rounded text-sm mb-2 focus:border-[var(--accent-color)] outline-none"
           />
 
@@ -241,7 +256,8 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
           </div>
 
           {/* Test connection button */}
-          {connection.host && connection.database && (
+          <MissingDatabaseHint connection={connection} />
+          {connectionIsComplete(connection) && (
             <div className="flex items-center gap-2">
               <button
                 onClick={handleTestConnection}

@@ -2,6 +2,7 @@ import { StateCreator } from 'zustand';
 import type { SchemaInfo } from '../../types';
 import * as api from '../../api';
 import type { AppState } from '../index';
+import { defaultDatabaseFor } from '../../types';
 
 export interface SchemaSlice {
     schemaInfo: SchemaInfo | null;
@@ -67,7 +68,7 @@ export const createSchemaSlice: StateCreator<AppState, [], [], SchemaSlice> = (s
         const activeTab = get().getActiveTab();
         const activeSpace = get().getActiveSpace();
 
-        const targetDb = database || activeTab?.database || activeSpace?.connection_database;
+        const targetDb = database || activeTab?.database || defaultDatabaseFor(activeSpace, get().spaceDatabases);
 
         if (!targetDb) {
             // No database context available to load schema
@@ -103,7 +104,7 @@ export const createSchemaSlice: StateCreator<AppState, [], [], SchemaSlice> = (s
 
         // Use current schema's database if available, otherwise fall back to context
         const currentSchemaDb = get().schemaInfo?.database_name;
-        const targetDb = currentSchemaDb || activeTab?.database || activeSpace?.connection_database;
+        const targetDb = currentSchemaDb || activeTab?.database || defaultDatabaseFor(activeSpace, get().spaceDatabases);
 
         if (!spaceId || !targetDb) return;
 

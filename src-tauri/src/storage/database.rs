@@ -306,6 +306,21 @@ impl DatabaseManager {
             conn.execute("ALTER TABLE spaces ADD COLUMN last_active_tab_id TEXT", [])?;
         }
 
+        // Migration: Add connection_driver column to spaces (multi-database support).
+        // Every space created before this existed is a SQL Server space.
+        let has_connection_driver: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('spaces') WHERE name = 'connection_driver'",
+            [],
+            |row| row.get(0),
+        )?;
+
+        if !has_connection_driver {
+            conn.execute(
+                "ALTER TABLE spaces ADD COLUMN connection_driver TEXT NOT NULL DEFAULT 'mssql'",
+                [],
+            )?;
+        }
+
         // Migration: Create sticky_notes table (v2 — gutter icon approach)
         conn.execute_batch(
             r#"
@@ -458,13 +473,22 @@ impl DatabaseManager {
     }
 }
 
+/// File name of the app database. Debug builds (`npm run tauri dev`) use a
+/// separate file so development never reads or migrates the data of an
+/// installed release build.
+pub const DB_FILE_NAME: &str = if cfg!(debug_assertions) {
+    "larik-dev.db"
+} else {
+    "larik.db"
+};
+
 /// Get the default database path in the app data directory
 pub fn get_default_db_path() -> StorageResult<PathBuf> {
     let proj_dirs = directories::ProjectDirs::from("com", "larik", "larik-sql-studio")
         .ok_or(StorageError::AppDataDir)?;
 
     let data_dir = proj_dirs.data_dir();
-    Ok(data_dir.join("larik.db"))
+    Ok(data_dir.join(DB_FILE_NAME))
 }
 
 #[cfg(test)]
@@ -472,6 +496,18 @@ pub fn get_default_db_path() -> StorageResult<PathBuf> {
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn default_db_path_is_separate_for_debug_builds() {
+        let path = get_default_db_path().unwrap();
+        assert_eq!(path.file_name().unwrap(), DB_FILE_NAME);
+        let expected = if cfg!(debug_assertions) {
+            "larik-dev.db"
+        } else {
+            "larik.db"
+        };
+        assert_eq!(DB_FILE_NAME, expected);
+    }
 
     #[test]
     fn test_database_creation() {

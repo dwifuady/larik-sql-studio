@@ -3,6 +3,7 @@ import type { QueryResult, CellValue } from '../../types';
 import * as api from '../../api';
 import type { AppState } from '../index';
 import type { ReferenceRequest } from './referencePreviewSlice';
+import { defaultDatabaseFor } from '../../types';
 
 /** Which tab the cell preview panel is showing. */
 export type CellPreviewTab = 'value' | 'reference';
@@ -172,7 +173,7 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
                 const activeTab = get().tabs.find(t => t.id === tabId);
                 const activeSpace = get().spaces.find(s => s.id === spaceId);
 
-                const database = activeTab?.database || activeSpace?.connection_database;
+                const database = activeTab?.database || defaultDatabaseFor(activeSpace, get().spaceDatabases);
 
                 const maxRows = maxRowsOverride ?? get().maxResultRows;
 
@@ -343,7 +344,7 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
             try {
                 const activeTab = get().tabs.find(t => t.id === tabId);
                 const activeSpace = get().spaces.find(s => s.id === spaceId);
-                const database = activeTab?.database || activeSpace?.connection_database;
+                const database = activeTab?.database || defaultDatabaseFor(activeSpace, get().spaceDatabases);
 
                 const maxRows = maxRowsOverride ?? get().maxResultRows;
 
@@ -447,7 +448,7 @@ export const createQueriesSlice: StateCreator<AppState, [], [], QueriesSlice> = 
         try {
             const activeTab = get().tabs.find(t => t.id === tabId);
             const activeSpace = get().spaces.find(s => s.id === spaceId);
-            const database = activeTab?.database || activeSpace?.connection_database;
+            const database = activeTab?.database || defaultDatabaseFor(activeSpace, get().spaceDatabases);
 
             await api.executeQuery(spaceId, query, database);
             return { success: true };

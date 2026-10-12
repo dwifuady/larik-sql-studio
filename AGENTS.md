@@ -23,6 +23,7 @@ This document provides an overview of the "Larik SQL Studio" project, serving as
         *   `rusqlite`: For SQLite database operations.
         *   `tiberius`: For connecting to MS-SQL servers.
         *   `bb8` & `bb8-tiberius`: For MS-SQL connection pooling.
+        *   `mongodb`: For connecting to MongoDB. Queries use mongo-shell syntax, parsed in `db/mongodb/shell.rs` (no JavaScript engine). A read-only SQL `SELECT` subset is also accepted and compiled to an aggregation pipeline in `db/mongodb/sql.rs`; results carry the generated pipeline (`QueryResult.generated_query`).
     *   **Serialization:** `serde` (for efficient data serialization/deserialization).
     *   **Utilities:** `uuid`, `thiserror`, `directories`, `tokio` (async runtime), `chrono` (date/time), `async-trait`.
 
@@ -89,7 +90,7 @@ PRODUCT.md and DESIGN.md at the project root define the design system. Read them
         *   `utils/`: Utility functions.
     *   **Backend (`src-tauri/src/`):**
         *   `commands.rs`: Tauri command definitions (callable from frontend).
-        *   `db/`: Database connection and management logic.
+        *   `db/`: Database connection and management logic. Each engine is a `DatabaseDriver` (`db/driver.rs`): `db/mssql/` (SQL Server) and `db/mongodb/` (MongoDB). Live MongoDB tests: `LARIK_TEST_MONGODB_URL=mongodb://localhost:27017 cargo test -- --ignored mongodb`.
         *   `export/`: Data export functionality.
         *   `storage/`: Local storage management (SQLite interactions).
         *   `capabilities/`: Tauri capabilities configuration.

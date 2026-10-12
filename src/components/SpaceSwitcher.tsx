@@ -2,8 +2,18 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '../store';
-import type { UpdateSpaceInput } from '../types';
-import { spaceHasConnection } from '../types';
+import type { UpdateSpaceInput, DriverKind } from '../types';
+import { DEFAULT_DRIVER, defaultPortFor, driverOf, spaceHasConnection } from '../types';
+import {
+  DriverPicker,
+  MissingDatabaseHint,
+  connectionErrorMessage,
+  connectionIsComplete,
+  databasePlaceholder,
+  hostPlaceholder,
+  withDriver,
+  withHost,
+} from './DriverPicker';
 import { save, open, ask } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -16,6 +26,7 @@ function getSpaceColor(index: number, customColor?: string | null): string {
 
 // Connection form state interface
 interface ConnectionFormState {
+  driver: DriverKind;
   host: string;
   port: string;
   database: string;
@@ -26,8 +37,9 @@ interface ConnectionFormState {
 }
 
 const emptyConnection: ConnectionFormState = {
+  driver: DEFAULT_DRIVER,
   host: '',
-  port: '1433',
+  port: String(defaultPortFor()),
   database: '',
   username: '',
   password: '',
@@ -54,7 +66,7 @@ export function SpaceSwitcher() {
   const [selectedColor, setSelectedColor] = useState(SPACE_COLORS[0]);
   const [connection, setConnection] = useState<ConnectionFormState>(emptyConnection);
   const [isTesting, setIsTesting] = useState(false);
-  const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
+  const [testResult, setTestResult] = useState<'success' | string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -88,14 +100,15 @@ export function SpaceSwitcher() {
       name: editName.trim(),
       color: selectedColor,
       // Include connection if provided
-      ...(connection.host && connection.database ? {
+      ...(connectionIsComplete(connection) ? {
         connection_host: connection.host,
-        connection_port: parseInt(connection.port) || 1433,
+        connection_port: parseInt(connection.port) || defaultPortFor(connection.driver),
         connection_database: connection.database,
         connection_username: connection.username || undefined,
         connection_password: connection.password || undefined,
         connection_trust_cert: connection.trustCert,
         connection_encrypt: connection.encrypt,
+        connection_driver: connection.driver,
       } : {}),
     };
 
@@ -107,22 +120,26 @@ export function SpaceSwitcher() {
   };
 
   const handleTestConnection = async () => {
-    if (!connection.host || !connection.database) return;
+    if (!connectionIsComplete(connection)) return;
 
     setIsTesting(true);
     setTestResult(null);
 
-    const success = await testConnection(
-      connection.host,
-      parseInt(connection.port) || 1433,
-      connection.database,
-      connection.username,
-      connection.password,
-      connection.trustCert,
-      connection.encrypt
-    );
-
-    setTestResult(success ? 'success' : 'error');
+    try {
+      const success = await testConnection(
+        connection.host,
+        parseInt(connection.port) || defaultPortFor(connection.driver),
+        connection.database,
+        connection.username,
+        connection.password,
+        connection.trustCert,
+        connection.encrypt,
+        connection.driver
+      );
+      setTestResult(success ? 'success' : 'Failed to connect');
+    } catch (e) {
+      setTestResult(connectionErrorMessage(e));
+    }
     setIsTesting(false);
   };
 
@@ -139,8 +156,9 @@ export function SpaceSwitcher() {
     setSelectedColor(getSpaceColor(index, space.color));
     // Load existing connection data
     setConnection({
+      driver: driverOf(space.connection_driver),
       host: space.connection_host || '',
-      port: String(space.connection_port || 1433),
+      port: String(space.connection_port || defaultPortFor(space.connection_driver)),
       database: space.connection_database || '',
       username: space.connection_username || '',
       password: '', // Password is not returned from backend
@@ -410,13 +428,18 @@ export function SpaceSwitcher() {
                   Database Connection
                 </h4>
 
+                <DriverPicker
+                  value={connection.driver}
+                  onChange={(driver) => setConnection(c => withDriver(c, driver))}
+                />
+
                 <div className="grid grid-cols-3 gap-1.5 mb-1.5">
                   <div className="col-span-2">
                     <input
                       type="text"
                       value={connection.host}
-                      onChange={(e) => setConnection(c => ({ ...c, host: e.target.value }))}
-                      placeholder="Host / Server"
+                      onChange={(e) => setConnection(c => withHost(c, e.target.value))}
+                      placeholder={hostPlaceholder(connection.driver)}
                       className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-sm focus:border-[var(--accent-color)] outline-none"
                     />
                   </div>
@@ -435,7 +458,7 @@ export function SpaceSwitcher() {
                   type="text"
                   value={connection.database}
                   onChange={(e) => setConnection(c => ({ ...c, database: e.target.value }))}
-                  placeholder="Database"
+                  placeholder={databasePlaceholder(connection.driver)}
                   className="w-full px-2 py-1 bg-white/5 border border-white/10 rounded text-sm mb-1.5 focus:border-[var(--accent-color)] outline-none"
                 />
 
@@ -478,7 +501,8 @@ export function SpaceSwitcher() {
                 </div>
 
                 {/* Test connection button */}
-                {connection.host && connection.database && (
+                <MissingDatabaseHint connection={connection} />
+                {connectionIsComplete(connection) && (
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={handleTestConnection}
@@ -488,7 +512,7 @@ export function SpaceSwitcher() {
                       {isTesting ? 'Testing...' : 'Test Connection'}
                     </button>
                     {testResult === 'success' && <span className="text-xs text-green-400">✓ Connected!</span>}
-                    {testResult === 'error' && <span className="text-xs text-red-400">✗ Failed</span>}
+                    {testResult && testResult !== 'success' && <span className="text-xs text-red-400 break-words">✗ {testResult}</span>}
                   </div>
                 )}
               </div>
