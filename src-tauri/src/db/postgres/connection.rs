@@ -9,7 +9,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
-use tokio_postgres::NoTls;
+use tokio_postgres::config::SslMode;
+use tokio_postgres::{CancelToken, NoTls};
 use tokio_postgres_rustls::MakeRustlsConnect;
 
 use crate::db::config::ConnectionConfig;
@@ -38,16 +39,27 @@ impl TlsMode {
             Self::Verify
         }
     }
+
+    /// The libpq `sslmode` this posture maps to. Encryption is *required*
+    /// when enabled — `Prefer` would silently fall back to plaintext when the
+    /// server (or an attacker answering the SSLRequest) declines TLS.
+    fn ssl_mode(self) -> SslMode {
+        match self {
+            Self::Disable => SslMode::Disable,
+            Self::Verify | Self::TrustAny => SslMode::Require,
+        }
+    }
 }
 
-/// Build a rustls client config for the mode. `None` means TLS disabled.
-fn rustls_config(mode: TlsMode) -> Option<rustls::ClientConfig> {
+/// Build a rustls client config for the mode. `Ok(None)` means TLS disabled;
+/// a TLS setup failure is an error, never a silent plaintext fallback.
+fn rustls_config(mode: TlsMode) -> Result<Option<rustls::ClientConfig>, ConnectionError> {
     let provider = rustls::crypto::ring::default_provider();
     let builder = rustls::ClientConfig::builder_with_provider(provider.into())
         .with_safe_default_protocol_versions()
-        .ok()?;
-    Some(match mode {
-        TlsMode::Disable => return None,
+        .map_err(|e| ConnectionError::ConfigError(format!("TLS setup failed: {e}")))?;
+    Ok(Some(match mode {
+        TlsMode::Disable => return Ok(None),
         TlsMode::Verify => {
             let mut roots = rustls::RootCertStore::empty();
             let certs = rustls_native_certs::load_native_certs();
@@ -60,7 +72,7 @@ fn rustls_config(mode: TlsMode) -> Option<rustls::ClientConfig> {
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(TrustAnyVerifier))
             .with_no_client_auth(),
-    })
+    }))
 }
 
 /// Verifier that accepts every server certificate (the "Trust Certificate"
@@ -127,7 +139,9 @@ pub fn pg_config(
         .port(config.port)
         .dbname(database)
         .user(config.username.as_str())
-        .password(config.password.expose_secret());
+        .password(config.password.expose_secret())
+        .ssl_mode(TlsMode::from_config(config).ssl_mode())
+        .application_name("Larik SQL Studio");
 
     Ok(pg)
 }
@@ -149,8 +163,9 @@ pub async fn connect_with(
     pg: &tokio_postgres::Config,
     mode: TlsMode,
 ) -> Result<tokio_postgres::Client, ConnectionError> {
+    let tls = rustls_config(mode)?;
     let attempt = async {
-        match rustls_config(mode) {
+        match tls {
             None => {
                 let (client, connection) = pg.connect(NoTls).await?;
                 tokio::spawn(connection);
@@ -166,8 +181,73 @@ pub async fn connect_with(
     let client = tokio::time::timeout(CONNECT_TIMEOUT, attempt)
         .await
         .map_err(|_| ConnectionError::Timeout)?
-        .map_err(connect_error)?;
+        .map_err(|err| match connect_error(err) {
+            // With Encrypt on, a server without SSL is refused rather than
+            // silently downgraded — say so instead of a bare handshake error.
+            ConnectionError::ConnectionFailed(msg)
+                if mode != TlsMode::Disable && msg.contains("TLS") =>
+            {
+                ConnectionError::ConnectionFailed(format!(
+                    "{msg} (Encrypt is on: the server must accept SSL connections)"
+                ))
+            }
+            other => other,
+        })?;
     Ok(client)
+}
+
+/// Ask the server to cancel whatever `token`'s session is running. Best
+/// effort: errors are ignored (the statement may already have finished).
+pub async fn cancel_query(token: CancelToken, mode: TlsMode) {
+    let request = async {
+        match rustls_config(mode) {
+            Ok(None) => token.cancel_query(NoTls).await.is_ok(),
+            Ok(Some(cfg)) => token
+                .cancel_query(MakeRustlsConnect::new(cfg))
+                .await
+                .is_ok(),
+            Err(_) => false,
+        }
+    };
+    let _ = tokio::time::timeout(CONNECT_TIMEOUT, request).await;
+}
+
+/// Sends a server-side cancel when dropped while armed.
+///
+/// tokio-postgres drives each connection on a spawned task that keeps reading
+/// until every in-flight request completes, so dropping the `Client` alone
+/// does NOT stop a running statement — it keeps executing (and streaming
+/// rows nobody reads) on the server. The `QueryEngine` cancels by dropping
+/// the `execute` future; this guard turns that drop into a CancelRequest.
+pub struct CancelOnDrop {
+    token: Option<CancelToken>,
+    mode: TlsMode,
+}
+
+impl CancelOnDrop {
+    pub fn new(client: &tokio_postgres::Client, mode: TlsMode) -> Self {
+        Self {
+            token: Some(client.cancel_token()),
+            mode,
+        }
+    }
+
+    /// The statement finished on its own; nothing to cancel.
+    pub fn disarm(mut self) {
+        self.token = None;
+    }
+}
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        let Some(token) = self.token.take() else {
+            return;
+        };
+        // Drop cannot await; hand the request to the runtime when one exists.
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(cancel_query(token, self.mode));
+        }
+    }
 }
 
 /// Map a failure while establishing a connection.
@@ -270,12 +350,27 @@ mod tests {
         c
     }
 
-
     #[test]
     fn tls_mode_matches_encrypt_flags() {
         assert_eq!(TlsMode::from_config(&config(false, false)), TlsMode::Disable);
         assert_eq!(TlsMode::from_config(&config(true, false)), TlsMode::Verify);
         assert_eq!(TlsMode::from_config(&config(true, true)), TlsMode::TrustAny);
+    }
+
+    #[test]
+    fn encryption_is_required_not_preferred() {
+        assert_eq!(
+            pg_config(&config(true, false), None).unwrap().get_ssl_mode(),
+            SslMode::Require
+        );
+        assert_eq!(
+            pg_config(&config(true, true), None).unwrap().get_ssl_mode(),
+            SslMode::Require
+        );
+        assert_eq!(
+            pg_config(&config(false, false), None).unwrap().get_ssl_mode(),
+            SslMode::Disable
+        );
     }
 
     #[test]

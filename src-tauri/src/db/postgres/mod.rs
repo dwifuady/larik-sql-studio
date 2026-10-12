@@ -17,7 +17,9 @@ use crate::db::error::ConnectionError;
 use crate::db::query::{CellValue, ColumnInfo};
 use crate::db::schema::{ColumnInfo as SchemaColumnInfo, SchemaInfo};
 use batch::{classify_statement, parse_sql_statements, StatementKind};
-use connection::{connect_dedicated, is_healthy, statement_error, PgClients};
+use connection::{
+    connect_dedicated, is_healthy, statement_error, CancelOnDrop, PgClients, TlsMode,
+};
 
 /// PostgreSQL implementation of `DatabaseDriver`
 #[derive(Default)]
@@ -85,14 +87,19 @@ impl DatabaseDriver for PostgresDriver {
             .collect())
     }
 
+    /// Statements sharing session state (transactions, `SET`, temp tables)
+    /// are kept together as one unit; see `batch::split_statements`.
     fn split_statements(&self, text: &str) -> Vec<String> {
-        parse_sql_statements(text)
+        batch::split_statements(text)
     }
 
-    /// Note on cancellation: every statement runs on a dedicated connection.
-    /// The QueryEngine cancels by dropping this future, which drops the client
-    /// and closes the TCP stream — the server cancels the statement when the
-    /// socket closes.
+    /// Runs one unit on a dedicated connection. A unit holding several
+    /// statements (a session script) runs them in order on that connection.
+    ///
+    /// Cancellation: the QueryEngine cancels by dropping this future. Dropping
+    /// the client alone would leave the statement running server-side
+    /// (tokio-postgres keeps the connection task alive until in-flight
+    /// requests finish), so a `CancelOnDrop` guard sends a CancelRequest.
     async fn execute(
         &self,
         config: &ConnectionConfig,
@@ -100,11 +107,26 @@ impl DatabaseDriver for PostgresDriver {
         options: ExecuteOptions<'_>,
     ) -> Result<ExecutionOutput, ConnectionError> {
         let conn = connect_dedicated(config, options.database).await?;
+        let guard = CancelOnDrop::new(&conn, TlsMode::from_config(config));
 
-        match classify_statement(statement) {
-            StatementKind::SimpleProtocol => execute_simple(&conn, statement).await,
-            StatementKind::ExtendedProtocol => execute_extended(&conn, statement, options).await,
+        let mut statements = parse_sql_statements(statement);
+        if statements.is_empty() {
+            statements.push(statement.to_string());
         }
+        let result = run_script(&conn, &statements, options.row_limit).await;
+
+        // A truncated result stopped reading early: cancel the remainder
+        // instead of letting the server finish and stream it to nobody.
+        let truncated = matches!(
+            &result,
+            Ok(ExecutionOutput::ResultSets { sets, .. }) if sets.iter().any(|s| s.truncated)
+        );
+        if truncated {
+            drop(guard);
+        } else {
+            guard.disarm();
+        }
+        result
     }
 
     async fn fetch_schema(
@@ -127,73 +149,118 @@ impl DatabaseDriver for PostgresDriver {
     }
 }
 
-/// Run a statement through the simple query protocol (utility commands that
-/// cannot run inside the extended protocol's implicit transaction).
-/// Values arrive as text; a rowless statement reports affected rows.
-async fn execute_simple(
+/// Run statements in order on one connection, collecting every result set.
+/// Rowless statements contribute their affected-row counts.
+async fn run_script(
     conn: &tokio_postgres::Client,
-    statement: &str,
+    statements: &[String],
+    row_limit: usize,
 ) -> Result<ExecutionOutput, ConnectionError> {
-    let messages = conn
-        .simple_query(statement)
-        .await
-        .map_err(statement_error)?;
-
-    let mut columns: Vec<ColumnInfo> = Vec::new();
-    let mut rows: Vec<Vec<CellValue>> = Vec::new();
-    let mut affected: usize = 0;
-    for message in messages {
-        match message {
-            tokio_postgres::SimpleQueryMessage::RowDescription(cols) => {
-                columns = cols
-                    .iter()
-                    .map(|c| ColumnInfo {
-                        name: c.name().to_string(),
-                        data_type: "text".to_string(),
-                        nullable: true,
-                    })
-                    .collect();
+    let mut sets: Vec<ResultSet> = Vec::new();
+    let mut affected = 0usize;
+    for (index, statement) in statements.iter().enumerate() {
+        let outcome = match classify_statement(statement) {
+            StatementKind::SimpleProtocol => execute_simple(conn, statement, row_limit).await,
+            StatementKind::ExtendedProtocol => execute_extended(conn, statement, row_limit).await,
+        };
+        let (statement_sets, statement_affected) = match outcome {
+            Ok(out) => out,
+            // Say which statement of a script failed.
+            Err(ConnectionError::QueryError(msg)) if statements.len() > 1 => {
+                return Err(ConnectionError::QueryError(format!(
+                    "Statement {}: {msg}",
+                    index + 1
+                )));
             }
-            tokio_postgres::SimpleQueryMessage::Row(row) => {
-                rows.push(
-                    (0..columns.len())
-                        .map(|idx| match row.get(idx) {
-                            Some(v) => CellValue::String(v.to_string()),
-                            None => CellValue::Null,
-                        })
-                        .collect(),
-                );
-            }
-            tokio_postgres::SimpleQueryMessage::CommandComplete(n) => affected = n as usize,
-            // CopyOut/CopyIn/CopyBoth responses carry no result rows here.
-            _ => {}
-        }
+            Err(e) => return Err(e),
+        };
+        sets.extend(statement_sets);
+        affected += statement_affected;
     }
 
-    if rows.is_empty() {
+    if sets.is_empty() {
         Ok(ExecutionOutput::RowsAffected(affected))
     } else {
         Ok(ExecutionOutput::ResultSets {
-            sets: vec![ResultSet {
-                columns,
-                rows,
-                truncated: false,
-            }],
-            row_limit: None,
+            sets,
+            row_limit: Some(row_limit),
             generated_query: None,
         })
     }
 }
 
+/// Run a statement through the simple query protocol (utility commands that
+/// cannot run inside the extended protocol's implicit transaction).
+/// Values arrive as text. Rows past the limit are read and discarded so the
+/// session stays usable for the statements that follow.
+async fn execute_simple(
+    conn: &tokio_postgres::Client,
+    statement: &str,
+    row_limit: usize,
+) -> Result<(Vec<ResultSet>, usize), ConnectionError> {
+    use futures::StreamExt;
+    use tokio_postgres::SimpleQueryMessage;
+
+    let stream = conn
+        .simple_query_raw(statement)
+        .await
+        .map_err(statement_error)?;
+    futures::pin_mut!(stream);
+
+    let mut sets: Vec<ResultSet> = Vec::new();
+    let mut open: Option<ResultSet> = None;
+    let mut affected = 0usize;
+    while let Some(message) = stream.next().await {
+        match message.map_err(statement_error)? {
+            SimpleQueryMessage::RowDescription(cols) => {
+                open = Some(ResultSet {
+                    columns: cols
+                        .iter()
+                        .map(|c| ColumnInfo {
+                            name: c.name().to_string(),
+                            data_type: "text".to_string(),
+                            nullable: true,
+                        })
+                        .collect(),
+                    rows: Vec::new(),
+                    truncated: false,
+                });
+            }
+            SimpleQueryMessage::Row(row) => {
+                if let Some(set) = open.as_mut() {
+                    if set.rows.len() >= row_limit {
+                        set.truncated = true;
+                        continue;
+                    }
+                    set.rows.push(
+                        (0..set.columns.len())
+                            .map(|idx| match row.get(idx) {
+                                Some(v) => CellValue::String(v.to_string()),
+                                None => CellValue::Null,
+                            })
+                            .collect(),
+                    );
+                }
+            }
+            SimpleQueryMessage::CommandComplete(n) => match open.take() {
+                Some(set) => sets.push(set),
+                None => affected += n as usize,
+            },
+            _ => {}
+        }
+    }
+    Ok((sets, affected))
+}
+
 /// Run a statement through prepare + query/execute.
 /// - No result columns → DML: report affected rows.
 /// - Result columns → stream rows, stopping one past the row limit (the
-///   remaining rows are cancelled by dropping the connection).
+///   caller cancels the remainder server-side).
 async fn execute_extended(
     conn: &tokio_postgres::Client,
     statement: &str,
-    options: ExecuteOptions<'_>,
-) -> Result<ExecutionOutput, ConnectionError> {
+    row_limit: usize,
+) -> Result<(Vec<ResultSet>, usize), ConnectionError> {
     use futures::StreamExt;
 
     let prepared = conn.prepare(statement).await.map_err(statement_error)?;
@@ -209,14 +276,13 @@ async fn execute_extended(
             .execute(&prepared, &[])
             .await
             .map_err(statement_error)?;
-        return Ok(ExecutionOutput::RowsAffected(affected as usize));
+        return Ok((Vec::new(), affected as usize));
     }
 
     let stream = conn
         .query_raw(&prepared, Vec::<i32>::new())
         .await
         .map_err(statement_error)?;
-    let row_limit = options.row_limit;
     futures::pin_mut!(stream);
 
     let mut rows: Vec<Vec<CellValue>> = Vec::new();
@@ -228,26 +294,28 @@ async fn execute_extended(
         }
         let row = item.map_err(statement_error)?;
         rows.push(
-            (0..types.len())
-                .map(|idx| values::cell_from_row(&row, idx, &types[idx]))
+            types
+                .iter()
+                .enumerate()
+                .map(|(idx, ty)| values::cell_from_row(&row, idx, ty))
                 .collect(),
         );
     }
-    // Dropping `stream` and `conn` closes the socket and cancels the server.
 
-    Ok(ExecutionOutput::ResultSets {
-        sets: vec![ResultSet {
+    Ok((
+        vec![ResultSet {
             columns,
             rows,
             truncated,
         }],
-        row_limit: Some(row_limit),
-        generated_query: None,
-    })
+        0,
+    ))
 }
 
 /// End-to-end tests against a real server. Run with:
 ///   LARIK_TEST_POSTGRES_URL=postgres://postgres:postgres@localhost:5432/postgres cargo test -- --ignored postgres
+/// Connections are plaintext unless LARIK_TEST_POSTGRES_TLS is set (e.g. the
+/// stock `postgres` Docker image has SSL off).
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod live_tests {
@@ -267,7 +335,24 @@ mod live_tests {
             password,
         );
         config.id = format!("live-{}", uuid::Uuid::new_v4());
+        // Set LARIK_TEST_POSTGRES_TLS=1 when the test server accepts SSL.
+        config.encrypt = std::env::var("LARIK_TEST_POSTGRES_TLS").is_ok();
+        config.trust_certificate = true;
         Some(config)
+    }
+
+    #[ignore]
+    #[tokio::test]
+    async fn encrypt_never_downgrades_to_plaintext() {
+        if !url_available() || std::env::var("LARIK_TEST_POSTGRES_TLS").is_ok() {
+            return;
+        }
+        // Against a server without SSL, Encrypt must fail instead of
+        // quietly connecting in plaintext.
+        let mut config = live_config().unwrap();
+        config.encrypt = true;
+        let err = PostgresDriver::new().test_connection(&config).await.unwrap_err();
+        assert!(matches!(err, ConnectionError::ConnectionFailed(_)), "{err:?}");
     }
 
     /// Minimal postgres://user:pass@host:port/db parsing for the test env var.
@@ -507,5 +592,218 @@ mod live_tests {
         let driver = PostgresDriver::new();
         let statements = driver.split_statements("SELECT 1; SELECT $$a;b$$;");
         assert_eq!(statements.len(), 2);
+    }
+
+    /// Run `text` the way the QueryEngine does: split, then execute each unit.
+    async fn run_units(config: &ConnectionConfig, text: &str) -> Vec<ExecutionOutput> {
+        let driver = PostgresDriver::new();
+        let mut outputs = Vec::new();
+        for unit in driver.split_statements(text) {
+            outputs.push(run(config, &unit, None).await.unwrap());
+        }
+        outputs
+    }
+
+    fn first_cell(output: &ExecutionOutput) -> CellValue {
+        match output {
+            ExecutionOutput::ResultSets { sets, .. } => sets[0].rows[0][0].clone(),
+            other => panic!("expected result sets, got {other:?}"),
+        }
+    }
+
+    #[ignore]
+    #[tokio::test]
+    async fn rollback_script_does_not_commit() {
+        if !url_available() {
+            return;
+        }
+        let config = live_config().unwrap();
+        let table = format!("larik_pg_tx_{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        run(&config, &format!("CREATE TABLE {table} (id int)"), None).await.unwrap();
+        run(&config, &format!("INSERT INTO {table} VALUES (1), (2)"), None).await.unwrap();
+
+        run_units(&config, &format!("BEGIN; DELETE FROM {table}; ROLLBACK;")).await;
+        let count = run(&config, &format!("SELECT count(*)::int FROM {table}"), None)
+            .await
+            .unwrap();
+        run(&config, &format!("DROP TABLE {table}"), None).await.unwrap();
+        assert_eq!(first_cell(&count), CellValue::Int(2));
+    }
+
+    #[ignore]
+    #[tokio::test]
+    async fn session_state_carries_across_script_statements() {
+        if !url_available() {
+            return;
+        }
+        let config = live_config().unwrap();
+        let outputs = run_units(
+            &config,
+            "CREATE TEMP TABLE t (a int); INSERT INTO t VALUES (7); SET application_name = 'x'; \
+             SELECT a, current_setting('application_name') FROM t;",
+        )
+        .await;
+        assert_eq!(outputs.len(), 1);
+        match &outputs[0] {
+            ExecutionOutput::ResultSets { sets, .. } => {
+                assert_eq!(sets.len(), 1);
+                assert_eq!(sets[0].rows[0][0], CellValue::Int(7));
+                assert_eq!(sets[0].rows[0][1], CellValue::String("x".into()));
+            }
+            other => panic!("expected result sets, got {other:?}"),
+        }
+    }
+
+    /// Activity of other backends running `marker`.
+    async fn running(config: &ConnectionConfig, marker: &str) -> i64 {
+        let sql = format!(
+            "SELECT count(*) FROM pg_stat_activity \
+             WHERE query LIKE '%{marker}%' AND pid <> pg_backend_pid() AND state = 'active'"
+        );
+        match first_cell(&run(config, &sql, None).await.unwrap()) {
+            CellValue::Int(n) => n,
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[ignore]
+    #[tokio::test]
+    async fn dropping_execute_cancels_server_query() {
+        if !url_available() {
+            return;
+        }
+        let config = live_config().unwrap();
+        let marker = format!("larik_cancel_{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        let sql = format!("SELECT pg_sleep(30), '{marker}'");
+        let execution = run(&config, &sql, None);
+        // Drop the future mid-query, like the QueryEngine's cancel.
+        let _ = tokio::time::timeout(std::time::Duration::from_millis(1500), execution).await;
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        assert_eq!(running(&config, &marker).await, 0);
+    }
+
+    #[ignore]
+    #[tokio::test]
+    async fn truncation_cancels_remaining_rows() {
+        if !url_available() {
+            return;
+        }
+        let config = live_config().unwrap();
+        let marker = format!("larik_trunc_{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        // Rows trickle out slowly; without a cancel the server keeps going.
+        let sql = format!(
+            "SELECT g, pg_sleep(0.05), '{marker}' FROM generate_series(1, 2000) g"
+        );
+        let driver = PostgresDriver::new();
+        let output = driver
+            .execute(
+                &config,
+                &sql,
+                ExecuteOptions {
+                    database: None,
+                    row_limit: 2,
+                },
+            )
+            .await
+            .unwrap();
+        assert!(matches!(&output, ExecutionOutput::ResultSets { sets, .. } if sets[0].truncated));
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        assert_eq!(running(&config, &marker).await, 0);
+    }
+
+    #[ignore]
+    #[tokio::test]
+    async fn decodes_awkward_types() {
+        if !url_available() {
+            return;
+        }
+        let config = live_config().unwrap();
+        let sql = r#"
+            SELECT
+                '1 year 2 mons 3 days 04:05:06.5'::interval AS iv,
+                12345678901234567890.1234567890::numeric AS big,
+                'NaN'::numeric AS nan,
+                12.34::money AS m,
+                '10.0.0.0/8'::cidr AS c,
+                '10.1.2.3/16'::inet AS i,
+                ARRAY['a', NULL, 'NULL'] AS t_nulls,
+                ARRAY[[1, 2], [3, NULL]] AS md,
+                '10:11:12+02'::timetz AS tz,
+                B'10101'::bit(5) AS b,
+                'infinity'::timestamp AS inf,
+                ARRAY['2024-01-02'::date] AS dates,
+                'r'::"char" AS ch,
+                int4range(1, 5) AS rng
+        "#;
+        match run(&config, sql, None).await.unwrap() {
+            ExecutionOutput::ResultSets { sets, .. } => {
+                let r = &sets[0].rows[0];
+                assert_eq!(r[0], CellValue::String("1 year 2 mons 3 days 04:05:06.5".into()));
+                assert_eq!(
+                    r[1],
+                    CellValue::String("12345678901234567890.1234567890".into())
+                );
+                assert_eq!(r[2], CellValue::String("NaN".into()));
+                assert_eq!(r[3], CellValue::Float(12.34));
+                assert_eq!(r[4], CellValue::String("10.0.0.0/8".into()));
+                assert_eq!(r[5], CellValue::String("10.1.2.3/16".into()));
+                assert_eq!(r[6], CellValue::String("{a,NULL,\"NULL\"}".into()));
+                assert_eq!(r[7], CellValue::String("{{1,2},{3,NULL}}".into()));
+                assert_eq!(r[8], CellValue::DateTime("10:11:12+02".into()));
+                assert_eq!(r[9], CellValue::String("10101".into()));
+                assert_eq!(r[10], CellValue::DateTime("infinity".into()));
+                assert_eq!(r[11], CellValue::String("{2024-01-02}".into()));
+                assert_eq!(r[12], CellValue::String("r".into()));
+                // Range binary format isn't text: shown as bytes, not garbage text.
+                assert!(matches!(r[13], CellValue::Binary(_)));
+            }
+            other => panic!("expected result sets, got {other:?}"),
+        }
+    }
+
+    #[ignore]
+    #[tokio::test]
+    async fn routines_include_zero_arg_and_overloads() {
+        if !url_available() {
+            return;
+        }
+        let config = live_config().unwrap();
+        let schema = format!("larik_fn_{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        run(&config, &format!("CREATE SCHEMA {schema}"), None).await.unwrap();
+        for ddl in [
+            format!("CREATE FUNCTION {schema}.noargs() RETURNS int LANGUAGE sql AS 'SELECT 1'"),
+            format!("CREATE FUNCTION {schema}.ov(a int) RETURNS int LANGUAGE sql AS 'SELECT a'"),
+            format!(
+                "CREATE FUNCTION {schema}.ov(a int, b text) RETURNS int LANGUAGE sql AS 'SELECT a'"
+            ),
+            format!(
+                "CREATE FUNCTION {schema}.outs(OUT x int, IN y int) LANGUAGE sql AS 'SELECT y'"
+            ),
+        ] {
+            run(&config, &ddl, None).await.unwrap();
+        }
+
+        let driver = PostgresDriver::new();
+        let info = driver
+            .fetch_schema(&config, &config.database, Some(&schema))
+            .await;
+        run(&config, &format!("DROP SCHEMA {schema} CASCADE"), None)
+            .await
+            .unwrap();
+        let routines = info.unwrap().routines;
+
+        let named = |name: &str| routines.iter().filter(|r| r.routine_name == name).collect::<Vec<_>>();
+        assert_eq!(named("noargs").len(), 1);
+        assert!(named("noargs")[0].parameters.is_empty());
+
+        let mut overload_sizes: Vec<usize> = named("ov").iter().map(|r| r.parameters.len()).collect();
+        overload_sizes.sort();
+        assert_eq!(overload_sizes, vec![1, 2]);
+
+        let outs = &named("outs")[0].parameters;
+        assert_eq!(outs.len(), 2);
+        assert_eq!((outs[0].name.as_str(), outs[0].parameter_mode.as_str()), ("x", "OUT"));
+        assert_eq!((outs[1].name.as_str(), outs[1].parameter_mode.as_str()), ("y", "IN"));
+        assert_eq!(outs[1].data_type, "integer");
     }
 }

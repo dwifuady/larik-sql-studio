@@ -176,6 +176,13 @@ async fn fetch_relationships(
 
 /// Fetch functions and procedures with their parameters.
 ///
+/// - One entry per overload (keyed by `pg_proc.oid`), so `f(int)` and
+///   `f(int, text)` don't merge their parameter lists.
+/// - Parameters come from `proallargtypes` (all args, incl. OUT/TABLE) when
+///   present, falling back to `proargtypes` (input args only) — the arrays
+///   `proargmodes`/`proargnames` are indexed against the former.
+/// - `LEFT JOIN LATERAL` keeps routines with no parameters.
+///
 /// Parameter defaults are not resolved (pg_node_tree parsing is brittle);
 /// `has_default` is always `false` — display-only metadata.
 async fn fetch_routines(
@@ -185,12 +192,13 @@ async fn fetch_routines(
     let sql = format!(
         r#"
             SELECT
+                p.oid::bigint,
                 n.nspname,
                 p.proname,
                 CASE WHEN p.prokind = 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END,
                 CASE WHEN p.prokind = 'p' THEN NULL ELSE pg_get_function_result(p.oid) END,
                 CASE m.mode
-                    WHEN 'i' THEN 'IN' WHEN 'o' THEN 'OUT' WHEN 'b' THEN 'INOUT'
+                    WHEN 'o' THEN 'OUT' WHEN 't' THEN 'OUT' WHEN 'b' THEN 'INOUT'
                     WHEN 'v' THEN 'VARIADIC' ELSE 'IN'
                 END,
                 COALESCE(m.name, ''),
@@ -198,24 +206,19 @@ async fn fetch_routines(
                 m.ord::int
             FROM pg_proc p
             JOIN pg_namespace n ON n.oid = p.pronamespace
-            CROSS JOIN LATERAL (
+            LEFT JOIN LATERAL (
                 SELECT
-                    i AS ord,
-                    p.proargtypes[i - 1 + array_lower(p.proargtypes, 1)] AS type_oid,
-                    (COALESCE(
-                        p.proargmodes,
-                        array_fill('i'::"char", ARRAY[coalesce(cardinality(p.proargtypes), 0)])
-                    ))[i] AS mode,
-                    (COALESCE(
-                        p.proargnames,
-                        array_fill(''::text, ARRAY[coalesce(cardinality(p.proargtypes), 0)])
-                    ))[i] AS name
-                FROM generate_series(1, coalesce(cardinality(p.proargtypes), 0)) AS i
-            ) m
+                    a.ord,
+                    a.type_oid,
+                    p.proargmodes[a.ord] AS mode,
+                    p.proargnames[a.ord] AS name
+                FROM unnest(COALESCE(p.proallargtypes, p.proargtypes::oid[]))
+                    WITH ORDINALITY AS a(type_oid, ord)
+            ) m ON true
             WHERE {SYSTEM_SCHEMA_CONDITION}
               AND p.prokind IN ('f', 'p')
               AND ($1::text IS NULL OR n.nspname = $1)
-            ORDER BY n.nspname, p.proname, m.ord
+            ORDER BY n.nspname, p.proname, p.oid, m.ord
         "#
     );
     let rows = conn
@@ -224,34 +227,36 @@ async fn fetch_routines(
         .map_err(statement_error)?;
 
     let mut routines: Vec<RoutineInfo> = Vec::new();
-    let mut last_key: Option<(String, String)> = None;
+    let mut last_oid: Option<i64> = None;
     for row in &rows {
-        let schema_name: String = row.get(0);
-        let routine_name: String = row.get(1);
-        let key = (schema_name.clone(), routine_name.clone());
-        if last_key.as_ref() != Some(&key) {
+        let oid: i64 = row.get(0);
+        if last_oid != Some(oid) {
             routines.push(RoutineInfo {
-                schema_name,
-                routine_name,
-                routine_type: row.get(2),
-                return_type: row.get(3),
+                schema_name: row.get(1),
+                routine_name: row.get(2),
+                routine_type: row.get(3),
+                return_type: row.get(4),
                 parameters: Vec::new(),
             });
-            last_key = Some(key);
+            last_oid = Some(oid);
         }
+        // No parameter row for a zero-argument routine (LEFT JOIN miss).
+        let Some(ordinal_position) = row.get::<_, Option<i32>>(8) else {
+            continue;
+        };
         let Some(current) = routines.last_mut() else {
             continue;
         };
         current
             .parameters
             .push(crate::db::schema::ParameterInfo {
-                name: row.get(5),
-                data_type: row.get(6),
+                name: row.get(6),
+                data_type: row.get::<_, Option<String>>(7).unwrap_or_default(),
                 max_length: None,
                 precision: None,
                 scale: None,
-                parameter_mode: row.get(4),
-                ordinal_position: row.get(7),
+                parameter_mode: row.get(5),
+                ordinal_position,
                 has_default: false,
             });
     }
