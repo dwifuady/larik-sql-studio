@@ -5,18 +5,22 @@
 
 import { useEffect, useRef } from 'react';
 import type { editor } from 'monaco-editor';
+import type { SqlDialect } from '../utils/sqlValidator';
 import { SqlValidator } from '../utils/sqlValidator';
 import type { SchemaInfo } from '../types';
 
 export interface UseSqlValidationOptions {
   /** Monaco editor instance */
   editor: editor.IStandaloneCodeEditor | null;
-  /** Monaco module (for markers API) */
+  /** Monaco module (for markers API). The module type is only expressible
+   * via the package's own namespace, hence the inline import. */
   monaco: typeof import('monaco-editor') | null;
   /** Schema information for semantic validation */
   schemaInfo: SchemaInfo | null;
   /** Whether validation is enabled */
   enabled: boolean;
+  /** SQL dialect for syntax checks (defaults to T-SQL) */
+  dialect?: SqlDialect;
   /** Show warning-level messages */
   showWarnings?: boolean;
   /** Show info-level messages */
@@ -34,6 +38,7 @@ export function useSqlValidation({
   monaco,
   schemaInfo,
   enabled,
+  dialect = 'TransactSQL',
   showWarnings = true,
   showInfo = true,
   debounceMs = 500,
@@ -75,7 +80,7 @@ export function useSqlValidation({
       const validator = validatorRef.current!;
 
       try {
-        const errors = validator.validateQuery(query, schemaInfo);
+        const errors = validator.validateQuery(query, schemaInfo, dialect);
 
         // Filter errors based on severity settings
         const filteredErrors = errors.filter((err) => {
@@ -150,5 +155,5 @@ export function useSqlValidation({
         monaco.editor.setModelMarkers(currentModel, 'sql-validator', []);
       }
     };
-  }, [editor, monaco, schemaInfo, enabled, showWarnings, showInfo, debounceMs]);
+  }, [editor, monaco, schemaInfo, enabled, dialect, showWarnings, showInfo, debounceMs]);
 }

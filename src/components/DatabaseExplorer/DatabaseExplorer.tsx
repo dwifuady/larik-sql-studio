@@ -35,6 +35,7 @@ export function DatabaseExplorer() {
     const activeSpace = spaces.find(s => s.id === activeSpaceId);
     const spaceColor = activeSpace?.color || '#0078d4';
     const isMongo = driverOf(activeSpace?.connection_driver) === 'mongodb';
+    const isPostgres = driverOf(activeSpace?.connection_driver) === 'postgres';
 
     // Convert SchemaInfo to Tree Structure
     const treeData = useMemo(() => {
@@ -179,7 +180,9 @@ export function DatabaseExplorer() {
             const tableInfo = node.data as TableInfo;
             const query = isMongo
                 ? mongoFindQuery(tableInfo.table_name, 100)
-                : `SELECT TOP 100 * FROM [${tableInfo.schema_name}].[${tableInfo.table_name}]`;
+                : isPostgres
+                  ? `SELECT * FROM "${tableInfo.schema_name}"."${tableInfo.table_name}" LIMIT 100`
+                  : `SELECT TOP 100 * FROM [${tableInfo.schema_name}].[${tableInfo.table_name}]`;
             await createTab(tableInfo.table_name, 'query', query, schemaInfo?.database_name);
         }
     };
@@ -193,7 +196,7 @@ export function DatabaseExplorer() {
             return true;
         }
         // Definition peeks read SQL Server catalogs
-        if (isMongo) return false;
+        if (isMongo || isPostgres) return false;
         // Alt+click a table -> CREATE TABLE definition preview
         if (e.altKey && node.type === 'table') {
             openTableSourcePeek(node.data as TableInfo);

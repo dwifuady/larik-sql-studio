@@ -7,6 +7,7 @@
 // - query.rs   — `QueryEngine`: batching, cancellation, result shaping
 // - schema.rs  — schema model + `SchemaMetadataManager` (caching)
 // - mssql/     — SQL Server driver (tiberius)
+// - postgres/  — PostgreSQL driver (tokio-postgres)
 // - mongodb/   — MongoDB driver (mongo-shell syntax, official driver)
 
 // Logging macros using println for simplicity (no trailing semicolon for use in match arms).
@@ -25,6 +26,7 @@ pub mod management;
 pub mod manager;
 pub mod mongodb;
 pub mod mssql;
+pub mod postgres;
 pub mod query;
 pub mod schema;
 

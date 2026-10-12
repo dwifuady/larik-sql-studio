@@ -10,6 +10,9 @@ import type { SchemaInfo, TableInfo, SchemaColumnInfo } from '../types';
 
 type SqlAst = AST | AST[] | Record<string, unknown> | Record<string, unknown>[];
 
+/** node-sql-parser dialect for the active driver's syntax checks */
+export type SqlDialect = 'TransactSQL' | 'PostgreSQL';
+
 const { Parser } = NodeSqlParser;
 
 /** Validation error with location information */
@@ -47,7 +50,7 @@ export class SqlValidator {
    * @param schemaInfo - Optional schema information for semantic validation
    * @returns Array of validation errors
    */
-  validateQuery(query: string, schemaInfo: SchemaInfo | null): ValidationError[] {
+  validateQuery(query: string, schemaInfo: SchemaInfo | null, dialect: SqlDialect = 'TransactSQL'): ValidationError[] {
     const errors: ValidationError[] = [];
 
     // Empty or whitespace-only queries are valid (no errors)
@@ -58,10 +61,9 @@ export class SqlValidator {
     // Step 1: Parse syntax with appropriate database dialect
     let ast: SqlAst;
     try {
-      // Try TransactSQL first for SQL Server specific syntax
       try {
-        ast = this.parser.astify(query, { database: 'TransactSQL' });
-      } catch (tsqlErr) {
+        ast = this.parser.astify(query, { database: dialect });
+      } catch (dialectErr) {
         // Fallback to MySQL dialect for standard SQL
         ast = this.parser.astify(query, { database: 'MySQL' });
       }
@@ -80,8 +82,10 @@ export class SqlValidator {
       return errors; // Can't validate semantics if syntax is broken
     }
 
-    // Step 2: Validate tables and columns if schema available
-    if (schemaInfo) {
+    // Step 2: Validate tables and columns if schema available.
+    // The semantic checks walk T-SQL AST shapes; skip them for other dialects
+    // rather than emit false "table not found" warnings.
+    if (schemaInfo && dialect === 'TransactSQL') {
       try {
         errors.push(...this.validateSemantics(ast, schemaInfo, query));
       } catch (err: unknown) {

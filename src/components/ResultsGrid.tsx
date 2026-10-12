@@ -8,6 +8,7 @@ import { ExportButton } from './ExportDialog';
 import { CellPreviewPanel } from './CellPreviewPanel';
 import { useAppStore } from '../store';
 import type { QueryResult, ColumnInfo, CellValue } from '../types';
+import { driverOf } from '../types';
 import { formatExecutionTime } from '../utils/formatters';
 import { getReadableTextColor } from '../utils/color';
 import { buildColumnReferenceIndex, type ColumnReferenceIndex } from '../utils/foreignKeyResolver';
@@ -565,7 +566,8 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
   const schemaInfo = useAppStore(s => s.schemaInfo);
   const virtualReferences = useAppStore(s => s.virtualReferences);
   // Reference previews build T-SQL lookups, so they are SQL Server only
-  const isMongo = useAppStore(s => s.spaces.find(sp => sp.id === s.activeSpaceId)?.connection_driver === 'mongodb');
+  const driver = useAppStore(s => driverOf(s.spaces.find(sp => sp.id === s.activeSpaceId)?.connection_driver));
+  const isMongo = driver === 'mongodb';
   const openReferenceEditor = useAppStore(s => s.openReferenceEditor);
   const removeVirtualReference = useAppStore(s => s.removeVirtualReference);
   const showCellPreview = useAppStore(s => s.showCellPreview);
@@ -663,7 +665,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
   // Per-column source tables and references (real foreign keys plus the user's
   // own). Columns that can't be traced to exactly one source table are left out.
   const { sources: columnSources, references: columnReferences } = useMemo(() => {
-    if (isMongo) {
+    if (isMongo || driver === 'postgres') {
       const none: ColumnReferenceIndex = { sources: new Map(), references: new Map() };
       return none;
     }

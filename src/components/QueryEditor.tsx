@@ -400,6 +400,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   // The tab's space driver decides the editor language and query tooling
   const driver = useAppStore(s => driverOf(s.spaces.find(sp => sp.id === tab.space_id)?.connection_driver));
   const isMongo = driver === 'mongodb';
+  const isPostgres = driver === 'postgres';
 
   const addToast = useAppStore(s => s.addToast);
   const executeQuery = useAppStore(s => s.executeQuery);
@@ -1841,7 +1842,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     if (selection && !selection.isEmpty()) {
       // Format only selected text
       const selectedText = model.getValueInRange(selection);
-      const formatted = formatSqlWithIndentation(selectedText);
+      const formatted = formatSqlWithIndentation(selectedText, isPostgres ? 'postgresql' : 'tsql');
 
       // Replace selected text with formatted version
       editor.executeEdits('', [
@@ -1852,7 +1853,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       ]);
     } else {
       // Format entire document
-      const formatted = formatSqlWithIndentation(fullText);
+      const formatted = formatSqlWithIndentation(fullText, isPostgres ? 'postgresql' : 'tsql');
       const fullRange = model.getFullModelRange();
 
       editor.executeEdits('', [
@@ -1862,7 +1863,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         }
       ]);
     }
-  }, [isMongo, addToast]);
+  }, [isMongo, isPostgres, addToast]);
 
   // Debounced autosave
   const handleChange: OnChange = useCallback((value) => {
@@ -2198,8 +2199,10 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     editor: editorRef.current,
     monaco: monacoRef.current,
     schemaInfo: isConnected ? schemaInfo : null, // Only validate against schema when connected
-    // The SQL validator does not understand mongo-shell syntax
+    // The SQL validator does not understand mongo-shell syntax; postgres
+    // validates against the PostgreSQL dialect (syntax only)
     enabled: validationEnabled && !isMongo,
+    dialect: isPostgres ? 'PostgreSQL' : 'TransactSQL',
     showWarnings: validationShowWarnings,
     showInfo: validationShowInfo,
     debounceMs: 500,
@@ -2600,7 +2603,8 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
                   onExecuteUpdate={handleExecuteUpdateQuery}
                   onLoadMore={handleLoadMore}
                   // Grid edits generate T-SQL, so they stay off for MongoDB
-                  canEdit={isConnected && !isMongo}
+                  // and PostgreSQL
+                  canEdit={isConnected && driver === 'mssql'}
                   queryText={lastExecutedQuery ?? undefined}
                   tabId={tab.id}
                   resultIndex={activeResultIndex}

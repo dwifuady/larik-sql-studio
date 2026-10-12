@@ -44,6 +44,8 @@ Use workspaces to organize your database connections, and tabs to manage your qu
 - **Performance**: Powered by Rust (Tauri) for a lightweight footprint.
 - **SQL Support**: 
     - MS SQL Server (via `tiberius`)
+    - PostgreSQL (via `tokio-postgres`)
+    - MongoDB (mongo-shell syntax, via the official driver)
     - SQLite (via `rusqlite`)
 
 ## 🚀 Getting Started

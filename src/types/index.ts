@@ -4,7 +4,7 @@
 export type TabType = 'query' | 'results' | 'schema' | 'settings';
 
 /** Database engine a connection uses. Mirrors the backend `DriverKind`. */
-export type DriverKind = 'mssql' | 'mongodb';
+export type DriverKind = 'mssql' | 'postgres' | 'mongodb';
 
 /** Driver used when none is specified (and for spaces created before drivers existed) */
 export const DEFAULT_DRIVER: DriverKind = 'mssql';
@@ -12,12 +12,14 @@ export const DEFAULT_DRIVER: DriverKind = 'mssql';
 /** Port each driver uses when a connection does not specify one */
 export const DRIVER_DEFAULT_PORTS: Record<DriverKind, number> = {
   mssql: 1433,
+  postgres: 5432,
   mongodb: 27017,
 };
 
 /** Human-readable driver names, in the order shown in connection forms */
 export const DRIVER_LABELS: Record<DriverKind, string> = {
   mssql: 'SQL Server',
+  postgres: 'PostgreSQL',
   mongodb: 'MongoDB',
 };
 
