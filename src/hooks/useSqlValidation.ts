@@ -5,7 +5,8 @@
 
 import { useEffect, useRef } from 'react';
 import type { editor } from 'monaco-editor';
-import type { SqlDialect } from '../utils/sqlValidator';
+import type { SqlDialect } from '../dialects/types';
+import { mssqlDialect } from '../dialects/mssql';
 import { SqlValidator } from '../utils/sqlValidator';
 import type { SchemaInfo } from '../types';
 
@@ -19,7 +20,7 @@ export interface UseSqlValidationOptions {
   schemaInfo: SchemaInfo | null;
   /** Whether validation is enabled */
   enabled: boolean;
-  /** SQL dialect for syntax checks (defaults to T-SQL) */
+  /** SQL dialect whose parser/splitter to validate with (defaults to T-SQL) */
   dialect?: SqlDialect;
   /** Show warning-level messages */
   showWarnings?: boolean;
@@ -38,7 +39,7 @@ export function useSqlValidation({
   monaco,
   schemaInfo,
   enabled,
-  dialect = 'TransactSQL',
+  dialect = mssqlDialect,
   showWarnings = true,
   showInfo = true,
   debounceMs = 500,

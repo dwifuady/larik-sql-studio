@@ -1,5 +1,6 @@
-import type { SchemaInfo, SchemaRelationshipInfo, TableInfo, SchemaColumnInfo, DriverKind } from '../types';
-import { quoteSqlIdent } from './sql/ident';
+import type { SchemaInfo, SchemaRelationshipInfo, TableInfo, SchemaColumnInfo } from '../types';
+import type { SqlDialect } from '../dialects/types';
+import { mssqlDialect } from '../dialects/mssql';
 
 export interface JoinConditionSuggestion {
   label: string;
@@ -70,11 +71,11 @@ function findTable(schema: SchemaInfo, schemaName: string, tableName: string): T
   );
 }
 
-function formatColumn(alias: string, column: string, driver: DriverKind): string {
-  return `${quoteSqlIdent(alias, driver)}.${quoteSqlIdent(column, driver)}`;
+function formatColumn(alias: string, column: string, dialect: SqlDialect): string {
+  return `${dialect.quoteIdent(alias)}.${dialect.quoteIdent(column)}`;
 }
 
-function extractOrderedTableRefs(sql: string, driver: DriverKind): TableRef[] {
+function extractOrderedTableRefs(sql: string, dialect: SqlDialect): TableRef[] {
   const refs: TableRef[] = [];
   const ident = String.raw`(?:\[[^\]]+\]|"[^"]+"|\w+)`;
   const tablePattern = new RegExp(String.raw`\b(?:FROM|INNER\s+JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|FULL\s+JOIN|CROSS\s+JOIN|OUTER\s+JOIN|JOIN|CROSS\s+APPLY|OUTER\s+APPLY|APPLY)\s+(${ident})(?:\s*\.\s*(${ident}))?(?:\s+(?:AS\s+)?(${ident}))?`, 'gi');
@@ -85,7 +86,7 @@ function extractOrderedTableRefs(sql: string, driver: DriverKind): TableRef[] {
     const second = stripIdentifier(match[2]);
     let alias = stripIdentifier(match[3]);
 
-    let schema = driver === 'postgres' ? 'public' : 'dbo';
+    let schema = dialect.defaultSchema;
     let table = first;
 
     if (second) {
@@ -111,7 +112,7 @@ export function isJoinConditionContext(textBeforeCursor: string): boolean {
   return /\bON\b\s*(?:(?:\[[^\]]*\]?|"[^"]*"|\w+)\s*)?$/i.test(textBeforeCursor);
 }
 
-function buildRelationshipSuggestions(schema: SchemaInfo, joinedRef: TableRef, priorRefs: TableRef[], driver: DriverKind): JoinConditionSuggestion[] {
+function buildRelationshipSuggestions(schema: SchemaInfo, joinedRef: TableRef, priorRefs: TableRef[], dialect: SqlDialect): JoinConditionSuggestion[] {
   const grouped = new Map<string, { score: number; kind: string; otherAlias: string; pairs: Array<{ joinedColumn: string; otherColumn: string; ordinal: number }> }>();
 
   schema.relationships.forEach(relationship => {
@@ -173,7 +174,7 @@ function buildRelationshipSuggestions(schema: SchemaInfo, joinedRef: TableRef, p
   return Array.from(grouped.values()).map(group => {
     const orderedPairs = group.pairs.sort((a, b) => a.ordinal - b.ordinal);
     const insertText = orderedPairs
-      .map(pair => `${formatColumn(joinedRef.alias, pair.joinedColumn, driver)} = ${formatColumn(group.otherAlias, pair.otherColumn, driver)}`)
+      .map(pair => `${formatColumn(joinedRef.alias, pair.joinedColumn, dialect)} = ${formatColumn(group.otherAlias, pair.otherColumn, dialect)}`)
       .join(' AND ');
 
     const preview = orderedPairs[0]
@@ -183,7 +184,7 @@ function buildRelationshipSuggestions(schema: SchemaInfo, joinedRef: TableRef, p
     return {
       label: `Join on ${preview}`,
       detail: group.kind,
-      documentation: `Suggested join between ${quoteSqlIdent(joinedRef.alias, driver)} and ${quoteSqlIdent(group.otherAlias, driver)}`,
+      documentation: `Suggested join between ${dialect.quoteIdent(joinedRef.alias)} and ${dialect.quoteIdent(group.otherAlias)}`,
       insertText,
       score: group.score - Math.max(0, orderedPairs.length - 1),
     };
@@ -215,7 +216,7 @@ function pushSuggestion(
   }
 }
 
-function buildHeuristicSuggestions(schema: SchemaInfo, joinedRef: TableRef, priorRefs: TableRef[], driver: DriverKind): JoinConditionSuggestion[] {
+function buildHeuristicSuggestions(schema: SchemaInfo, joinedRef: TableRef, priorRefs: TableRef[], dialect: SqlDialect): JoinConditionSuggestion[] {
   const joinedTable = findTable(schema, joinedRef.schema, joinedRef.table);
   if (!joinedTable) {
     return [];
@@ -240,7 +241,7 @@ function buildHeuristicSuggestions(schema: SchemaInfo, joinedRef: TableRef, prio
             label: `Join on ${joinedColumn.name} = ${otherKeyColumn.name}`,
             detail: 'Heuristic match',
             documentation: `Matched ${joinedColumn.name} to ${otherTable.table_name}.${otherKeyColumn.name} using table-name heuristic.`,
-            insertText: `${formatColumn(joinedRef.alias, joinedColumn.name, driver)} = ${formatColumn(otherRef.alias, otherKeyColumn.name, driver)}`,
+            insertText: `${formatColumn(joinedRef.alias, joinedColumn.name, dialect)} = ${formatColumn(otherRef.alias, otherKeyColumn.name, dialect)}`,
             score: normalizeName(otherKeyColumn.name) === 'id' ? 900 : 875,
           });
         });
@@ -254,7 +255,7 @@ function buildHeuristicSuggestions(schema: SchemaInfo, joinedRef: TableRef, prio
             label: `Join on ${joinedColumn.name} = ${otherColumn.name}`,
             detail: 'Heuristic match',
             documentation: `Matched identical column names across ${joinedTable.table_name} and ${otherTable.table_name}.`,
-            insertText: `${formatColumn(joinedRef.alias, joinedColumn.name, driver)} = ${formatColumn(otherRef.alias, otherColumn.name, driver)}`,
+            insertText: `${formatColumn(joinedRef.alias, joinedColumn.name, dialect)} = ${formatColumn(otherRef.alias, otherColumn.name, dialect)}`,
             score: joinedColumn.is_primary_key || otherColumn.is_primary_key ? 760 : 720,
           });
         }
@@ -269,7 +270,7 @@ function buildHeuristicSuggestions(schema: SchemaInfo, joinedRef: TableRef, prio
             label: `Join on ${joinedKeyColumn.name} = ${otherColumn.name}`,
             detail: 'Heuristic match (reverse)',
             documentation: `Matched ${otherColumn.name} back to ${joinedTable.table_name}.${joinedKeyColumn.name} using table-name heuristic.`,
-            insertText: `${formatColumn(joinedRef.alias, joinedKeyColumn.name, driver)} = ${formatColumn(otherRef.alias, otherColumn.name, driver)}`,
+            insertText: `${formatColumn(joinedRef.alias, joinedKeyColumn.name, dialect)} = ${formatColumn(otherRef.alias, otherColumn.name, dialect)}`,
             score: normalizeName(joinedKeyColumn.name) === 'id' ? 840 : 815,
           });
         });
@@ -283,13 +284,13 @@ function buildHeuristicSuggestions(schema: SchemaInfo, joinedRef: TableRef, prio
 export function buildJoinConditionSuggestions(
   textBeforeCursor: string,
   schema: SchemaInfo | null,
-  driver: DriverKind = 'mssql'
+  dialect: SqlDialect = mssqlDialect
 ): JoinConditionSuggestion[] {
   if (!schema || !isJoinConditionContext(textBeforeCursor)) {
     return [];
   }
 
-  const orderedRefs = extractOrderedTableRefs(textBeforeCursor, driver);
+  const orderedRefs = extractOrderedTableRefs(textBeforeCursor, dialect);
   if (orderedRefs.length < 2) {
     return [];
   }
@@ -304,8 +305,8 @@ export function buildJoinConditionSuggestions(
   }
 
   const allSuggestions = [
-    ...buildRelationshipSuggestions(schema, joinedRef, priorRefs, driver),
-    ...buildHeuristicSuggestions(schema, joinedRef, priorRefs, driver),
+    ...buildRelationshipSuggestions(schema, joinedRef, priorRefs, dialect),
+    ...buildHeuristicSuggestions(schema, joinedRef, priorRefs, dialect),
   ];
 
   const deduped = new Map<string, JoinConditionSuggestion>();
@@ -314,8 +315,8 @@ export function buildJoinConditionSuggestions(
   return Array.from(deduped.values()).sort((a, b) => b.score - a.score || a.label.localeCompare(b.label));
 }
 
-export function getJoinSuggestionDebugRefs(textBeforeCursor: string, driver: DriverKind = 'mssql'): TableRef[] {
-  return extractOrderedTableRefs(textBeforeCursor, driver);
+export function getJoinSuggestionDebugRefs(textBeforeCursor: string, dialect: SqlDialect = mssqlDialect): TableRef[] {
+  return extractOrderedTableRefs(textBeforeCursor, dialect);
 }
 
 export function getSchemaTableKey(schemaName: string, tableName: string): string {

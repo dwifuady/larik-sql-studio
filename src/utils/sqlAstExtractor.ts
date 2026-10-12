@@ -9,6 +9,9 @@ type SqlAst = AST | AST[] | Record<string, unknown> | Record<string, unknown>[];
 
 const { Parser } = NodeSqlParser;
 
+import type { SqlDialect } from '../dialects/types';
+import { mssqlDialect } from '../dialects/mssql';
+
 /**
  * Completion context types
  */
@@ -141,7 +144,7 @@ function isReservedKeyword(word: string): boolean {
  * Parse SQL and return AST, with multiple fallback strategies
  * Tries different normalization approaches and parser dialects
  */
-function parseSQL(sql: string): SqlAst | null {
+function parseSQL(sql: string, dialect: SqlDialect): SqlAst | null {
   // Empty or whitespace-only queries can't be parsed
   if (!sql || sql.trim().length === 0) {
     return null;
@@ -160,79 +163,38 @@ function parseSQL(sql: string): SqlAst | null {
     return null;
   }
 
-  const parser = new Parser();
+  // Bracketed identifiers only exist in T-SQL; elsewhere `[...]` is an
+  // array subscript and must be left alone.
+  const bracketed = dialect.identifierQuote === 'bracket';
 
-  // Strategy 1: Try TransactSQL with normalized identifiers (SQL Server syntax)
-  const normalizedSql = normalizeSqlServerIdentifiers(sql);
-
-  try {
-    const ast = parser.astify(normalizedSql, { database: 'TransactSQL' });
-    if (ast) {
-      return ast;
-    }
-  } catch (tsqlErr: unknown) {
-    // Silent - try next strategy
+  // Strategy 1: normalized identifiers, each dialect parser in order
+  const normalizedSql = bracketed ? normalizeSqlServerIdentifiers(sql) : sql;
+  const ast = astifyFirst(normalizedSql, dialect.parserDatabases);
+  if (ast) {
+    return ast;
   }
 
-  // Strategy 2: Try MySQL with normalized identifiers (more permissive)
-  try {
-    const ast = parser.astify(normalizedSql, { database: 'MySQL' });
-    if (ast) {
-      return ast;
-    }
-  } catch (mysqlErr: unknown) {
-    // Silent - try next strategy
-  }
-
-  // Strategy 3: Try TransactSQL with less aggressive normalization
+  // Strategy 2: less aggressive normalization
   // Remove only the most problematic brackets (schema.table format)
-  const lightlyNormalizedSql = sql
-    .replace(/\[(\w+)\]\.\[(\w+)\]/g, '$1.$2')  // [schema].[table] -> schema.table
-    .replace(/\[(\w+)\]\.(\w+)/g, '$1.$2')       // [schema].table -> schema.table
-    .replace(/(\w+)\.\[(\w+)\]/g, '$1.$2');       // schema.[table] -> schema.table
-
-  try {
-    const ast = parser.astify(lightlyNormalizedSql, { database: 'TransactSQL' });
-    if (ast) {
-      return ast;
+  if (bracketed) {
+    const lightlyNormalizedSql = sql
+      .replace(/\[(\w+)\]\.\[(\w+)\]/g, '$1.$2')  // [schema].[table] -> schema.table
+      .replace(/\[(\w+)\]\.(\w+)/g, '$1.$2')       // [schema].table -> schema.table
+      .replace(/(\w+)\.\[(\w+)\]/g, '$1.$2');       // schema.[table] -> schema.table
+    const lightAst = astifyFirst(lightlyNormalizedSql, dialect.parserDatabases);
+    if (lightAst) {
+      return lightAst;
     }
-  } catch (tsqlErr2: unknown) {
-    // Silent - try next strategy
   }
 
-  // Strategy 4: Try MySQL with less aggressive normalization
-  try {
-    const ast = parser.astify(lightlyNormalizedSql, { database: 'MySQL' });
-    if (ast) {
-      return ast;
-    }
-  } catch (mysqlErr2: unknown) {
-    // All strategies exhausted
-  }
-
-  // Strategy 5: For queries with CTEs that end incompletely, try completing them
+  // Strategy 3: For queries with CTEs that end incompletely, try completing them
   // e.g., "WITH cte AS (...) SELECT * FROM " -> "WITH cte AS (...) SELECT * FROM dummy"
   if (hasWith && endsWithIncompleteKeyword) {
     const completedSql = sql.trim() + ' __dummy_table__';
-    const normalizedCompleted = normalizeSqlServerIdentifiers(completedSql);
-
-    // Try multiple dialects
-    try {
-      const ast = parser.astify(normalizedCompleted, { database: 'MySQL' });
-      if (ast) {
-        return ast;
-      }
-    } catch (err: unknown) {
-      // Silent - try next dialect
-    }
-
-    try {
-      const ast = parser.astify(normalizedCompleted, { database: 'TransactSQL' });
-      if (ast) {
-        return ast;
-      }
-    } catch (err: unknown) {
-      // Silent - all strategies exhausted
+    const normalizedCompleted = bracketed ? normalizeSqlServerIdentifiers(completedSql) : completedSql;
+    const completedAst = astifyFirst(normalizedCompleted, [...dialect.parserDatabases].reverse());
+    if (completedAst) {
+      return completedAst;
     }
   }
 
@@ -242,6 +204,22 @@ function parseSQL(sql: string): SqlAst | null {
     console.log('[AST Parser] Parse failed, using regex fallback for:', sql.substring(0, 100));
   }
 
+  return null;
+}
+
+/** First successful parse across `databases`, or null. */
+function astifyFirst(sql: string, databases: readonly string[]): SqlAst | null {
+  const parser = new Parser();
+  for (const database of databases) {
+    try {
+      const ast = parser.astify(sql, { database });
+      if (ast) {
+        return ast as SqlAst;
+      }
+    } catch {
+      // Silent - try the next dialect
+    }
+  }
   return null;
 }
 
@@ -258,14 +236,14 @@ function parseSQL(sql: string): SqlAst | null {
  * getUsedAliases('WITH cte AS (...) SELECT * FROM cte c')
  * // Returns: Set(['cte', 'c'])
  */
-export function getUsedAliases(sql: string): Set<string> {
+export function getUsedAliases(sql: string, dialect: SqlDialect = mssqlDialect): Set<string> {
   const aliases = new Set<string>();
 
   if (!sql || !sql.trim()) {
     return aliases;
   }
 
-  const ast = parseSQL(sql);
+  const ast = parseSQL(sql, dialect);
 
   if (!ast) {
     // Fallback: use regex to match only table aliases (after FROM/JOIN keywords)
@@ -427,20 +405,15 @@ function extractAliasesFromExpression(expr: unknown, aliases: Set<string>): void
  * parseTableAliases('SELECT * FROM dbo.Users u JOIN Orders o ON u.Id = o.UserId')
  * // Returns: Map { 'u' => { schema: 'dbo', table: 'Users' }, 'o' => { schema: 'dbo', table: 'Orders' } }
  */
-export function parseTableAliases(sql: string): Map<string, { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } }> {
+export function parseTableAliases(sql: string, dialect: SqlDialect = mssqlDialect): Map<string, { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } }> {
   const aliases = new Map<string, { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } }>();
 
   if (!sql || !sql.trim()) {
     return aliases;
   }
 
-  let ast: SqlAst | null = null;
-  try {
-    const parser = new Parser();
-    ast = parser.astify(sql, { database: 'TransactSQL' }) as SqlAst;
-  } catch (err: unknown) {
-    // ast remains null, triggering the fallback
-  }
+  const defaultSchema = dialect.defaultSchema;
+  const ast = astifyFirst(sql, dialect.parserDatabases.slice(0, 1));
 
   if (!ast) {
     // Fallback: use regex (original implementation)
@@ -474,7 +447,7 @@ export function parseTableAliases(sql: string): Map<string, { schema: string; ta
       const alias = match[2];
 
       if (alias && !skipWords.has(alias.toUpperCase()) && table.toUpperCase() !== alias.toUpperCase()) {
-        aliases.set(alias.toLowerCase(), { schema: 'dbo', table });
+        aliases.set(alias.toLowerCase(), { schema: defaultSchema, table });
       }
     }
 
@@ -547,8 +520,7 @@ export function parseTableAliases(sql: string): Map<string, { schema: string; ta
       // 2. Try to parse the inner definition (it should be a valid SELECT)
       // We do this to find source table for * OR if explicit columns weren't provided
       try {
-        const parser = new Parser();
-        const ast = parser.astify(cteDefinition, { database: 'TransactSQL' });
+        const ast = astifyFirst(cteDefinition, dialect.parserDatabases.slice(0, 1));
         const stmt = Array.isArray(ast) ? ast[0] : ast;
 
         // Use the existing extraction logic but for this standalone statement
@@ -583,7 +555,7 @@ export function parseTableAliases(sql: string): Map<string, { schema: string; ta
               const hasWildcard = (stmt as unknown as Record<string, unknown>).columns?.some((c: unknown) => c.expr && c.expr.type === 'column_ref' && c.expr.column === '*');
               if (hasWildcard) {
                 cteInfo.sourceTable = {
-                  schema: from.db || from.schema || 'dbo',
+                  schema: from.db || from.schema || defaultSchema,
                   table: from.table
                 };
               }
@@ -613,7 +585,7 @@ export function parseTableAliases(sql: string): Map<string, { schema: string; ta
   const statements = Array.isArray(ast) ? ast : [ast];
 
   for (const stmt of statements) {
-    extractAliasMapFromStatement(stmt, aliases);
+    extractAliasMapFromStatement(stmt, aliases, defaultSchema);
   }
 
   return aliases;
@@ -624,7 +596,8 @@ export function parseTableAliases(sql: string): Map<string, { schema: string; ta
  */
 function extractAliasMapFromStatement(
   stmt: SqlAst,
-  aliases: Map<string, { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } }>
+  aliases: Map<string, { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } }>,
+  defaultSchema: string
 ): void {
   if (!stmt || typeof stmt !== 'object') {
     return;
@@ -698,7 +671,7 @@ function extractAliasMapFromStatement(
                 const hasWildcard = cteSelect.columns?.some((c: unknown) => c.expr && c.expr.type === 'column_ref' && c.expr.column === '*');
                 if (hasWildcard) {
                   cteInfo.sourceTable = {
-                    schema: from.db || from.schema || 'dbo',
+                    schema: from.db || from.schema || defaultSchema,
                     table: from.table
                   };
                 }
@@ -711,7 +684,7 @@ function extractAliasMapFromStatement(
       }
       // Also extract aliases from CTE definition
       if (cte.stmt) {
-        extractAliasMapFromStatement(cte.stmt, aliases);
+        extractAliasMapFromStatement(cte.stmt, aliases, defaultSchema);
       }
     }
   }
@@ -720,7 +693,7 @@ function extractAliasMapFromStatement(
   if ((stmt as unknown as Record<string, unknown>).from && Array.isArray((stmt as unknown as Record<string, unknown>).from)) {
     // @ts-ignore
     for (const tableRef of (stmt as unknown as Record<string, unknown>).from) {
-      extractAliasMapFromTableRef(tableRef, aliases);
+      extractAliasMapFromTableRef(tableRef, aliases, defaultSchema);
     }
   }
 
@@ -728,7 +701,7 @@ function extractAliasMapFromStatement(
   if ((stmt as unknown as Record<string, unknown>).table && Array.isArray((stmt as unknown as Record<string, unknown>).table)) {
     // @ts-ignore
     for (const tableRef of (stmt as unknown as Record<string, unknown>).table) {
-      extractAliasMapFromTableRef(tableRef, aliases);
+      extractAliasMapFromTableRef(tableRef, aliases, defaultSchema);
     }
   }
 
@@ -739,7 +712,7 @@ function extractAliasMapFromStatement(
       // @ts-ignore
       if ((col as Record<string, unknown>).expr && (col as Record<string, unknown>).expr.type === 'select') {
         // @ts-ignore
-        extractAliasMapFromStatement((col as Record<string, unknown>).expr, aliases);
+        extractAliasMapFromStatement((col as Record<string, unknown>).expr, aliases, defaultSchema);
       }
     }
   }
@@ -747,7 +720,7 @@ function extractAliasMapFromStatement(
   // Extract aliases from WHERE clause subqueries
   if ((stmt as unknown as Record<string, unknown>).where) {
     // @ts-ignore
-    extractAliasMapFromExpression((stmt as unknown as Record<string, unknown>).where, aliases);
+    extractAliasMapFromExpression((stmt as unknown as Record<string, unknown>).where, aliases, defaultSchema);
   }
 }
 
@@ -756,7 +729,8 @@ function extractAliasMapFromStatement(
  */
 function extractAliasMapFromTableRef(
   tableRef: SqlAst,
-  aliases: Map<string, { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } }>
+  aliases: Map<string, { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } }>,
+  defaultSchema: string
 ): void {
   if (!tableRef || typeof tableRef !== 'object') {
     return;
@@ -768,7 +742,7 @@ function extractAliasMapFromTableRef(
     // @ts-ignore
     aliases.set(tableRef.as.toLowerCase(), {
       // @ts-ignore
-      schema: tableRef.db || tableRef.schema || 'dbo',
+      schema: tableRef.db || tableRef.schema || defaultSchema,
       // @ts-ignore
       table: tableRef.table
     });
@@ -789,7 +763,7 @@ function extractAliasMapFromTableRef(
     }
     // Also extract aliases from within subquery
     // @ts-ignore
-    extractAliasMapFromStatement(tableRef.expr, aliases);
+    extractAliasMapFromStatement(tableRef.expr, aliases, defaultSchema);
   }
 
   // Handle JOIN clauses - node-sql-parser stores joins as array in 'join' property
@@ -799,11 +773,11 @@ function extractAliasMapFromTableRef(
     for (const join of tableRef.join) {
       // Each join has a 'table' property that is itself a table reference
       if (join.table) {
-        extractAliasMapFromTableRef(join.table, aliases);
+        extractAliasMapFromTableRef(join.table, aliases, defaultSchema);
       }
       // Handle ON clause subqueries
       if (join.on) {
-        extractAliasMapFromExpression(join.on, aliases);
+        extractAliasMapFromExpression(join.on, aliases, defaultSchema);
       }
     }
   }
@@ -814,7 +788,8 @@ function extractAliasMapFromTableRef(
  */
 function extractAliasMapFromExpression(
   expr: SqlAst,
-  aliases: Map<string, { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } }>
+  aliases: Map<string, { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } }>,
+  defaultSchema: string
 ): void {
   if (!expr || typeof expr !== 'object') {
     return;
@@ -823,16 +798,16 @@ function extractAliasMapFromExpression(
   // Subquery in expression
   // @ts-ignore
   if (expr.type === 'select') {
-    extractAliasMapFromStatement(expr, aliases);
+    extractAliasMapFromStatement(expr, aliases, defaultSchema);
   }
 
   // Binary expressions (recursively check left and right)
   // @ts-ignore
   if (expr.type === 'binary_expr') {
     // @ts-ignore
-    if (expr.left) extractAliasMapFromExpression(expr.left, aliases);
+    if (expr.left) extractAliasMapFromExpression(expr.left, aliases, defaultSchema);
     // @ts-ignore
-    if (expr.right) extractAliasMapFromExpression(expr.right, aliases);
+    if (expr.right) extractAliasMapFromExpression(expr.right, aliases, defaultSchema);
   }
 
   // IN clause with subquery
@@ -840,7 +815,7 @@ function extractAliasMapFromExpression(
   if (expr.type === 'expr_list' && Array.isArray(expr.value)) {
     // @ts-ignore
     for (const val of expr.value) {
-      extractAliasMapFromExpression(val, aliases);
+      extractAliasMapFromExpression(val, aliases, defaultSchema);
     }
   }
 }
@@ -858,12 +833,13 @@ function extractAliasMapFromExpression(
  * extractUpdateTableName('UPDATE TOP(10) Users SET ...')
  * // Returns: { schema: 'dbo', table: 'Users' }
  */
-export function extractUpdateTableName(sql: string): { schema: string; table: string } | null {
+export function extractUpdateTableName(sql: string, dialect: SqlDialect = mssqlDialect): { schema: string; table: string } | null {
   if (!sql || !sql.trim()) {
     return null;
   }
 
-  const ast = parseSQL(sql);
+  const defaultSchema = dialect.defaultSchema;
+  const ast = parseSQL(sql, dialect);
 
   if (!ast) {
     // Fallback: use regex
@@ -871,7 +847,7 @@ export function extractUpdateTableName(sql: string): { schema: string; table: st
     const match = sql.match(pattern);
     if (match) {
       return {
-        schema: match[1] || 'dbo',
+        schema: match[1] || defaultSchema,
         table: match[2]
       };
     }
@@ -887,7 +863,7 @@ export function extractUpdateTableName(sql: string): { schema: string; table: st
       // @ts-ignore
       const tableRef = (stmt as unknown as Record<string, unknown>).table[0];
       return {
-        schema: tableRef.db || tableRef.schema || 'dbo',
+        schema: tableRef.db || tableRef.schema || defaultSchema,
         table: tableRef.table
       };
     }
@@ -909,12 +885,13 @@ export function extractUpdateTableName(sql: string): { schema: string; table: st
  * extractInsertTableName('INSERT Users VALUES (...)')
  * // Returns: { schema: 'dbo', table: 'Users' }
  */
-export function extractInsertTableName(sql: string): { schema: string; table: string } | null {
+export function extractInsertTableName(sql: string, dialect: SqlDialect = mssqlDialect): { schema: string; table: string } | null {
   if (!sql || !sql.trim()) {
     return null;
   }
 
-  const ast = parseSQL(sql);
+  const defaultSchema = dialect.defaultSchema;
+  const ast = parseSQL(sql, dialect);
 
   if (!ast) {
     // Fallback: use regex
@@ -922,7 +899,7 @@ export function extractInsertTableName(sql: string): { schema: string; table: st
     const match = sql.match(pattern);
     if (match) {
       return {
-        schema: match[1] || 'dbo',
+        schema: match[1] || defaultSchema,
         table: match[2]
       };
     }
@@ -938,7 +915,7 @@ export function extractInsertTableName(sql: string): { schema: string; table: st
       // @ts-ignore
       const tableRef = (stmt as unknown as Record<string, unknown>).table[0];
       return {
-        schema: tableRef.db || tableRef.schema || 'dbo',
+        schema: tableRef.db || tableRef.schema || defaultSchema,
         table: tableRef.table
       };
     }
@@ -960,14 +937,15 @@ export function extractInsertTableName(sql: string): { schema: string; table: st
  * extractReferencedTables('WITH cte AS (SELECT * FROM Products) SELECT * FROM cte')
  * // Returns: [{ schema: 'dbo', table: 'Products' }]
  */
-export function extractReferencedTables(sql: string): Array<{ schema: string; table: string }> {
+export function extractReferencedTables(sql: string, dialect: SqlDialect = mssqlDialect): Array<{ schema: string; table: string }> {
   const tables: Array<{ schema: string; table: string }> = [];
 
   if (!sql || !sql.trim()) {
     return tables;
   }
 
-  const ast = parseSQL(sql);
+  const defaultSchema = dialect.defaultSchema;
+  const ast = parseSQL(sql, dialect);
 
   if (!ast) {
     // Fallback: use regex
@@ -977,7 +955,7 @@ export function extractReferencedTables(sql: string): Array<{ schema: string; ta
       if (match[2]) {
         tables.push({ schema: match[1], table: match[2] });
       } else {
-        tables.push({ schema: 'dbo', table: match[1] });
+        tables.push({ schema: defaultSchema, table: match[1] });
       }
     }
     return tables;
@@ -987,7 +965,7 @@ export function extractReferencedTables(sql: string): Array<{ schema: string; ta
   const statements = Array.isArray(ast) ? ast : [ast];
 
   for (const stmt of statements) {
-    extractTablesFromStatement(stmt, tables);
+    extractTablesFromStatement(stmt, tables, defaultSchema);
   }
 
   return tables;
@@ -998,7 +976,8 @@ export function extractReferencedTables(sql: string): Array<{ schema: string; ta
  */
 function extractTablesFromStatement(
   stmt: SqlAst,
-  tables: Array<{ schema: string; table: string }>
+  tables: Array<{ schema: string; table: string }>,
+  defaultSchema: string
 ): void {
   if (!stmt || typeof stmt !== 'object') {
     return;
@@ -1009,7 +988,7 @@ function extractTablesFromStatement(
     // @ts-ignore
     for (const cte of (stmt as unknown as Record<string, unknown>).with) {
       if (cte.stmt) {
-        extractTablesFromStatement(cte.stmt, tables);
+        extractTablesFromStatement(cte.stmt, tables, defaultSchema);
       }
     }
   }
@@ -1018,7 +997,7 @@ function extractTablesFromStatement(
   if ((stmt as unknown as Record<string, unknown>).from && Array.isArray((stmt as unknown as Record<string, unknown>).from)) {
     // @ts-ignore
     for (const tableRef of (stmt as unknown as Record<string, unknown>).from) {
-      extractTablesFromTableRef(tableRef, tables);
+      extractTablesFromTableRef(tableRef, tables, defaultSchema);
     }
   }
 
@@ -1028,7 +1007,7 @@ function extractTablesFromStatement(
     for (const tableRef of (stmt as unknown as Record<string, unknown>).table) {
       if (tableRef.table) {
         tables.push({
-          schema: tableRef.db || tableRef.schema || 'dbo',
+          schema: tableRef.db || tableRef.schema || defaultSchema,
           table: tableRef.table
         });
       }
@@ -1042,7 +1021,7 @@ function extractTablesFromStatement(
       // @ts-ignore
       if ((col as Record<string, unknown>).expr && (col as Record<string, unknown>).expr.type === 'select') {
         // @ts-ignore
-        extractTablesFromStatement((col as Record<string, unknown>).expr, tables);
+        extractTablesFromStatement((col as Record<string, unknown>).expr, tables, defaultSchema);
       }
     }
   }
@@ -1050,7 +1029,7 @@ function extractTablesFromStatement(
   // Extract tables from WHERE clause subqueries
   if ((stmt as unknown as Record<string, unknown>).where) {
     // @ts-ignore
-    extractTablesFromExpression((stmt as unknown as Record<string, unknown>).where, tables);
+    extractTablesFromExpression((stmt as unknown as Record<string, unknown>).where, tables, defaultSchema);
   }
 }
 
@@ -1059,7 +1038,8 @@ function extractTablesFromStatement(
  */
 function extractTablesFromTableRef(
   tableRef: SqlAst,
-  tables: Array<{ schema: string; table: string }>
+  tables: Array<{ schema: string; table: string }>,
+  defaultSchema: string
 ): void {
   if (!tableRef || typeof tableRef !== 'object') {
     return;
@@ -1070,7 +1050,7 @@ function extractTablesFromTableRef(
   if (tableRef.table && typeof tableRef.table === 'string') {
     tables.push({
       // @ts-ignore
-      schema: tableRef.db || tableRef.schema || 'dbo',
+      schema: tableRef.db || tableRef.schema || defaultSchema,
       // @ts-ignore
       table: tableRef.table
     });
@@ -1080,7 +1060,7 @@ function extractTablesFromTableRef(
   // @ts-ignore
   if (tableRef.expr && tableRef.expr.type === 'select') {
     // @ts-ignore
-    extractTablesFromStatement(tableRef.expr, tables);
+    extractTablesFromStatement(tableRef.expr, tables, defaultSchema);
   }
 
   // Handle JOIN clauses - node-sql-parser stores joins as array in 'join' property
@@ -1090,11 +1070,11 @@ function extractTablesFromTableRef(
     for (const join of tableRef.join) {
       // Each join has a 'table' property that is itself a table reference
       if (join.table) {
-        extractTablesFromTableRef(join.table, tables);
+        extractTablesFromTableRef(join.table, tables, defaultSchema);
       }
       // Handle ON clause subqueries
       if (join.on) {
-        extractTablesFromExpression(join.on, tables);
+        extractTablesFromExpression(join.on, tables, defaultSchema);
       }
     }
   }
@@ -1105,7 +1085,8 @@ function extractTablesFromTableRef(
  */
 function extractTablesFromExpression(
   expr: SqlAst,
-  tables: Array<{ schema: string; table: string }>
+  tables: Array<{ schema: string; table: string }>,
+  defaultSchema: string
 ): void {
   if (!expr || typeof expr !== 'object') {
     return;
@@ -1114,16 +1095,16 @@ function extractTablesFromExpression(
   // Subquery in expression
   // @ts-ignore
   if (expr.type === 'select') {
-    extractTablesFromStatement(expr, tables);
+    extractTablesFromStatement(expr, tables, defaultSchema);
   }
 
   // Binary expressions (recursively check left and right)
   // @ts-ignore
   if (expr.type === 'binary_expr') {
     // @ts-ignore
-    if (expr.left) extractTablesFromExpression(expr.left, tables);
+    if (expr.left) extractTablesFromExpression(expr.left, tables, defaultSchema);
     // @ts-ignore
-    if (expr.right) extractTablesFromExpression(expr.right, tables);
+    if (expr.right) extractTablesFromExpression(expr.right, tables, defaultSchema);
   }
 
   // IN clause with subquery
@@ -1131,7 +1112,7 @@ function extractTablesFromExpression(
   if (expr.type === 'expr_list' && Array.isArray(expr.value)) {
     // @ts-ignore
     for (const val of expr.value) {
-      extractTablesFromExpression(val, tables);
+      extractTablesFromExpression(val, tables, defaultSchema);
     }
   }
 }
@@ -1154,18 +1135,19 @@ function extractTablesFromExpression(
  */
 export function getCompletionContext(
   textBeforeCursor: string,
-  fullText?: string
+  fullText?: string,
+  dialect: SqlDialect = mssqlDialect
 ): CompletionContext {
   const trimmed = textBeforeCursor.trim().toUpperCase();
   const COLUMN_CONTEXT_KEYWORDS = ['SELECT', 'WHERE', 'ON', 'AND', 'OR', 'SET', 'ORDER BY', 'GROUP BY', 'HAVING', 'BY', '='];
-  const ROUTINE_CONTEXT_KEYWORDS = ['EXEC', 'EXECUTE', 'CALL'];
+  const ROUTINE_CONTEXT_KEYWORDS = dialect.routineContextKeywords;
 
   // Quick check for alias.column pattern (common case - keep fast)
-  const aliasMatch = textBeforeCursor.match(/\[?(\w+)\]?\.\s*$/);
+  const aliasMatch = textBeforeCursor.match(/["[]?(\w+)["\]]?\.\s*$/);
   if (aliasMatch) {
     const potentialAlias = aliasMatch[1].toLowerCase();
     // Check if it's a known schema prefix
-    if (['dbo', 'sys', 'information_schema'].includes(potentialAlias)) {
+    if (dialect.systemSchemas.includes(potentialAlias)) {
       return { type: 'schema', partialWord: potentialAlias };
     }
     return { type: 'alias_column', alias: potentialAlias };
@@ -1180,7 +1162,7 @@ export function getCompletionContext(
   const combinedKeyword = `${secondLastWord} ${lastWord}`;
   const previousCombinedKeyword = `${thirdLastWord} ${secondLastWord}`;
 
-  const TABLE_CONTEXT_KEYWORDS = ['FROM', 'JOIN', 'INNER JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'OUTER JOIN', 'CROSS JOIN', 'INTO', 'UPDATE', 'TABLE', 'APPLY', 'CROSS APPLY', 'OUTER APPLY'];
+  const TABLE_CONTEXT_KEYWORDS = dialect.tableContextKeywords;
 
   // Prioritize table context keywords - these are unambiguous
   if (TABLE_CONTEXT_KEYWORDS.includes(combinedKeyword)) {
@@ -1216,7 +1198,7 @@ export function getCompletionContext(
   // Try AST-based analysis if full text is provided (more accurate but slower)
   if (fullText && fullText.trim().length > 0 && fullText.trim().length < 10000) {
     // Only use AST for reasonably sized queries to avoid performance issues
-    const astContext = getCompletionContextFromAST(textBeforeCursor, fullText);
+    const astContext = getCompletionContextFromAST(textBeforeCursor, fullText, dialect);
     if (astContext) {
       return astContext;
     }
@@ -1226,21 +1208,21 @@ export function getCompletionContext(
 
   // UPDATE context detection
   if (lastWord === 'SET' && /\bUPDATE\b/i.test(textBeforeCursor)) {
-    const updateTable = extractUpdateTableName(textBeforeCursor);
+    const updateTable = extractUpdateTableName(textBeforeCursor, dialect);
     if (updateTable) {
       return { type: 'update_column', targetTable: updateTable, statementType: 'update' };
     }
   }
 
   if (/\bUPDATE\b.*\bSET\b.*,\s*$/i.test(textBeforeCursor)) {
-    const updateTable = extractUpdateTableName(textBeforeCursor);
+    const updateTable = extractUpdateTableName(textBeforeCursor, dialect);
     if (updateTable) {
       return { type: 'update_column', targetTable: updateTable, statementType: 'update' };
     }
   }
 
   if (/\bUPDATE\b.*\bWHERE\b/i.test(textBeforeCursor)) {
-    const updateTable = extractUpdateTableName(textBeforeCursor);
+    const updateTable = extractUpdateTableName(textBeforeCursor, dialect);
     if (updateTable) {
       return { type: 'update_column', targetTable: updateTable, statementType: 'update' };
     }
@@ -1248,7 +1230,7 @@ export function getCompletionContext(
 
   // INSERT context detection
   if (/\bINSERT\s+(?:INTO\s+)?[^(]*\([^)]*$/i.test(textBeforeCursor)) {
-    const insertTable = extractInsertTableName(textBeforeCursor);
+    const insertTable = extractInsertTableName(textBeforeCursor, dialect);
     if (insertTable) {
       return { type: 'insert_column', targetTable: insertTable, statementType: 'insert' };
     }
@@ -1257,7 +1239,7 @@ export function getCompletionContext(
   // Keyword-based context detection
 
 
-  const isDatabaseContext = /\bUSE\s+\[?\w*$/i.test(textBeforeCursor);
+  const isDatabaseContext = dialect.features.useDatabase && /\bUSE\s+\[?\w*$/i.test(textBeforeCursor);
   if (isDatabaseContext) {
     const match = textBeforeCursor.match(/\bUSE\s+([\w\[]*)$/i);
     return {
@@ -1295,10 +1277,11 @@ export function getCompletionContext(
  */
 function getCompletionContextFromAST(
   textBeforeCursor: string,
-  fullText: string
+  fullText: string,
+  dialect: SqlDialect
 ): CompletionContext | null {
   try {
-    const ast = parseSQL(fullText);
+    const ast = parseSQL(fullText, dialect);
     if (!ast) {
       return null;
     }
@@ -1310,7 +1293,7 @@ function getCompletionContextFromAST(
     const statements = Array.isArray(ast) ? ast : [ast];
 
     for (const stmt of statements) {
-      const context = analyzeStatementContext(stmt, cursorOffset, fullText);
+      const context = analyzeStatementContext(stmt, cursorOffset, fullText, dialect.defaultSchema);
       if (context) {
         return context;
       }
@@ -1329,7 +1312,8 @@ function getCompletionContextFromAST(
 function analyzeStatementContext(
   stmt: SqlAst,
   _cursorOffset: number,
-  _fullText: string
+  _fullText: string,
+  defaultSchema: string
 ): CompletionContext | null {
   if (!stmt || typeof stmt !== 'object') {
     return null;
@@ -1347,7 +1331,7 @@ function analyzeStatementContext(
       type: 'update_column',
       statementType: 'update',
       targetTable: {
-        schema: tableRef.db || tableRef.schema || 'dbo',
+        schema: tableRef.db || tableRef.schema || defaultSchema,
         table: tableRef.table
       }
     };
@@ -1362,7 +1346,7 @@ function analyzeStatementContext(
       type: 'insert_column',
       statementType: 'insert',
       targetTable: {
-        schema: tableRef.db || tableRef.schema || 'dbo',
+        schema: tableRef.db || tableRef.schema || defaultSchema,
         table: tableRef.table
       }
     };

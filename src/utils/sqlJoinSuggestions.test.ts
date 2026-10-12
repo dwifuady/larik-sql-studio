@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { SchemaInfo } from '../types';
 import { buildJoinConditionSuggestions, getJoinSuggestionDebugRefs, isJoinConditionContext } from './sqlJoinSuggestions';
+import { postgresDialect } from '../dialects/postgres';
 
 const baseSchema: SchemaInfo = {
   database_name: 'testdb',
@@ -195,7 +196,7 @@ describe('sqlJoinSuggestions', () => {
       JOIN tenant_permission AS tp ON
     `.trimEnd();
 
-    const suggestions = buildJoinConditionSuggestions(sql, schema, 'postgres');
+    const suggestions = buildJoinConditionSuggestions(sql, schema, postgresDialect);
 
     expect(suggestions.length).toBeGreaterThan(0);
     for (const suggestion of suggestions) {
@@ -207,7 +208,7 @@ describe('sqlJoinSuggestions', () => {
   it('extracts double-quoted postgres table refs', () => {
     const refs = getJoinSuggestionDebugRefs(
       'SELECT * FROM "public"."tenant_user" AS tu JOIN "tenant_permission" ON ',
-      'postgres'
+      postgresDialect
     );
     expect(refs.map(r => `${r.schema}.${r.table}`)).toEqual([
       'public.tenant_user',

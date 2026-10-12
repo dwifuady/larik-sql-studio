@@ -4,6 +4,7 @@ import { Database, Folder, Table, RefreshCw, Search, ChevronRight, ChevronDown, 
 import type { TableInfo, RoutineInfo } from '../../types';
 import { driverOf } from '../../types';
 import { mongoFindQuery } from '../../utils/mongo/shell';
+import { getSqlDialect } from '../../dialects';
 
 interface TreeNode {
     id: string;
@@ -35,7 +36,7 @@ export function DatabaseExplorer() {
     const activeSpace = spaces.find(s => s.id === activeSpaceId);
     const spaceColor = activeSpace?.color || '#0078d4';
     const isMongo = driverOf(activeSpace?.connection_driver) === 'mongodb';
-    const isPostgres = driverOf(activeSpace?.connection_driver) === 'postgres';
+    const sqlDialect = getSqlDialect(driverOf(activeSpace?.connection_driver));
 
     // Convert SchemaInfo to Tree Structure
     const treeData = useMemo(() => {
@@ -178,11 +179,9 @@ export function DatabaseExplorer() {
         if (node.type === 'table' || node.type === 'view') {
             if (!activeSpaceId) return;
             const tableInfo = node.data as TableInfo;
-            const query = isMongo
-                ? mongoFindQuery(tableInfo.table_name, 100)
-                : isPostgres
-                  ? `SELECT * FROM "${tableInfo.schema_name}"."${tableInfo.table_name}" LIMIT 100`
-                  : `SELECT TOP 100 * FROM [${tableInfo.schema_name}].[${tableInfo.table_name}]`;
+            const query = sqlDialect
+                ? sqlDialect.selectTopQuery(tableInfo.schema_name, tableInfo.table_name, 100)
+                : mongoFindQuery(tableInfo.table_name, 100);
             await createTab(tableInfo.table_name, 'query', query, schemaInfo?.database_name);
         }
     };
@@ -195,8 +194,8 @@ export function DatabaseExplorer() {
             openTablePeek(node.data as TableInfo);
             return true;
         }
-        // Definition peeks read SQL Server catalogs
-        if (isMongo || isPostgres) return false;
+        // Definition peeks read SQL catalogs
+        if (!sqlDialect) return false;
         // Alt+click a table -> CREATE TABLE definition preview
         if (e.altKey && node.type === 'table') {
             openTableSourcePeek(node.data as TableInfo);

@@ -4,6 +4,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAppStore } from '../store';
 import type { Snippet } from '../types';
+import { DRIVER_LABELS } from '../types';
+import { SQL_DRIVERS, type SqlDriverKind } from '../dialects';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { importDbeaverTemplates } from '../utils/dbeaverImport';
 
@@ -26,6 +28,7 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedDriver, setSelectedDriver] = useState<SqlDriverKind | null>(null);
   const [editingSnippet, setEditingSnippet] = useState<Snippet | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
@@ -36,6 +39,8 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
   const [formContent, setFormContent] = useState('');
   const [formDescription, setFormDescription] = useState('');
   const [formCategory, setFormCategory] = useState('');
+  // Databases the snippet applies to; empty = every SQL database
+  const [formDrivers, setFormDrivers] = useState<SqlDriverKind[]>([]);
 
   // Load snippets when dialog opens
   useEffect(() => {
@@ -61,7 +66,12 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
       selectedCategory === null || 
       snippet.category === selectedCategory;
 
-    return matchesSearch && matchesCategory;
+    const matchesDriver =
+      selectedDriver === null ||
+      !snippet.drivers ||
+      snippet.drivers.includes(selectedDriver);
+
+    return matchesSearch && matchesCategory && matchesDriver;
   });
 
   // Insert text at cursor position in a textarea by id
@@ -89,6 +99,7 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
     setFormContent('');
     setFormDescription('');
     setFormCategory('');
+    setFormDrivers([]);
     setEditingSnippet(null);
     setIsCreating(false);
   }, []);
@@ -106,6 +117,7 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
     setFormContent(snippet.content);
     setFormDescription(snippet.description || '');
     setFormCategory(snippet.category || '');
+    setFormDrivers((snippet.drivers ?? []).filter((d): d is SqlDriverKind => SQL_DRIVERS.includes(d as SqlDriverKind)));
     setEditingSnippet(snippet);
     setIsCreating(false);
   };
@@ -128,6 +140,7 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
           content: formContent,
           description: formDescription.trim() || null,
           category: formCategory.trim() || null,
+          drivers: formDrivers,
         });
         addToast({
           type: 'success',
@@ -140,6 +153,7 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
           content: formContent,
           description: formDescription.trim() || null,
           category: formCategory.trim() || null,
+          drivers: formDrivers,
         });
         addToast({
           type: 'success',
@@ -329,6 +343,24 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
                   </button>
                 ))}
               </div>
+
+              <div className="flex items-center gap-2 overflow-x-auto pb-1" role="radiogroup" aria-label="Filter by database">
+                {[null, ...SQL_DRIVERS].map(driver => (
+                  <button
+                    key={driver ?? 'all'}
+                    role="radio"
+                    aria-checked={selectedDriver === driver}
+                    onClick={() => setSelectedDriver(driver)}
+                    className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                      selectedDriver === driver
+                        ? 'bg-[var(--accent-color)] text-white'
+                        : 'bg-white/5 text-[var(--text-muted)] hover:bg-white/10'
+                    }`}
+                  >
+                    {driver ? DRIVER_LABELS[driver] : 'All databases'}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Snippet list */}
@@ -366,6 +398,11 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
                             Disabled
                           </span>
                         )}
+                        {snippet.drivers?.map(driver => (
+                          <span key={driver} className="px-1.5 py-0.5 bg-sky-500/20 rounded text-[10px] text-sky-300">
+                            {DRIVER_LABELS[driver] ?? driver}
+                          </span>
+                        ))}
                       </div>
                       {snippet.category && (
                         <span className="text-xs text-[var(--text-muted)]">{snippet.category}</span>
@@ -475,6 +512,50 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
                         <option key={cat} value={cat} />
                       ))}
                     </datalist>
+                  </div>
+
+                  {/* Databases */}
+                  <div>
+                    <label className="block text-xs font-medium text-[var(--text-muted)] mb-1.5">
+                      Databases
+                    </label>
+                    <div className="flex items-center gap-2 flex-wrap" role="group" aria-label="Databases this snippet applies to">
+                      <button
+                        type="button"
+                        aria-pressed={formDrivers.length === 0}
+                        onClick={() => setFormDrivers([])}
+                        className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                      formDrivers.length === 0
+                        ? 'bg-[var(--accent-color)] text-white'
+                        : 'bg-white/5 text-[var(--text-muted)] hover:bg-white/10'
+                    }`}
+                      >
+                        All SQL databases
+                      </button>
+                      {SQL_DRIVERS.map(driver => {
+                        const active = formDrivers.includes(driver);
+                        return (
+                          <button
+                            key={driver}
+                            type="button"
+                            aria-pressed={active}
+                            onClick={() => setFormDrivers(current =>
+                              active ? current.filter(d => d !== driver) : [...current, driver]
+                            )}
+                            className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                      active
+                        ? 'bg-[var(--accent-color)] text-white'
+                        : 'bg-white/5 text-[var(--text-muted)] hover:bg-white/10'
+                    }`}
+                          >
+                            {DRIVER_LABELS[driver]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[10px] text-[var(--text-muted)] mt-1.5">
+                      Only suggested in editors connected to these databases.
+                    </p>
                   </div>
 
                   {/* Description */}

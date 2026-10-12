@@ -388,11 +388,6 @@ export interface SchemaInfo {
   fetched_at: string;
 }
 
-/** Get fully qualified name for a table */
-export function getFullTableName(table: TableInfo): string {
-  return `[${table.schema_name}].[${table.table_name}]`;
-}
-
 /** Get display data type including size info */
 export function getDisplayDataType(column: SchemaColumnInfo): string {
   const { data_type, max_length, precision, scale } = column;
@@ -471,6 +466,8 @@ export interface Snippet {
   enabled: boolean;
   /** Category for grouping (e.g., "Select", "Insert", "DDL") */
   category: string | null;
+  /** SQL drivers the snippet applies to; null = every SQL database */
+  drivers: DriverKind[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -482,6 +479,8 @@ export interface CreateSnippetInput {
   content: string;
   description?: string | null;
   category?: string | null;
+  /** SQL drivers the snippet applies to; null/empty = every SQL database */
+  drivers?: DriverKind[] | null;
 }
 
 /** Input for updating an existing snippet */
@@ -492,6 +491,8 @@ export interface UpdateSnippetInput {
   description?: string | null;
   category?: string | null;
   enabled?: boolean | null;
+  /** New driver scope; an empty array resets it to every SQL database */
+  drivers?: DriverKind[] | null;
 }
 
 /** Parsed snippet from DBeaver XML format */

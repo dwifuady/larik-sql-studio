@@ -2,7 +2,6 @@
  * SQL identifier quoting helpers (frontend).
  * Mirrors src-tauri/src/db/mssql/ident.rs and src-tauri/src/db/postgres/ident.rs.
  */
-import type { DriverKind } from '../../types';
 
 /** Bracket-quote a T-SQL identifier, escaping `]` → `]]`. */
 export function quoteIdent(name: string): string {
@@ -17,8 +16,9 @@ export function unwrapIdent(tok: string): string {
 }
 
 /**
- * PostgreSQL words that cannot appear bare as an identifier. Subset of the
- * reserved list; anything ambiguous gets double-quoted, which is always safe.
+ * PostgreSQL words that cannot appear bare as an identifier: every "reserved"
+ * and "reserved (can be function or type)" keyword, plus a few common
+ * non-reserved type keywords. Over-quoting is always safe.
  */
 const PG_RESERVED: Record<string, true> = {
   all: true, analyse: true, analyze: true, and: true, any: true, array: true,
@@ -41,6 +41,9 @@ const PG_RESERVED: Record<string, true> = {
   some: true, table: true, then: true, to: true, trailing: true, true: true,
   union: true, unique: true, update: true, user: true, using: true, values: true,
   variadic: true, view: true, when: true, where: true, with: true,
+  concurrently: true, cross: true, freeze: true, full: true, ilike: true,
+  isnull: true, notnull: true, symmetric: true, system_user: true,
+  tablesample: true, verbose: true, window: true,
 };
 
 /** Unquoted PostgreSQL identifiers: lowercase start, `[a-z0-9_$]`, not reserved. */
@@ -48,19 +51,7 @@ export function isSafePostgresBareIdent(name: string): boolean {
   return /^[a-z_][a-z0-9_$]*$/.test(name) && !PG_RESERVED[name];
 }
 
-/**
- * Quote an identifier for the active driver:
- * - mssql: `[name]` with `]]` escaping
- * - postgres: bare when unambiguous, else `"name"` with `""` escaping
- */
-export function quoteSqlIdent(name: string, driver: DriverKind): string {
-  if (driver === 'postgres') {
-    return isSafePostgresBareIdent(name) ? name : `"${name.replace(/"/g, '""')}"`;
-  }
-  return quoteIdent(name);
-}
-
-/** Quote a `schema.name` pair for the active driver. */
-export function quoteQualifiedSqlIdent(schema: string, name: string, driver: DriverKind): string {
-  return `${quoteSqlIdent(schema, driver)}.${quoteSqlIdent(name, driver)}`;
+/** Double-quote a PostgreSQL identifier only when it can't appear bare. */
+export function quotePostgresIdent(name: string): string {
+  return isSafePostgresBareIdent(name) ? name : `"${name.replace(/"/g, '""')}"`;
 }

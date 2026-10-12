@@ -1,31 +1,27 @@
 import { describe, it, expect } from 'vitest';
-import { quoteSqlIdent, quoteQualifiedSqlIdent, isSafePostgresBareIdent } from './ident';
+import { quoteIdent, quotePostgresIdent, isSafePostgresBareIdent } from './ident';
 
-describe('quoteSqlIdent', () => {
-  it('brackets T-SQL identifiers and escapes ]', () => {
-    expect(quoteSqlIdent('users', 'mssql')).toBe('[users]');
-    expect(quoteSqlIdent('my]db', 'mssql')).toBe('[my]]db]');
+describe('quoteIdent (T-SQL)', () => {
+  it('brackets identifiers and escapes ]', () => {
+    expect(quoteIdent('users')).toBe('[users]');
+    expect(quoteIdent('my]db')).toBe('[my]]db]');
+  });
+});
+
+describe('quotePostgresIdent', () => {
+  it('leaves safe lowercase identifiers bare', () => {
+    expect(quotePostgresIdent('endorsement')).toBe('endorsement');
+    expect(quotePostgresIdent('public')).toBe('public');
+    expect(quotePostgresIdent('_x1$')).toBe('_x1$');
   });
 
-  it('leaves safe lowercase postgres identifiers bare', () => {
-    expect(quoteSqlIdent('endorsement', 'postgres')).toBe('endorsement');
-    expect(quoteSqlIdent('public', 'postgres')).toBe('public');
-    expect(quoteSqlIdent('_x1$', 'postgres')).toBe('_x1$');
-  });
-
-  it('double-quotes unsafe or reserved postgres identifiers', () => {
-    expect(quoteSqlIdent('MyTable', 'postgres')).toBe('"MyTable"');
-    expect(quoteSqlIdent('order', 'postgres')).toBe('"order"');
-    expect(quoteSqlIdent('select', 'postgres')).toBe('"select"');
-    expect(quoteSqlIdent('a b', 'postgres')).toBe('"a b"');
-    expect(quoteSqlIdent('1abc', 'postgres')).toBe('"1abc"');
-    expect(quoteSqlIdent('we"ird', 'postgres')).toBe('"we""ird"');
-  });
-
-  it('qualifies schema.name pairs per dialect', () => {
-    expect(quoteQualifiedSqlIdent('public', 'endorsement', 'postgres')).toBe('public.endorsement');
-    expect(quoteQualifiedSqlIdent('public', 'endorsement', 'mssql')).toBe('[public].[endorsement]');
-    expect(quoteQualifiedSqlIdent('MySchema', 'Order', 'postgres')).toBe('"MySchema"."Order"');
+  it('double-quotes unsafe or reserved identifiers', () => {
+    expect(quotePostgresIdent('MyTable')).toBe('"MyTable"');
+    expect(quotePostgresIdent('order')).toBe('"order"');
+    expect(quotePostgresIdent('select')).toBe('"select"');
+    expect(quotePostgresIdent('a b')).toBe('"a b"');
+    expect(quotePostgresIdent('1abc')).toBe('"1abc"');
+    expect(quotePostgresIdent('we"ird')).toBe('"we""ird"');
   });
 });
 
@@ -37,6 +33,9 @@ describe('isSafePostgresBareIdent', () => {
 
   it('rejects reserved words and unsafe shapes', () => {
     expect(isSafePostgresBareIdent('group')).toBe(false);
+    for (const word of ['window', 'cross', 'full', 'ilike', 'isnull', 'notnull', 'verbose', 'tablesample']) {
+      expect(isSafePostgresBareIdent(word)).toBe(false);
+    }
     expect(isSafePostgresBareIdent('UserId')).toBe(false);
     expect(isSafePostgresBareIdent('')).toBe(false);
     expect(isSafePostgresBareIdent('a;b')).toBe(false);
