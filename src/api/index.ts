@@ -558,6 +558,7 @@ export async function createSnippet(input: CreateSnippetInput): Promise<Snippet>
     content: input.content,
     description: input.description,
     category: input.category,
+    drivers: input.drivers,
   });
 }
 
@@ -571,6 +572,7 @@ export async function updateSnippet(id: string, input: UpdateSnippetInput): Prom
     description: input.description,
     category: input.category,
     enabled: input.enabled,
+    drivers: input.drivers,
   });
 }
 

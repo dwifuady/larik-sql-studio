@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { SchemaInfo } from '../types';
 import { buildJoinConditionSuggestions, getJoinSuggestionDebugRefs, isJoinConditionContext } from './sqlJoinSuggestions';
+import { postgresDialect } from '../dialects/postgres';
 
 const baseSchema: SchemaInfo = {
   database_name: 'testdb',
@@ -159,5 +160,59 @@ describe('sqlJoinSuggestions', () => {
     const suggestions = buildJoinConditionSuggestions(sql, schema);
 
     expect(suggestions[0]?.insertText).toBe('[tp].[TenantId] = [tu].[TenantId] AND [tp].[UserId] = [tu].[UserId]');
+  });
+
+  it('emits bare identifiers for postgres tables and defaults schema to public', () => {
+    const schema: SchemaInfo = {
+      ...baseSchema,
+      schemas: ['public'],
+      tables: [
+        {
+          schema_name: 'public',
+          table_name: 'tenant_user',
+          table_type: 'BASE TABLE',
+          columns: [
+            { name: 'id', data_type: 'int4', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: true, is_identity: false, is_computed: false, column_default: null, ordinal_position: 1 },
+            { name: 'tenant_id', data_type: 'int4', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: false, is_identity: false, is_computed: false, column_default: null, ordinal_position: 2 },
+            { name: 'user_id', data_type: 'int4', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: false, is_identity: false, is_computed: false, column_default: null, ordinal_position: 3 },
+          ],
+        },
+        {
+          schema_name: 'public',
+          table_name: 'tenant_permission',
+          table_type: 'BASE TABLE',
+          columns: [
+            { name: 'id', data_type: 'int4', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: true, is_identity: false, is_computed: false, column_default: null, ordinal_position: 1 },
+            { name: 'tenant_id', data_type: 'int4', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: false, is_identity: false, is_computed: false, column_default: null, ordinal_position: 2 },
+            { name: 'user_id', data_type: 'int4', max_length: null, precision: null, scale: null, is_nullable: false, is_primary_key: false, is_identity: false, is_computed: false, column_default: null, ordinal_position: 3 },
+          ],
+        },
+      ],
+    };
+
+    const sql = `
+      SELECT *
+      FROM tenant_user AS tu
+      JOIN tenant_permission AS tp ON
+    `.trimEnd();
+
+    const suggestions = buildJoinConditionSuggestions(sql, schema, postgresDialect);
+
+    expect(suggestions.length).toBeGreaterThan(0);
+    for (const suggestion of suggestions) {
+      expect(suggestion.insertText).not.toContain('[');
+      expect(suggestion.insertText).toMatch(/^tp\.[a-z_]+ = tu\.[a-z_]+$/);
+    }
+  });
+
+  it('extracts double-quoted postgres table refs', () => {
+    const refs = getJoinSuggestionDebugRefs(
+      'SELECT * FROM "public"."tenant_user" AS tu JOIN "tenant_permission" ON ',
+      postgresDialect
+    );
+    expect(refs.map(r => `${r.schema}.${r.table}`)).toEqual([
+      'public.tenant_user',
+      'public.tenant_permission',
+    ]);
   });
 });

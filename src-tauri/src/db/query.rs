@@ -18,7 +18,7 @@ const DEFAULT_ROW_LIMIT: usize = 5000;
 const MAX_ROW_LIMIT: usize = 100_000;
 
 /// Represents a single cell value in the result set
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum CellValue {
     Null,

@@ -1,8 +1,8 @@
 import { StateCreator } from 'zustand';
 import type { QueryResult, TableInfo } from '../../types';
 import * as api from '../../api';
-import { generateCreateTableScript } from '../../utils/sql';
 import { driverOf } from '../../types';
+import { getSqlDialect, DEFAULT_SQL_DIALECT } from '../../dialects';
 import { mongoFindQuery } from '../../utils/mongo/shell';
 import type { AppState } from '../index';
 
@@ -54,6 +54,11 @@ const initialPeek: PeekState = {
     error: null,
 };
 
+/** SQL dialect of the active space (definition peeks only exist for SQL engines). */
+function activeSqlDialect(state: AppState) {
+    return getSqlDialect(driverOf(state.getActiveSpace()?.connection_driver)) ?? DEFAULT_SQL_DIALECT;
+}
+
 // Monotonic token so a slow peek request can't overwrite a newer one when the
 // user clicks another object before the first query returns.
 let peekToken = 0;
@@ -71,7 +76,7 @@ export const createPeekSlice: StateCreator<AppState, [], [], PeekSlice> = (set, 
         const database = get().schemaInfo?.database_name ?? null;
         const query = driverOf(get().getActiveSpace()?.connection_driver) === 'mongodb'
             ? mongoFindQuery(table.table_name, 100)
-            : `SELECT TOP 100 * FROM [${table.schema_name}].[${table.table_name}]`;
+            : activeSqlDialect(get()).selectTopQuery(table.schema_name, table.table_name, 100);
         const token = ++peekToken;
 
         set({
@@ -120,8 +125,7 @@ export const createPeekSlice: StateCreator<AppState, [], [], PeekSlice> = (set, 
         }
 
         const database = get().schemaInfo?.database_name ?? null;
-        // OBJECT_DEFINITION returns the full CREATE text of a view/proc/function.
-        const query = `SELECT OBJECT_DEFINITION(OBJECT_ID(N'[${schemaName}].[${objectName}]')) AS [definition]`;
+        const query = activeSqlDialect(get()).objectDefinitionQuery(objectType, schemaName, objectName);
         const token = ++peekToken;
 
         set({
@@ -166,8 +170,8 @@ export const createPeekSlice: StateCreator<AppState, [], [], PeekSlice> = (set, 
     },
 
     openTableSourcePeek: (table) => {
-        // OBJECT_DEFINITION is NULL for base tables, so we synthesize the
-        // CREATE TABLE script from schema metadata we already hold in memory.
+        // Catalog definition functions don't cover base tables, so we synthesize
+        // the CREATE TABLE script from schema metadata we already hold in memory.
         peekToken++; // invalidate any in-flight data/source request
         set({
             peek: {
@@ -178,7 +182,7 @@ export const createPeekSlice: StateCreator<AppState, [], [], PeekSlice> = (set, 
                 schema: table.schema_name,
                 name: table.table_name,
                 database: get().schemaInfo?.database_name ?? null,
-                content: generateCreateTableScript(table),
+                content: activeSqlDialect(get()).createTableScript(table),
                 loading: false,
             },
         });

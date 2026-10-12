@@ -1291,6 +1291,7 @@ pub async fn create_snippet(
     content: String,
     description: Option<String>,
     category: Option<String>,
+    drivers: Option<Vec<String>>,
 ) -> Result<Snippet, ApiError> {
     let db = state.db.lock().await;
     db.create_snippet(CreateSnippetInput {
@@ -1299,6 +1300,7 @@ pub async fn create_snippet(
         content,
         description,
         category,
+        drivers,
     })
     .map_err(|e| ApiError::from(e))
 }
@@ -1314,6 +1316,7 @@ pub async fn update_snippet(
     description: Option<String>,
     category: Option<String>,
     enabled: Option<bool>,
+    drivers: Option<Vec<String>>,
 ) -> Result<Option<Snippet>, ApiError> {
     let db = state.db.lock().await;
     db.update_snippet(
@@ -1325,6 +1328,7 @@ pub async fn update_snippet(
             description,
             category,
             enabled,
+            drivers,
         },
     )
     .map_err(|e| ApiError::from(e))

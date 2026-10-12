@@ -9,12 +9,12 @@ import { format } from 'sql-formatter';
  * Format SQL with proper indentation for readability
  * Uses sql-formatter library with T-SQL dialect
  */
-export function formatSqlWithIndentation(sql: string): string {
+export function formatSqlWithIndentation(sql: string, language: 'tsql' | 'postgresql' = 'tsql'): string {
   if (!sql || !sql.trim()) return sql;
 
   try {
     return format(sql, {
-      language: 'tsql', // SQL Server / T-SQL
+      language,
       tabWidth: 2,
       keywordCase: 'upper',
       indentStyle: 'standard',

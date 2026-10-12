@@ -4,7 +4,8 @@
  */
 
 import NodeSqlParser from 'node-sql-parser';
-import { splitSqlStatements } from '@/utils/sql/split';
+import type { SqlDialect } from '@/dialects/types';
+import { mssqlDialect } from '@/dialects/mssql';
 
 const { Parser } = NodeSqlParser;
 
@@ -28,18 +29,20 @@ export interface StatementLocation {
  * @param sql - Full SQL text from the editor
  * @param cursorLine - 1-based line number of cursor
  * @param cursorColumn - 1-based column number of cursor
+ * @param dialect - SQL dialect (batch separator, statement splitter, parser)
  * @returns Statement location or null if detection failed
  */
 export function extractStatementAtCursor(
   sql: string,
   cursorLine: number,
-  _cursorColumn: number
+  _cursorColumn: number,
+  dialect: SqlDialect = mssqlDialect
 ): StatementLocation | null {
   if (!sql || sql.trim().length === 0) {
     return null;
   }
 
-  const batches = splitByGoBatches(sql);
+  const batches = splitBatches(sql, dialect);
 
   // Find which batch contains the cursor
   let currentLine = 1;
@@ -64,28 +67,21 @@ export function extractStatementAtCursor(
   const parser = new Parser();
   let statements: any[] | null = null;
 
-  try {
-    // Try TransactSQL first
+  // Try each of the dialect's parsers in order. If none handles this batch
+  // (e.g. MERGE statements, which node-sql-parser does not support), fall back
+  // to the dialect's statement splitter below so we still locate the
+  // statement correctly.
+  for (const database of dialect.parserDatabases) {
     try {
-      const ast = parser.astify(batchWithCursor.batch, { database: 'TransactSQL' });
+      const ast = parser.astify(batchWithCursor.batch, { database });
       statements = Array.isArray(ast) ? ast : [ast];
-    } catch (tsqlErr) {
-      // Fallback to MySQL
-      try {
-        const ast = parser.astify(batchWithCursor.batch, { database: 'MySQL' });
-        statements = Array.isArray(ast) ? ast : [ast];
-      } catch (mysqlErr) {
-        // Neither parser handled this batch (e.g. MERGE statements which
-        // node-sql-parser does not support). Fall back to semicolon-based
-        // statement splitting below so we still locate the statement correctly.
-        statements = null;
-      }
+      break;
+    } catch {
+      // Silent - try the next parser
     }
-  } catch (err) {
-    statements = null;
   }
 
-  const statementTexts = splitSqlStatements(batchWithCursor.batch);
+  const statementTexts = dialect.splitStatements(batchWithCursor.batch);
 
   // If parsing failed, use the semicolon splits as the statement list.
   // This keeps detection working for statements node-sql-parser can't parse,
@@ -281,6 +277,11 @@ function includeStatementTerminator(
   return { statement: statement + ';', endLine, endColumn };
 }
 
+/** Batches for the dialect: `GO`-separated for T-SQL, the whole text otherwise. */
+function splitBatches(sql: string, dialect: SqlDialect): string[] {
+  return dialect.features.batchSeparator ? splitByGoBatches(sql) : [sql];
+}
+
 /**
  * Split SQL by GO batch separator (case-insensitive, must be on its own line)
  * GO is SQL Server specific and not valid SQL syntax
@@ -322,15 +323,15 @@ function splitByGoBatches(sql: string): string[] {
  * @param sql - Full SQL text
  * @returns Array of statement locations
  */
-export function extractAllStatements(sql: string): StatementLocation[] {
+export function extractAllStatements(sql: string, dialect: SqlDialect = mssqlDialect): StatementLocation[] {
   if (!sql || sql.trim().length === 0) {
     return [];
   }
 
   const result: StatementLocation[] = [];
 
-  // Step 1: Handle GO batch separator
-  const batches = splitByGoBatches(sql);
+  // Step 1: Handle batch separators (GO in T-SQL)
+  const batches = splitBatches(sql, dialect);
   let currentLine = 1;
 
   for (const batch of batches) {
@@ -342,7 +343,7 @@ export function extractAllStatements(sql: string): StatementLocation[] {
       continue;
     }
 
-    const statementTexts = splitSqlStatements(batch);
+    const statementTexts = dialect.splitStatements(batch);
 
     let searchStartLine = 0; // 0-based index within batch
 
@@ -410,8 +411,10 @@ export function extractAllStatements(sql: string): StatementLocation[] {
 export function findCurrentSqlBlockFallback(
   sql: string,
   cursorLine: number,
-  _cursorColumn: number
+  _cursorColumn: number,
+  dialect: SqlDialect = mssqlDialect
 ): StatementLocation | null {
+  const isBatchSeparator = (line: string) => dialect.features.batchSeparator && /^GO$/i.test(line);
   const lines = sql.split('\n');
 
   let startLine = cursorLine;
@@ -420,7 +423,7 @@ export function findCurrentSqlBlockFallback(
 
     if (cursorLine - i > 100) break;
 
-    if (line.length === 0 || /^GO$/i.test(line) || line.endsWith(';')) {
+    if (line.length === 0 || isBatchSeparator(line) || line.endsWith(';')) {
       startLine = i + 2;
       break;
     }
@@ -436,7 +439,7 @@ export function findCurrentSqlBlockFallback(
 
     if (i - cursorLine > 100) break;
 
-    if (/^GO$/i.test(line) || line.endsWith(';')) {
+    if (isBatchSeparator(line) || line.endsWith(';')) {
       endLine = i + 1;
       break;
     }

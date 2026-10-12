@@ -12,7 +12,7 @@ interface DriverPickerProps {
 
 export function DriverPicker({ value, onChange }: DriverPickerProps) {
   return (
-    <div role="radiogroup" aria-label="Database type" className="grid grid-cols-2 gap-1 p-0.5 mb-2 bg-white/5 rounded">
+    <div role="radiogroup" aria-label="Database type" className="grid grid-cols-3 gap-1 p-0.5 mb-2 bg-white/5 rounded">
       {DRIVERS.map(driver => (
         <button
           key={driver}

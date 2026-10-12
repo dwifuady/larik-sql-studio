@@ -5,10 +5,12 @@
 
 import NodeSqlParser from 'node-sql-parser';
 import type { AST } from 'node-sql-parser';
-import { splitSqlStatements } from '@/utils/sql/split';
 import type { SchemaInfo, TableInfo, SchemaColumnInfo } from '../types';
+import type { SqlDialect } from '../dialects/types';
+import { mssqlDialect } from '../dialects/mssql';
 
 type SqlAst = AST | AST[] | Record<string, unknown> | Record<string, unknown>[];
+
 
 const { Parser } = NodeSqlParser;
 
@@ -45,9 +47,10 @@ export class SqlValidator {
    * Validate SQL query and return errors
    * @param query - The SQL query to validate
    * @param schemaInfo - Optional schema information for semantic validation
+   * @param dialect - SQL dialect whose parser and splitter to use
    * @returns Array of validation errors
    */
-  validateQuery(query: string, schemaInfo: SchemaInfo | null): ValidationError[] {
+  validateQuery(query: string, schemaInfo: SchemaInfo | null, dialect: SqlDialect = mssqlDialect): ValidationError[] {
     const errors: ValidationError[] = [];
 
     // Empty or whitespace-only queries are valid (no errors)
@@ -58,13 +61,7 @@ export class SqlValidator {
     // Step 1: Parse syntax with appropriate database dialect
     let ast: SqlAst;
     try {
-      // Try TransactSQL first for SQL Server specific syntax
-      try {
-        ast = this.parser.astify(query, { database: 'TransactSQL' });
-      } catch (tsqlErr) {
-        // Fallback to MySQL dialect for standard SQL
-        ast = this.parser.astify(query, { database: 'MySQL' });
-      }
+      ast = this.astify(query, dialect.parserDatabases);
     } catch (err: unknown) {
       // Syntax error - try to find the actual error location in the query
       const { line, column, message } = this.extractErrorInfo(err, query);
@@ -80,10 +77,12 @@ export class SqlValidator {
       return errors; // Can't validate semantics if syntax is broken
     }
 
-    // Step 2: Validate tables and columns if schema available
-    if (schemaInfo) {
+    // Step 2: Validate tables and columns if schema available.
+    // The semantic checks walk T-SQL AST shapes; dialects without them skip
+    // the step rather than emit false "table not found" warnings.
+    if (schemaInfo && dialect.features.semanticValidation) {
       try {
-        errors.push(...this.validateSemantics(ast, schemaInfo, query));
+        errors.push(...this.validateSemantics(ast, schemaInfo, query, dialect));
       } catch (err: unknown) {
         // Semantic validation failed - log but don't crash
         console.error('Semantic validation error:', err);
@@ -94,16 +93,32 @@ export class SqlValidator {
   }
 
   /**
+   * Parse with each of the dialect's parsers in order (later ones are
+   * fallbacks); throws the last parser's error when none succeeds.
+   */
+  private astify(query: string, databases: readonly string[]): SqlAst {
+    let lastError: unknown = new Error('No SQL parser configured');
+    for (const database of databases) {
+      try {
+        return this.parser.astify(query, { database });
+      } catch (err: unknown) {
+        lastError = err;
+      }
+    }
+    throw lastError;
+  }
+
+  /**
    * Validate semantics (tables and columns) against schema
    */
-  private validateSemantics(ast: SqlAst, schemaInfo: SchemaInfo, query: string): ValidationError[] {
+  private validateSemantics(ast: SqlAst, schemaInfo: SchemaInfo, query: string, dialect: SqlDialect): ValidationError[] {
     const errors: ValidationError[] = [];
 
     // Handle multi-statement queries (array of ASTs)
     const statements = Array.isArray(ast) ? ast : [ast];
 
     // Split query by semicolons to track statement positions
-    const statementTexts = splitSqlStatements(query);
+    const statementTexts = dialect.splitStatements(query);
 
     let currentLineOffset = 0;
 

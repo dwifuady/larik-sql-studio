@@ -6,6 +6,7 @@ import { useAppStore } from '../store'; // Consolidated import if possible, but 
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import type { Tab, SchemaInfo, SchemaColumnInfo, ParameterInfo } from '../types';
 import { spaceHasConnection, getDisplayDataType, driverOf } from '../types';
+import { getSqlDialect, DEFAULT_SQL_DIALECT, SQL_MONACO_LANGUAGES, type SqlDialect } from '../dialects';
 import { ResultsGrid } from './ResultsGrid';
 import { GeneratedQueryBar } from './GeneratedQueryBar';
 import { formatSqlWithIndentation } from '../utils/sqlFormatter';
@@ -40,62 +41,6 @@ interface QueryEditorProps {
 
 const EVENT_RUN_QUERY_CODELENS = 'larik:run-query-codelens';
 const EVENT_EDITOR_ACTION = 'larik:editor-action';
-
-// SQL keywords for basic completion
-const SQL_KEYWORDS = [
-  'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'NOT', 'IN', 'LIKE',
-  'ORDER BY', 'GROUP BY', 'HAVING', 'JOIN', 'LEFT JOIN', 'RIGHT JOIN',
-  'INNER JOIN', 'OUTER JOIN', 'CROSS JOIN', 'ON', 'AS', 'DISTINCT', 'TOP',
-  'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE',
-  'CREATE', 'ALTER', 'DROP', 'TABLE', 'INDEX', 'VIEW', 'PROCEDURE', 'FUNCTION',
-  'NULL', 'IS NULL', 'IS NOT NULL', 'BETWEEN', 'EXISTS',
-  'UNION', 'UNION ALL', 'EXCEPT', 'INTERSECT',
-  'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
-  'CAST', 'CONVERT', 'COALESCE', 'NULLIF', 'IIF', 'ISNULL',
-  'BEGIN', 'COMMIT', 'ROLLBACK', 'TRANSACTION',
-  'DECLARE', 'EXEC', 'EXECUTE', 'RETURN', 'PRINT',
-  'WITH', 'CTE', 'OVER', 'PARTITION BY', 'ROW_NUMBER', 'RANK', 'DENSE_RANK',
-  'OFFSET', 'FETCH', 'NEXT', 'ROWS', 'ONLY',
-  'ASC', 'DESC', 'NULLS', 'FIRST', 'LAST',
-  'CROSS APPLY', 'OUTER APPLY', 'PIVOT', 'UNPIVOT',
-  'MERGE', 'MATCHED', 'OUTPUT', 'INSERTED', 'DELETED',
-  'USE',
-];
-
-// SQL built-in functions
-const SQL_FUNCTIONS = [
-  // Aggregate functions
-  'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'STDEV', 'STDEVP', 'VAR', 'VARP',
-  'STRING_AGG', 'GROUPING', 'GROUPING_ID',
-  // String functions
-  'LEN', 'DATALENGTH', 'LEFT', 'RIGHT', 'SUBSTRING', 'CHARINDEX', 'PATINDEX',
-  'REPLACE', 'STUFF', 'REPLICATE', 'REVERSE', 'LTRIM', 'RTRIM', 'TRIM',
-  'UPPER', 'LOWER', 'CONCAT', 'CONCAT_WS', 'STRING_SPLIT', 'FORMAT',
-  'QUOTENAME', 'SPACE', 'CHAR', 'ASCII', 'UNICODE', 'NCHAR',
-  // Date/Time functions
-  'GETDATE', 'GETUTCDATE', 'SYSDATETIME', 'SYSUTCDATETIME', 'SYSDATETIMEOFFSET',
-  'DATEADD', 'DATEDIFF', 'DATEDIFF_BIG', 'DATEPART', 'DATENAME', 'DAY', 'MONTH', 'YEAR',
-  'EOMONTH', 'DATEFROMPARTS', 'DATETIME2FROMPARTS', 'ISDATE',
-  // Conversion functions
-  'CAST', 'CONVERT', 'TRY_CAST', 'TRY_CONVERT', 'PARSE', 'TRY_PARSE',
-  // Logical functions
-  'IIF', 'CHOOSE', 'COALESCE', 'NULLIF',
-  // Math functions
-  'ABS', 'CEILING', 'FLOOR', 'ROUND', 'POWER', 'SQRT', 'SQUARE', 'SIGN',
-  'LOG', 'LOG10', 'EXP', 'PI', 'RAND', 'SIN', 'COS', 'TAN',
-  // Window functions
-  'ROW_NUMBER', 'RANK', 'DENSE_RANK', 'NTILE', 'LAG', 'LEAD',
-  'FIRST_VALUE', 'LAST_VALUE', 'PERCENT_RANK', 'CUME_DIST',
-  // System functions
-  'NEWID', 'NEWSEQUENTIALID', 'SCOPE_IDENTITY', '@@IDENTITY', '@@ROWCOUNT',
-  'ISNULL', 'ISNUMERIC', 'ISDATE', 'OBJECT_ID', 'OBJECT_NAME',
-  'DB_ID', 'DB_NAME', 'SCHEMA_ID', 'SCHEMA_NAME', 'USER_ID', 'USER_NAME',
-  // JSON functions
-  'JSON_VALUE', 'JSON_QUERY', 'JSON_MODIFY', 'ISJSON', 'OPENJSON',
-];
-
-// Keywords where table aliases should be suggested (FROM, JOIN contexts)
-const TABLE_ALIAS_KEYWORDS = ['FROM', 'JOIN', 'INNER JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'OUTER JOIN', 'CROSS JOIN', 'APPLY', 'CROSS APPLY', 'OUTER APPLY'];
 
 // Local storage key for tracking recently used tables
 const RECENT_TABLES_KEY = 'larik_recent_tables';
@@ -140,8 +85,8 @@ function getRecentTables(): Set<string> {
  * Returns a map of alias -> full table name
  * Now uses AST parsing for better accuracy with CTEs, subqueries, etc.
  */
-function parseTableAliases(sql: string): Map<string, { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } }> {
-  return parseTableAliasesAST(sql);
+function parseTableAliases(sql: string, dialect: SqlDialect): Map<string, { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } }> {
+  return parseTableAliasesAST(sql, dialect);
 }
 
 /**
@@ -171,8 +116,8 @@ function generateTableAlias(tableName: string): string {
  * Track which aliases have been used in the current query to avoid conflicts
  * Now uses AST parsing to catch all alias types (explicit, implicit, CTEs)
  */
-function getUsedAliases(sql: string): Set<string> {
-  return getUsedAliasesAST(sql);
+function getUsedAliases(sql: string, dialect: SqlDialect): Set<string> {
+  return getUsedAliasesAST(sql, dialect);
 }
 
 /**
@@ -216,8 +161,8 @@ function generateUniqueAlias(tableName: string, usedAliases: Set<string>): strin
  * Extract table names referenced in the query (for tracking recently used)
  * Now uses AST parsing to recursively find tables in subqueries, CTEs, etc.
  */
-function extractReferencedTables(sql: string): Array<{ schema: string; table: string }> {
-  return extractReferencedTablesAST(sql);
+function extractReferencedTables(sql: string, dialect: SqlDialect): Array<{ schema: string; table: string }> {
+  return extractReferencedTablesAST(sql, dialect);
 }
 
 /**
@@ -244,9 +189,10 @@ function extractUseDatabaseStatement(sql: string): string | null {
  */
 function getCompletionContext(
   textBeforeCursor: string,
-  fullText?: string
+  fullText: string,
+  dialect: SqlDialect
 ): CompletionContext {
-  return getCompletionContextAST(textBeforeCursor, fullText);
+  return getCompletionContextAST(textBeforeCursor, fullText, dialect);
 }
 
 /**
@@ -308,32 +254,6 @@ function getParameterDisplayType(param: ParameterInfo): string {
   }
 
   return data_type;
-}
-
-/**
- * Build the insert text for a procedure with its parameters
- */
-function buildProcedureInsertText(
-  procName: string,
-  schemaName: string,
-  parameters: ParameterInfo[]
-): string {
-  const fullName = schemaName === 'dbo' ? procName : `[${schemaName}].[${procName}]`;
-
-  if (parameters.length === 0) {
-    return fullName;
-  }
-
-  // Build parameter list with named parameters
-  const paramList = parameters
-    .filter(p => p.parameter_mode !== 'OUT') // Only include input parameters by default
-    .map((param, index) => {
-      // Use tab stops for snippet navigation: ${n:default}
-      return `${param.name} = \${${index + 1}:NULL}`;
-    })
-    .join(', ');
-
-  return paramList ? `${fullName} ${paramList}` : fullName;
 }
 
 /**
@@ -400,6 +320,13 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   // The tab's space driver decides the editor language and query tooling
   const driver = useAppStore(s => driverOf(s.spaces.find(sp => sp.id === tab.space_id)?.connection_driver));
   const isMongo = driver === 'mongodb';
+  // SQL tooling (completion, statement splitting, formatting, validation)
+  // comes from the dialect. MongoDB editors use their own Monaco language, so
+  // the SQL providers never see their models and the fallback is unused there.
+  const sqlDialect = getSqlDialect(driver) ?? DEFAULT_SQL_DIALECT;
+  // Long-lived Monaco registrations (CodeLens) read the current tab's dialect
+  const sqlDialectRef = useRef(sqlDialect);
+  sqlDialectRef.current = sqlDialect;
 
   const addToast = useAppStore(s => s.addToast);
   const executeQuery = useAppStore(s => s.executeQuery);
@@ -534,7 +461,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       codeLensProviderRef.current.dispose();
     }
 
-    codeLensProviderRef.current = monaco.languages.registerCodeLensProvider(['sql', MONGO_LANGUAGE_ID], {
+    codeLensProviderRef.current = monaco.languages.registerCodeLensProvider([...SQL_MONACO_LANGUAGES, MONGO_LANGUAGE_ID], {
       onDidChange: (cb) => {
         const disposable = editor.onDidChangeModelContent(() => cb(editor.getModel() as any));
         return disposable;
@@ -546,7 +473,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         const sql = model.getValue();
         const statements = model.getLanguageId() === MONGO_LANGUAGE_ID
           ? splitMongoStatements(sql)
-          : extractAllStatements(sql);
+          : extractAllStatements(sql, sqlDialectRef.current);
 
         const lenses = statements
           .map(stmt => {
@@ -706,7 +633,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
       // Track recent tables for this specific statement
       if (!isMongo) {
-        const referencedTables = extractReferencedTables(sql);
+        const referencedTables = extractReferencedTables(sql, sqlDialect);
         referencedTables.forEach(t => trackRecentTable(t.schema, t.table));
       }
       setLastExecutedQuery(sql);
@@ -724,7 +651,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
     window.addEventListener(EVENT_RUN_QUERY_CODELENS, handleRunQuery);
     return () => window.removeEventListener(EVENT_RUN_QUERY_CODELENS, handleRunQuery);
-  }, [tab.id, hasConnection, executeQuery, executeQueryAppend, isMongo]);
+  }, [tab.id, hasConnection, executeQuery, executeQueryAppend, isMongo, sqlDialect]);
 
   // Handle toolbar action events dispatched from the auto-hiding title bar.
   // The title bar hosts the run/format/validate/note buttons since the editor
@@ -874,8 +801,9 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   // Create completion suggestions from schema
   const createSchemaCompletions = useCallback((
     monaco: typeof import('monaco-editor'),
+    dialect: SqlDialect,
     schemaData: SchemaInfo | null,
-    context: ReturnType<typeof getCompletionContext>,
+    context: CompletionContext,
     tableAliases: Map<string, { schema: string; table: string; columns?: string[]; sourceTable?: { schema: string; table: string } }>,
     range: IRange,
     fullText: string,
@@ -887,15 +815,24 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     const suggestions: languages.CompletionItem[] = [];
     const recentTables = getRecentTables();
 
-    // Database completion (after USE)
+    // "schema." is resolved like any other qualifier below
+    if (context.type === 'schema' && context.partialWord) {
+      context = { ...context, type: 'alias_column', alias: context.partialWord };
+    }
+
+    // Database completion (after USE) — only for dialects with a USE
+    // statement; elsewhere databases are switched per tab.
     if (context.type === 'database') {
+      if (!dialect.features.useDatabase) {
+        return suggestions;
+      }
       databases.forEach(dbName => {
         suggestions.push({
-          label: `[${dbName}]`,
+          label: dialect.quoteIdent(dbName),
           kind: monaco.languages.CompletionItemKind.Module,
           detail: 'Database',
           documentation: `Switch to database: ${dbName}`,
-          insertText: `[${dbName}]`,
+          insertText: dialect.quoteIdent(dbName),
           sortText: `000_${dbName}`,
           range,
         });
@@ -904,10 +841,8 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       return suggestions;
     }
 
-    if (!schemaData) return suggestions;
-
     if (context.type === 'column') {
-      const joinSuggestions = buildJoinConditionSuggestions(textBeforeCursor, schemaData);
+      const joinSuggestions = buildJoinConditionSuggestions(textBeforeCursor, schemaData, dialect);
       joinSuggestions.forEach((suggestion, index) => {
         suggestions.push({
           label: suggestion.label,
@@ -920,6 +855,8 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         });
       });
     }
+
+    if (!schemaData) return suggestions;
 
     // UPDATE column completion (only columns from the table being updated)
     if (context.type === 'update_column' && context.targetTable) {
@@ -938,7 +875,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
             kind: monaco.languages.CompletionItemKind.Field,
             detail: getDisplayDataType(col),
             documentation: { value: buildColumnDocumentation(col, targetTable.table_name), isTrusted: true },
-            insertText: isSetClause ? `[${col.name}] = ` : `[${col.name}]`,
+            insertText: isSetClause ? `${dialect.quoteIdent(col.name)} = ` : dialect.quoteIdent(col.name),
             sortText: `0_${col.ordinal_position.toString().padStart(3, '0')}`,
             range,
           });
@@ -966,7 +903,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
             kind: monaco.languages.CompletionItemKind.Field,
             detail: getDisplayDataType(col),
             documentation: { value: buildColumnDocumentation(col, targetTable.table_name), isTrusted: true },
-            insertText: `[${col.name}]`,
+            insertText: dialect.quoteIdent(col.name),
             sortText: `0_${col.ordinal_position.toString().padStart(3, '0')}`,
             range,
           });
@@ -1099,10 +1036,13 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         }
       }
 
-      // Check if it's a schema prefix (e.g., "dbo.")
-      if (['dbo', 'sys'].includes(context.alias)) {
+      // Check if it's a schema prefix (e.g., "dbo.", "public.")
+      const qualifier = context.alias;
+      const isSchemaQualifier = dialect.systemSchemas.includes(qualifier)
+        || schemaData.schemas.some(name => name.toLowerCase() === qualifier);
+      if (isSchemaQualifier) {
         schemaData.tables
-          .filter(t => t.schema_name.toLowerCase() === context.alias)
+          .filter(t => t.schema_name.toLowerCase() === qualifier)
           .forEach(table => {
             const isView = table.table_type === 'VIEW';
             const isRecent = recentTables.has(`${table.schema_name}.${table.table_name}`);
@@ -1112,7 +1052,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
               kind: isView ? monaco.languages.CompletionItemKind.Interface : monaco.languages.CompletionItemKind.Struct,
               detail: isView ? 'View' : 'Table',
               documentation: { value: `**Columns:**\n${table.columns.map(c => `- ${c.name} (${getDisplayDataType(c)})`).join('\n')}`, isTrusted: true },
-              insertText: table.table_name,
+              insertText: dialect.quoteIdent(table.table_name),
               sortText: isRecent ? `0_${table.table_name}` : `1_${table.table_name}`,
               range,
             });
@@ -1120,7 +1060,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
         // Also add routines for this schema
         schemaData.routines
-          .filter(r => r.schema_name.toLowerCase() === context.alias)
+          .filter(r => r.schema_name.toLowerCase() === qualifier)
           .forEach(routine => {
             const paramCount = (routine.parameters || []).filter(p => p.parameter_mode !== 'OUT').length;
             suggestions.push({
@@ -1130,7 +1070,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
                 : monaco.languages.CompletionItemKind.Method,
               detail: `${routine.routine_type}${paramCount > 0 ? ` (${paramCount} params)` : ''}`,
               documentation: { value: buildProcedureDocumentation(routine.parameters || [], routine.return_type), isTrusted: true },
-              insertText: routine.routine_name,
+              insertText: dialect.quoteIdent(routine.routine_name),
               sortText: `2_${routine.routine_name}`,
               range,
             });
@@ -1142,14 +1082,14 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       return suggestions;
     }
 
-    // Routine completion (after EXEC/EXECUTE)
+    // Routine completion (after the dialect's EXEC/CALL keyword)
     if (context.type === 'routine') {
       // Stored procedures
       schemaData.routines
         .filter(r => r.routine_type === 'PROCEDURE')
         .forEach(proc => {
-          const hasParams = proc.parameters && proc.parameters.length > 0;
-          const insertText = buildProcedureInsertText(proc.routine_name, proc.schema_name, proc.parameters || []);
+          const insertText = dialect.procedureCallSnippet(proc.schema_name, proc.routine_name, proc.parameters || []);
+          const hasParams = insertText.includes('${');
           const paramCount = (proc.parameters || []).filter(p => p.parameter_mode !== 'OUT').length;
 
           suggestions.push({
@@ -1163,10 +1103,11 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
             range,
           });
 
-          // Add schema-qualified version for non-dbo
-          if (proc.schema_name !== 'dbo') {
+          // Add schema-qualified version outside the default schema
+          const isNonDefaultSchema = proc.schema_name.toLowerCase() !== dialect.defaultSchema;
+          if (isNonDefaultSchema) {
             suggestions.push({
-              label: `[${proc.schema_name}].[${proc.routine_name}]`,
+              label: dialect.quoteQualified(proc.schema_name, proc.routine_name),
               kind: monaco.languages.CompletionItemKind.Method,
               detail: `Stored Procedure${paramCount > 0 ? ` (${paramCount} params)` : ''}`,
               documentation: { value: buildProcedureDocumentation(proc.parameters || [], proc.return_type), isTrusted: true },
@@ -1184,14 +1125,14 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     // Table completion
     if (context.type === 'table' || context.type === 'schema') {
       // Check if aliases should be suggested based on the keyword context
-      const shouldSuggestAliases = context.lastKeyword && TABLE_ALIAS_KEYWORDS.includes(context.lastKeyword);
+      const shouldSuggestAliases = context.lastKeyword && dialect.tableAliasKeywords.includes(context.lastKeyword);
 
       // Get used aliases to avoid conflicts (only if we're suggesting aliases)
-      const usedAliases = shouldSuggestAliases ? getUsedAliases(fullText) : new Set<string>();
+      const usedAliases = shouldSuggestAliases ? getUsedAliases(fullText, dialect) : new Set<string>();
 
       // Add existing aliases from the query (CTEs, subquery aliases, etc.)
       // This allows referencing aliases defined earlier in the query
-      const existingAliases = parseTableAliases(fullText);
+      const existingAliases = parseTableAliases(fullText, dialect);
       existingAliases.forEach((tableInfo, alias) => {
         // Skip if it's a subquery alias (we don't have schema info for it)
         if (tableInfo.schema === 'subquery') {
@@ -1231,8 +1172,9 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         });
       });
 
+
       schemaData.tables.forEach(table => {
-        const fullName = `[${table.schema_name}].[${table.table_name}]`;
+        const fullName = dialect.quoteQualified(table.schema_name, table.table_name);
         const isView = table.table_type === 'VIEW';
         const isRecent = recentTables.has(`${table.schema_name}.${table.table_name}`);
 
@@ -1251,13 +1193,13 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
           // NOTE: Don't add to usedAliases here - we only track aliases already in the query,
           // not the ones we're suggesting. Each table gets its own suggestion independently.
 
-          // Insert text with proper formatting: [schema].[Table] AS [alias]
-          const insertTextWithAlias = `[${table.schema_name}].[${table.table_name}] AS [${alias}]`;
+          // Insert text with proper formatting: schema.Table AS alias (dialect-quoted)
+          const insertTextWithAlias = `${dialect.quoteQualified(table.schema_name, table.table_name)} AS ${dialect.quoteIdent(alias)}`;
 
           suggestions.push({
             label: table.table_name,
             kind: isView ? monaco.languages.CompletionItemKind.Interface : monaco.languages.CompletionItemKind.Struct,
-            detail: `${table.schema_name} • ${isView ? 'View' : 'Table'} → AS [${alias}]`,
+            detail: `${table.schema_name} • ${isView ? 'View' : 'Table'} → AS ${dialect.quoteIdent(alias)}`,
             documentation: { value: `**Inserts:** \`${insertTextWithAlias}\`\n\n**Columns:**\n${columnDocs}${hasMore}\n\n🔑 = Primary Key, * = NOT NULL`, isTrusted: true },
             insertText: insertTextWithAlias,
             sortText: isRecent ? `0_${table.table_name}` : `1_${table.table_name}`,
@@ -1292,16 +1234,13 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       schemaData.routines
         .filter(r => r.routine_type === 'FUNCTION')
         .forEach(func => {
-          const fullName = func.schema_name === 'dbo'
-            ? func.routine_name
-            : `[${func.schema_name}].[${func.routine_name}]`;
-
           suggestions.push({
             label: func.routine_name + '()',
             kind: monaco.languages.CompletionItemKind.Function,
             detail: `${func.schema_name} • Function`,
             documentation: func.return_type ? `Returns: ${func.return_type}` : 'Table-valued Function',
-            insertText: fullName + '()',
+            insertText: dialect.functionCallSnippet(func.schema_name, func.routine_name, func.parameters || []),
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
             sortText: `3_${func.routine_name}`,
             range,
           });
@@ -1388,14 +1327,15 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
                   }
                 : range;
 
+              const qualifiedColumn = `${dialect.quoteIdent(alias)}.${dialect.quoteIdent(col.name)}`;
               suggestions.push({
-                label: `[${alias}].[${col.name}]`,
+                label: qualifiedColumn,
                 kind: monaco.languages.CompletionItemKind.Field,
                 detail: `${getDisplayDataType(col)} • ${table.table_name}`,
                 documentation: { value: buildColumnDocumentation(col, table.table_name), isTrusted: true },
-                insertText: `[${alias}].[${col.name}]`,
-                // Allow filtering by column name OR alias - so typing "id" finds "[a].[Id]"
-                filterText: `${col.name} ${alias}.${col.name} [${alias}].[${col.name}]`,
+                insertText: qualifiedColumn,
+                // Allow filtering by column name OR alias - so typing "id" finds "e.id"
+                filterText: `${col.name} ${alias}.${col.name} ${qualifiedColumn}`,
                 sortText: `0_${alias}_${col.name}`,
                 range: aliasColumnRange,
               });
@@ -1417,8 +1357,24 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         }
       });
 
-      // Add SQL built-in functions in column context
-      SQL_FUNCTIONS.forEach(func => {
+      // User-defined functions callable in expressions
+      schemaData.routines
+        .filter(r => r.routine_type === 'FUNCTION')
+        .forEach(func => {
+          suggestions.push({
+            label: func.routine_name + '()',
+            kind: monaco.languages.CompletionItemKind.Function,
+            detail: `${func.schema_name} • Function${func.return_type ? ` → ${func.return_type}` : ''}`,
+            documentation: { value: buildProcedureDocumentation(func.parameters || [], func.return_type), isTrusted: true },
+            insertText: dialect.functionCallSnippet(func.schema_name, func.routine_name, func.parameters || []),
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            sortText: `6_${func.routine_name}`,
+            range,
+          });
+        });
+
+      // Add the dialect's built-in functions in column context
+      dialect.functions.forEach(func => {
         suggestions.push({
           label: func + '()',
           kind: monaco.languages.CompletionItemKind.Function,
@@ -1440,6 +1396,8 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
    */
   const findCurrentSqlBlock = useCallback((fullText: string, cursorLine: number, cursorColumn: number): { text: string; startLine: number; startColumn: number; endLine: number; endColumn: number } | null => {
     const lines = fullText.split('\n');
+    // `;` always ends a statement; `GO` also does in dialects with batch separators
+    const delimiterPattern = sqlDialectRef.current.features.batchSeparator ? /[;]|(\bGO\b)/i : /;/;
 
     // Find the start of the current block (scanning backwards from cursor)
     let blockStartLine = 0;
@@ -1450,7 +1408,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       const line = lines[i];
 
       // Look for statement delimiters: ; or GO (case-insensitive, word boundary)
-      const delimiterMatch = line.match(/[;]|(\bGO\b)/i);
+      const delimiterMatch = line.match(delimiterPattern);
 
       if (delimiterMatch) {
         const delimiterEnd = delimiterMatch.index! + delimiterMatch[0].length;
@@ -1485,7 +1443,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       const line = lines[i];
 
       // Look for statement delimiters: ; or GO (case-insensitive, word boundary)
-      const delimiterMatch = line.match(/[;]|(\bGO\b)/i);
+      const delimiterMatch = line.match(delimiterPattern);
 
       if (delimiterMatch) {
         const delimiterStart = delimiterMatch.index!;
@@ -1553,11 +1511,11 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     }
 
     // Try smart extraction with node-sql-parser
-    let statementLocation = extractStatementAtCursor(fullQuery, lineNumber, column);
+    let statementLocation = extractStatementAtCursor(fullQuery, lineNumber, column, sqlDialect);
 
     // Fallback to regex-based detection if parsing failed
     if (!statementLocation) {
-      statementLocation = findCurrentSqlBlockFallback(fullQuery, lineNumber, column);
+      statementLocation = findCurrentSqlBlockFallback(fullQuery, lineNumber, column, sqlDialect);
     }
 
     // Also fallback to old method if new methods fail
@@ -1575,7 +1533,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       }
     }
     return statementLocation;
-  }, [isMongo, findCurrentSqlBlock]);
+  }, [isMongo, sqlDialect, findCurrentSqlBlock]);
 
   // Execute query handler
   const handleExecuteQuery = useCallback(async () => {
@@ -1645,7 +1603,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     }
 
     // Check for USE [database] statement and auto-switch database
-    const usedDatabase = extractUseDatabaseStatement(queryToTrack);
+    const usedDatabase = sqlDialect.features.useDatabase ? extractUseDatabaseStatement(queryToTrack) : null;
     if (usedDatabase && spaceDatabases.some(db => db.name === usedDatabase)) {
       // Update tab's database before executing
       await updateTabDatabase(tab.id, usedDatabase);
@@ -1655,7 +1613,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
     // Track recently used tables for prioritization in autocomplete
     if (!isMongo) {
-      const referencedTables = extractReferencedTables(queryToTrack);
+      const referencedTables = extractReferencedTables(queryToTrack, sqlDialect);
       referencedTables.forEach(t => trackRecentTable(t.schema, t.table));
     }
 
@@ -1664,7 +1622,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
     // Execute with selected text (if any) or full query
     await executeQuery(tab.id, fullQuery, selectedText);
-  }, [hasConnection, isConnected, connectToSpace, executeQuery, tab.id, detectStatementAtCursor, isMongo, spaceDatabases, updateTabDatabase, loadSchema]);
+  }, [hasConnection, isConnected, connectToSpace, executeQuery, tab.id, detectStatementAtCursor, isMongo, sqlDialect, spaceDatabases, updateTabDatabase, loadSchema]);
 
   // Execute query and append to existing results (Ctrl+\)
   const handleExecuteQueryAppend = useCallback(async () => {
@@ -1734,7 +1692,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     }
 
     // Check for USE [database] statement and auto-switch database
-    const usedDatabase = extractUseDatabaseStatement(queryToTrack);
+    const usedDatabase = sqlDialect.features.useDatabase ? extractUseDatabaseStatement(queryToTrack) : null;
     if (usedDatabase && spaceDatabases.some(db => db.name === usedDatabase)) {
       // Update tab's database before executing
       await updateTabDatabase(tab.id, usedDatabase);
@@ -1744,7 +1702,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
     // Track recently used tables for prioritization in autocomplete
     if (!isMongo) {
-      const referencedTables = extractReferencedTables(queryToTrack);
+      const referencedTables = extractReferencedTables(queryToTrack, sqlDialect);
       referencedTables.forEach(t => trackRecentTable(t.schema, t.table));
     }
 
@@ -1753,7 +1711,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
     // Execute with selected text (if any) or full query - APPEND to existing results
     await executeQueryAppend(tab.id, fullQuery, selectedText);
-  }, [hasConnection, isConnected, connectToSpace, executeQueryAppend, tab.id, detectStatementAtCursor, isMongo, spaceDatabases, updateTabDatabase, loadSchema]);
+  }, [hasConnection, isConnected, connectToSpace, executeQueryAppend, tab.id, detectStatementAtCursor, isMongo, sqlDialect, spaceDatabases, updateTabDatabase, loadSchema]);
 
   // Execute UPDATE query for inline grid editing (silent - doesn't update results grid)
   const handleExecuteUpdateQuery = useCallback(async (updateQuery: string): Promise<boolean> => {
@@ -1841,7 +1799,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     if (selection && !selection.isEmpty()) {
       // Format only selected text
       const selectedText = model.getValueInRange(selection);
-      const formatted = formatSqlWithIndentation(selectedText);
+      const formatted = formatSqlWithIndentation(selectedText, sqlDialect.formatterLanguage);
 
       // Replace selected text with formatted version
       editor.executeEdits('', [
@@ -1852,7 +1810,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       ]);
     } else {
       // Format entire document
-      const formatted = formatSqlWithIndentation(fullText);
+      const formatted = formatSqlWithIndentation(fullText, sqlDialect.formatterLanguage);
       const fullRange = model.getFullModelRange();
 
       editor.executeEdits('', [
@@ -1862,7 +1820,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         }
       ]);
     }
-  }, [isMongo, addToast]);
+  }, [isMongo, sqlDialect, addToast]);
 
   // Debounced autosave
   const handleChange: OnChange = useCallback((value) => {
@@ -1900,7 +1858,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     }
 
     // Register new completion provider with updated schema
-    completionProviderRef.current = monaco.languages.registerCompletionItemProvider('sql', {
+    completionProviderRef.current = monaco.languages.registerCompletionItemProvider(sqlDialect.monacoLanguage, {
       triggerCharacters: ['.', ' ', '[', '@', '('],
       provideCompletionItems: (model, position) => {
         const word = model.getWordUntilPosition(position);
@@ -1920,7 +1878,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         });
 
         const fullText = model.getValue();
-        const context = getCompletionContext(textBeforeCursor, fullText);
+        const context = getCompletionContext(textBeforeCursor, fullText, sqlDialect);
 
         const lineText = model.getLineContent(position.lineNumber);
         const linePrefix = lineText.slice(0, Math.max(0, position.column - 1));
@@ -1965,26 +1923,28 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
 
         // Parse aliases from currentBlockText (current statement only)
         // This ensures aliases from other statements don't pollute suggestions
-        const tableAliases = parseTableAliases(currentBlockText);
+        const tableAliases = parseTableAliases(currentBlockText, sqlDialect);
 
         const suggestions: languages.CompletionItem[] = [];
 
-        // Add local variable suggestions from DECLARE statements above cursor.
-        const declaredVariables = extractDeclaredVariables(textBeforeCursor);
-        declaredVariables.forEach(variableName => {
-          suggestions.push({
-            label: variableName,
-            kind: monaco.languages.CompletionItemKind.Variable,
-            detail: 'Local variable',
-            insertText: variableName,
-            sortText: `00_${variableName}`,
-            range: completionRange,
+        // DECLARE @variables (T-SQL)
+        if (sqlDialect.features.localVariables) {
+          const declaredVariables = extractDeclaredVariables(textBeforeCursor);
+          declaredVariables.forEach(variableName => {
+            suggestions.push({
+              label: variableName,
+              kind: monaco.languages.CompletionItemKind.Variable,
+              detail: 'Local variable',
+              insertText: variableName,
+              sortText: `00_${variableName}`,
+              range: completionRange,
+            });
           });
-        });
+        }
 
-        // Add SQL keywords (lower priority)
+        // Add the dialect's keywords (lower priority)
         if (context.type === 'keyword' || context.type === 'column') {
-          SQL_KEYWORDS.forEach(keyword => {
+          sqlDialect.keywords.forEach(keyword => {
             suggestions.push({
               label: keyword,
               kind: monaco.languages.CompletionItemKind.Keyword,
@@ -1998,6 +1958,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         // Add schema-based completions (use current block text for context-aware suggestions)
         const schemaCompletions = createSchemaCompletions(
           monaco,
+          sqlDialect,
           schemaInfo,
           context,
           tableAliases,
@@ -2019,7 +1980,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         completionProviderRef.current.dispose();
       }
     };
-  }, [schemaInfo, createSchemaCompletions, spaceDatabases]);
+  }, [schemaInfo, createSchemaCompletions, spaceDatabases, sqlDialect]);
 
   // MongoDB completion provider (collections, methods, fields, operators, stages)
   useEffect(() => {
@@ -2071,7 +2032,9 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     }
 
     const monaco = monacoRef.current;
-    const enabledSnippets = getEnabledSnippets();
+    // Snippets scoped to other databases are hidden (null drivers = every SQL database)
+    const enabledSnippets = getEnabledSnippets()
+      .filter(snippet => !snippet.drivers || snippet.drivers.includes(sqlDialect.driver));
 
     console.log('[QueryEditor] Snippet provider effect running, enabled snippets:', enabledSnippets.length);
 
@@ -2088,7 +2051,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     console.log('[QueryEditor] Registering snippet provider with', enabledSnippets.length, 'snippets');
 
     // Register snippet completion provider
-    snippetProviderRef.current = monaco.languages.registerCompletionItemProvider('sql', {
+    snippetProviderRef.current = monaco.languages.registerCompletionItemProvider(sqlDialect.monacoLanguage, {
       // Don't use triggerCharacters - snippets are triggered by typing the trigger text
       provideCompletionItems: (model, position) => {
         const word = model.getWordUntilPosition(position);
@@ -2155,7 +2118,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
         snippetProviderRef.current.dispose();
       }
     };
-  }, [snippets, getEnabledSnippets, editorReady]);
+  }, [snippets, getEnabledSnippets, editorReady, sqlDialect]);
 
   // Keep the ref updated with the latest execute handler
   useEffect(() => {
@@ -2198,8 +2161,10 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
     editor: editorRef.current,
     monaco: monacoRef.current,
     schemaInfo: isConnected ? schemaInfo : null, // Only validate against schema when connected
-    // The SQL validator does not understand mongo-shell syntax
+    // The SQL validator does not understand mongo-shell syntax; postgres
+    // validates against the PostgreSQL dialect (syntax only)
     enabled: validationEnabled && !isMongo,
+    dialect: sqlDialect,
     showWarnings: validationShowWarnings,
     showInfo: validationShowInfo,
     debounceMs: 500,
@@ -2369,7 +2334,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       <div className={`flex-1 min-h-0 relative mx-1.5 mt-1.5 ${showResults ? 'mb-0' : 'mb-1.5'} rounded-xl border border-[var(--border-subtle)]`} style={{ flex: showResults ? '1 1 auto' : '1 1 100%' }} data-allow-select-all>
         <Editor
           height="100%"
-          language={isMongo ? MONGO_LANGUAGE_ID : 'sql'}
+          language={isMongo ? MONGO_LANGUAGE_ID : sqlDialect.monacoLanguage}
           beforeMount={registerMongoLanguage}
           theme={monacoTheme}
           defaultValue={tab.content || ''}
@@ -2599,8 +2564,8 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
                   spaceColor={spaceColor}
                   onExecuteUpdate={handleExecuteUpdateQuery}
                   onLoadMore={handleLoadMore}
-                  // Grid edits generate T-SQL, so they stay off for MongoDB
-                  canEdit={isConnected && !isMongo}
+                  // Grid edits generate SQL; only dialects that implement it allow them
+                  canEdit={isConnected && !isMongo && sqlDialect.features.gridEdit}
                   queryText={lastExecutedQuery ?? undefined}
                   tabId={tab.id}
                   resultIndex={activeResultIndex}
