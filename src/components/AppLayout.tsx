@@ -650,7 +650,7 @@ export function AppLayout() {
               {/* Left: Archive */}
               <button
                 onClick={() => setArchiveModalOpen(true)}
-                className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors relative"
+                className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors relative shrink-0"
                 title="Archive"
               >
                 <Archive className="w-3.5 h-3.5" />
@@ -665,7 +665,7 @@ export function AppLayout() {
               {/* Right: Settings (Command Palette) */}
               <button
                 onClick={() => setCommandPaletteOpen(true)}
-                className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors shrink-0"
                 title={`Command Palette (Ctrl+Shift+P)${appInfo.version ? ` · ${appInfo.name || 'Larik SQL Studio'} v${appInfo.version}` : ''}`}
               >
                 <Zap className="w-3.5 h-3.5" />

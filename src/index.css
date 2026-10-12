@@ -684,6 +684,13 @@ textarea:focus {
 .larik-gutter-note-add-icon:hover {
   opacity: 1;
 }
+/* Hidden scrollbar for horizontal strips (space dots, result tab strips) */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
 
 /* Popover fade-in animation */
 @keyframes larik-note-popover-in {

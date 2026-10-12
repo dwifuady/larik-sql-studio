@@ -4,6 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAppStore } from '../store';
 import type { Snippet } from '../types';
+import { confirm } from '@tauri-apps/plugin-dialog';
 import { importDbeaverTemplates } from '../utils/dbeaverImport';
 
 interface SnippetsDialogProps {
@@ -169,16 +170,19 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
       return;
     }
 
-    if (confirm(`Delete snippet "${snippet.name}"?`)) {
-      const deleted = await deleteSnippet(snippet.id);
-      if (deleted) {
-        addToast({
-          type: 'success',
-          message: `Snippet "${snippet.name}" has been deleted`,
-        });
-        if (editingSnippet?.id === snippet.id) {
-          resetForm();
-        }
+    const confirmed = await confirm(`Delete snippet "${snippet.name}"?`, {
+      title: 'Delete Snippet',
+      kind: 'warning',
+    });
+    if (!confirmed) return;
+    const deleted = await deleteSnippet(snippet.id);
+    if (deleted) {
+      addToast({
+        type: 'success',
+        message: `Snippet "${snippet.name}" has been deleted`,
+      });
+      if (editingSnippet?.id === snippet.id) {
+        resetForm();
       }
     }
   };
@@ -187,15 +191,18 @@ export function SnippetsDialog({ isOpen, onClose }: SnippetsDialogProps) {
   const handleReset = async (snippet: Snippet) => {
     if (!snippet.is_builtin) return;
 
-    if (confirm(`Reset "${snippet.name}" to default?`)) {
-      await resetBuiltinSnippet(snippet.id);
-      addToast({
-        type: 'success',
-        message: `Snippet "${snippet.name}" has been reset to default`,
-      });
-      if (editingSnippet?.id === snippet.id) {
-        resetForm();
-      }
+    const confirmed = await confirm(`Reset "${snippet.name}" to default?`, {
+      title: 'Reset Snippet',
+      kind: 'warning',
+    });
+    if (!confirmed) return;
+    await resetBuiltinSnippet(snippet.id);
+    addToast({
+      type: 'success',
+      message: `Snippet "${snippet.name}" has been reset to default`,
+    });
+    if (editingSnippet?.id === snippet.id) {
+      resetForm();
     }
   };
 

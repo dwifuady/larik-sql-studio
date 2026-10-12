@@ -3,6 +3,7 @@ import { useEffect, useState, useRef } from 'react';
 import DOMPurify from 'dompurify';
 import { useAppStore } from '../store';
 import type { ArchivedTab } from '../types';
+import { confirm } from '@tauri-apps/plugin-dialog';
 
 export function ArchiveModal() {
   const {
@@ -113,9 +114,11 @@ export function ArchiveModal() {
   };
 
   const handleDelete = async (archivedId: string) => {
-    if (confirm('Permanently delete this archived tab? This cannot be undone.')) {
-      await deleteArchivedTab(archivedId);
-    }
+    const confirmed = await confirm('Permanently delete this archived tab? This cannot be undone.', {
+      title: 'Delete Archived Tab',
+      kind: 'warning',
+    });
+    if (confirmed) await deleteArchivedTab(archivedId);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

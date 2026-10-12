@@ -14,7 +14,7 @@ import {
   withDriver,
   withHost,
 } from './DriverPicker';
-import { save, open, ask } from '@tauri-apps/plugin-dialog';
+import { save, open, ask, confirm } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 
 import { SPACE_COLORS } from '@/utils/spaceColors';
@@ -145,9 +145,11 @@ export function SpaceSwitcher() {
 
   const handleDelete = async (id: string) => {
     setIsOpen(false);
-    if (confirm('Delete this space and all its tabs?')) {
-      await deleteSpace(id);
-    }
+    const confirmed = await confirm('Delete this space and all its tabs?', {
+      title: 'Delete Space',
+      kind: 'warning',
+    });
+    if (confirmed) await deleteSpace(id);
   };
 
   const startEditing = (space: typeof spaces[0], index: number) => {
