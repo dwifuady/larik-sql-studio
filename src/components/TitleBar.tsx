@@ -135,12 +135,14 @@ export function TitleBar({ sidebarWidth = 280, sidebarHidden = false, onToggleSi
   return (
     <div
       ref={titleBarRef}
-      className={`flex items-center h-8 select-none relative pointer-events-auto transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+      className={`flex items-center h-8 select-none relative pointer-events-auto border-b border-[var(--border-subtle)] transition-[transform,opacity,box-shadow] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
         titleVisible
-          ? 'translate-y-0 opacity-100'
-          : '-translate-y-full opacity-0 pointer-events-none'
+          ? 'translate-y-0 opacity-100 shadow-[0_4px_12px_rgba(0,0,0,0.18)]'
+          : '-translate-y-full opacity-0 pointer-events-none shadow-none'
       }`}
-      style={{ background: 'var(--titlebar-bg)' }}
+      // The bar overlays the sidebar, so it must be opaque even under Mica
+      // (where --titlebar-bg is transparent) or the sidebar shows through it.
+      style={{ background: 'var(--bg-secondary)' }}
       onMouseEnter={revealTitleBar}
       onMouseLeave={scheduleHideTitleBar}
     >

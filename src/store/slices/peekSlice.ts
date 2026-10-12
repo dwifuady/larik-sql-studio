@@ -198,6 +198,10 @@ export const createPeekSlice: StateCreator<AppState, [], [], PeekSlice> = (set, 
         const { peek } = get();
         if (!peek.open) return;
 
+        // Peeks are opened from the Explorer; show the Tabs list so the new tab
+        // (and its entrance animation) is visible.
+        get().setSidebarView('tabs');
+
         if (peek.kind === 'table-data' && peek.query) {
             const tab = await get().createTab(peek.name, 'query', peek.query, peek.database);
             get().closePeek();

@@ -358,7 +358,8 @@ export function TabsList({ onNewTabClick }: { onNewTabClick?: () => void }) {
     removeTabFromFolder,
     reorderFolders,
     getPinnedTabsGrouped,
-    spaces
+    spaces,
+    lastCreatedTabId
   } = useAppStore();
 
   const activeSpace = spaces.find(s => s.id === activeSpaceId);
@@ -810,6 +811,7 @@ export function TabsList({ onNewTabClick }: { onNewTabClick?: () => void }) {
                         }}
                       >
                         <div
+                          className={tab.id === lastCreatedTabId ? 'animate-tab-pop-in' : undefined}
                           style={{
                             transform: snapshot.isDragging ? 'translateY(-50%)' : 'none',
                             opacity: snapshot.isDragging ? 0.8 : 1,

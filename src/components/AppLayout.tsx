@@ -44,6 +44,7 @@ export function AppLayout() {
   const toggleSidebarHidden = useAppStore(s => s.toggleSidebarHidden);
 
   const activeTabId = useAppStore(s => s.activeTabId);
+  const lastCreatedTabId = useAppStore(s => s.lastCreatedTabId);
   const tabs = useAppStore(s => s.tabs);
   const spaces = useAppStore(s => s.spaces);
   const activeSpaceId = useAppStore(s => s.activeSpaceId);
@@ -432,6 +433,7 @@ export function AppLayout() {
       // Set last imported tab as active
       if (lastImportedTab) {
         useAppStore.setState({ activeTabId: lastImportedTab.id });
+        useAppStore.getState().markTabCreated(lastImportedTab.id);
       }
 
       // Show summary toast
@@ -637,9 +639,11 @@ export function AppLayout() {
 
               {/* Tabs list OR Database Explorer fills remaining space */}
               {sidebarView === 'tabs' ? (
-                <TabsList onNewTabClick={() => setNewTabSelectorOpen(true)} />
+                <div key="tabs" className="flex-1 flex flex-col min-h-0 animate-fade-in">
+                  <TabsList onNewTabClick={() => setNewTabSelectorOpen(true)} />
+                </div>
               ) : (
-                <div className="flex-1 overflow-hidden min-h-0">
+                <div key="explorer" className="flex-1 overflow-hidden min-h-0 animate-fade-in">
                   <DatabaseExplorer />
                 </div>
               )}
@@ -708,7 +712,11 @@ export function AppLayout() {
               </div>
             </div>
           ) : activeTab ? (
-            <QueryEditor tab={activeTab} />
+            <div
+              className={`flex-1 flex flex-col min-h-0 min-w-0 ${activeTab.id === lastCreatedTabId ? 'animate-tab-content-in' : ''}`}
+            >
+              <QueryEditor tab={activeTab} />
+            </div>
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">

@@ -49,7 +49,6 @@
   /* Window chrome surfaces (opaque by default, translucent when Mica is active) */
   --app-bg: var(--bg-primary);
   --sidebar-surface: rgba(var(--sidebar-bg-rgb), 0.85);
-  --titlebar-bg: var(--bg-secondary);
 
   /* Radius - Fluent: 4px controls, 8px overlays */
   --radius-sm: 2px;
@@ -73,7 +72,6 @@
 :root[data-mica] {
   --app-bg: transparent;
   --sidebar-surface: transparent;
-  --titlebar-bg: transparent;
 }
 
 /* Light theme */
@@ -537,6 +535,53 @@ button:disabled {
   animation: slideInRight 0.3s ease-out;
 }
 
+/* New tab: row grows open (pushing siblings down) while the tab pops in with a slight overshoot */
+@keyframes tabPopIn {
+  0% {
+    opacity: 0;
+    max-height: 0;
+    transform: scale(0.85);
+  }
+
+  45% {
+    max-height: 64px;
+  }
+
+  70% {
+    opacity: 1;
+    transform: scale(1.03);
+  }
+
+  100% {
+    opacity: 1;
+    max-height: 64px;
+    transform: scale(1);
+  }
+}
+
+.animate-tab-pop-in {
+  overflow: hidden;
+  transform-origin: left center;
+  animation: tabPopIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* New tab: editor content settles in */
+@keyframes tabContentIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.995);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-tab-content-in {
+  animation: tabContentIn 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 /* Loading bar animation for query execution overlay */
 @keyframes loadingBar {
   0% {
@@ -705,7 +750,9 @@ textarea:focus {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-space-slide-in {
+  .animate-space-slide-in,
+  .animate-tab-pop-in,
+  .animate-tab-content-in {
     animation: none;
   }
   .larik-note-popover {

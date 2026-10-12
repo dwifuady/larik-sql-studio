@@ -20,6 +20,7 @@ export function DatabaseExplorer() {
     const schemaLoading = useAppStore(s => s.schemaLoading);
     const refreshSchema = useAppStore(s => s.refreshSchema);
     const createTab = useAppStore(s => s.createTab);
+    const setSidebarView = useAppStore(s => s.setSidebarView);
     const openTablePeek = useAppStore(s => s.openTablePeek);
     const openObjectPeek = useAppStore(s => s.openObjectPeek);
     const openTableSourcePeek = useAppStore(s => s.openTableSourcePeek);
@@ -182,7 +183,9 @@ export function DatabaseExplorer() {
             const query = sqlDialect
                 ? sqlDialect.selectTopQuery(tableInfo.schema_name, tableInfo.table_name, 100)
                 : mongoFindQuery(tableInfo.table_name, 100);
-            await createTab(tableInfo.table_name, 'query', query, schemaInfo?.database_name);
+            const tab = await createTab(tableInfo.table_name, 'query', query, schemaInfo?.database_name);
+            // Show the Tabs list so the new tab (and its entrance animation) is visible
+            if (tab) setSidebarView('tabs');
         }
     };
 

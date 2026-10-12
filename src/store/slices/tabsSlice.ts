@@ -7,6 +7,9 @@ export interface TabsSlice {
     tabs: Tab[];
     activeTabId: string | null;
     tabsLoading: boolean;
+    // Most recently created tab, cleared shortly after so the UI can play an
+    // entrance animation exactly once.
+    lastCreatedTabId: string | null;
 
     loadTabs: (spaceId: string) => Promise<void>;
     createTab: (title: string, tabType?: string, content?: string | null, database?: string | null) => Promise<Tab | null>;
@@ -21,13 +24,26 @@ export interface TabsSlice {
     updateTabDatabase: (id: string, database: string | null) => Promise<void>;
     updateSpaceLastActiveTab: (spaceId: string, tabId: string | null) => Promise<void>;
 
+    markTabCreated: (id: string) => void;
+
     getActiveTab: () => Tab | null;
 }
+
+// Slightly longer than the tab entrance animation in index.css
+const NEW_TAB_MARKER_MS = 700;
 
 export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, get) => ({
     tabs: [],
     activeTabId: null,
     tabsLoading: false,
+    lastCreatedTabId: null,
+
+    markTabCreated: (id) => {
+        set({ lastCreatedTabId: id });
+        setTimeout(() => {
+            if (get().lastCreatedTabId === id) set({ lastCreatedTabId: null });
+        }, NEW_TAB_MARKER_MS);
+    },
 
     getActiveTab: () => {
         const { tabs, activeTabId } = get();
@@ -73,6 +89,7 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
         try {
             const tab = await api.createTab(spaceId, title, tabType, content, null, database);
             set((state) => ({ tabs: [tab, ...state.tabs], activeTabId: tab.id }));
+            get().markTabCreated(tab.id);
             return tab;
         } catch (error) {
             console.error('Failed to create tab:', error);
