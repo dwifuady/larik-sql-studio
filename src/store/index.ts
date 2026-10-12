@@ -13,6 +13,7 @@ import { createPeekSlice, PeekSlice } from './slices/peekSlice';
 import { createNotesSlice, NotesSlice } from './slices/notesSlice';
 import { createReferencePreviewSlice, ReferencePreviewSlice } from './slices/referencePreviewSlice';
 import { createVirtualReferencesSlice, VirtualReferencesSlice } from './slices/virtualReferencesSlice';
+import { createPopoutSlice, PopoutSlice } from './slices/popoutSlice';
 
 // Combine all slice interfaces into the main AppState
 export type AppState =
@@ -27,7 +28,8 @@ export type AppState =
   & PeekSlice
   & NotesSlice
   & ReferencePreviewSlice
-  & VirtualReferencesSlice;
+  & VirtualReferencesSlice
+  & PopoutSlice;
 
 // Create the combined store
 export const useAppStore = create<AppState>((...a) => ({
@@ -43,4 +45,5 @@ export const useAppStore = create<AppState>((...a) => ({
   ...createNotesSlice(...a),
   ...createReferencePreviewSlice(...a),
   ...createVirtualReferencesSlice(...a),
+  ...createPopoutSlice(...a),
 }));

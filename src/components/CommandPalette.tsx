@@ -87,6 +87,8 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
     toggleSidebarHidden,
     setSettingsDialogOpen,
     setNewTabSelectorOpen,
+    poppedOutTabs,
+    popOutTab,
   } = useAppStore();
 
   // Define all available commands
@@ -145,6 +147,24 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
         icon: (
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+          </svg>
+        ),
+      },
+      {
+        id: 'popout-tab',
+        label: activeTab && activeTab.id in poppedOutTabs ? 'Show Pop-out' : 'Pop Out Current Tab',
+        description: 'Open the current tab in an always-on-top window (Ctrl+Alt+O)',
+        category: 'Tabs',
+        keywords: ['popout', 'pop out', 'window', 'float', 'always on top', 'detach', 'compare'],
+        action: () => {
+          if (activeTab) {
+            void popOutTab(activeTab.id);
+          }
+          onClose();
+        },
+        icon: (
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
           </svg>
         ),
       },
@@ -472,6 +492,8 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
     toggleSidebarHidden,
     setSettingsDialogOpen,
     setNewTabSelectorOpen,
+    poppedOutTabs,
+    popOutTab,
     onClose,
   ]);
 

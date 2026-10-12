@@ -41,6 +41,8 @@ interface ResultsGridProps {
   tabId?: string;
   /** Result index within the tab's results */
   resultIndex?: number;
+  /** Pop-out window: no export, no copy-with-headers, no custom references */
+  compact?: boolean;
 }
 
 // Track edited cells: key is "rowIndex-colIndex", value is the new value
@@ -545,7 +547,7 @@ function isCellInSelection(row: number, col: number, selection: SelectionRange |
   return col >= norm.startCol && col <= norm.endCol;
 }
 
-function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#0078d4', onLoadMore, onExecuteUpdate, canEdit = false, queryText, tabId, resultIndex }: ResultsGridProps) {
+function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#0078d4', onLoadMore, onExecuteUpdate, canEdit = false, queryText, tabId, resultIndex, compact = false }: ResultsGridProps) {
   const updateResultCells = useAppStore((state) => state.updateResultCells);
   const insertResultRows = useAppStore((state) => state.insertResultRows);
   const removeResultRows = useAppStore((state) => state.removeResultRows);
@@ -1088,10 +1090,10 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
         // Copy selection if multi-cell selection exists
         if (selection) {
           e.preventDefault();
-          handleCopySelection(selection, e.shiftKey);
+          handleCopySelection(selection, e.shiftKey && !compact);
         } else if (selectedCell) {
           e.preventDefault();
-          handleCopyCell(selectedCell.row, selectedCell.col, e.shiftKey);
+          handleCopyCell(selectedCell.row, selectedCell.col, e.shiftKey && !compact);
         }
       }
 
@@ -1109,7 +1111,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     // Attach to container instead of window so it only fires when grid has focus
     container.addEventListener('keydown', handleKeyDown);
     return () => container.removeEventListener('keydown', handleKeyDown);
-  }, [selectedCell, selection, editingCell, handleCopyCell, handleCopySelection, handlePreviewCell, handleSelectAll, columnReferences]);
+  }, [selectedCell, selection, editingCell, handleCopyCell, handleCopySelection, handlePreviewCell, handleSelectAll, columnReferences, compact]);
 
   // Copy a single row as JSON, respecting visual column order
   const handleCopyRow = useCallback(async (rowIdx: number) => {
@@ -1907,13 +1909,13 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
             )}
 
             {/* Editing hint */}
-            {!hasPendingChanges && (
+            {!hasPendingChanges && !compact && (
               <span className="text-[var(--text-muted)] text-[10px]">
                 Double-click to edit
               </span>
             )}
 
-            <ExportButton result={reorderedResult} spaceColor={spaceColor} />
+            {!compact && <ExportButton result={reorderedResult} spaceColor={spaceColor} />}
             <button
               onClick={onClose}
               className="px-2 py-1 rounded hover:bg-[var(--bg-active)] transition-colors"
@@ -1942,7 +1944,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
               }] : []),
               // Define / edit / remove a user-defined reference. Only offered
               // for columns we can trace to a table, and never over a real FK.
-              ...(contextMenu && columnSources.has(contextMenu.col) && !columnReferences.get(contextMenu.col)?.constraintName ? [
+              ...(!compact && contextMenu && columnSources.has(contextMenu.col) && !columnReferences.get(contextMenu.col)?.constraintName ? [
                 {
                   id: 'set-custom-reference',
                   label: columnReferences.has(contextMenu.col) ? 'Edit Custom Reference…' : 'Set Custom Reference…',
@@ -1979,7 +1981,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
                 }] : []),
               ] : []),
               ...(!selection && contextMenu ? [
-                {
+                ...(compact ? [] : [{
                   id: 'copy-cell-headers',
                   label: 'Copy Cell with Header',
                   icon: (
@@ -1989,7 +1991,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
                   ),
                   shortcut: 'Ctrl+Shift+C',
                   action: () => handleCopyCell(contextMenu.row, contextMenu.col, true),
-                },
+                }]),
                 {
                   id: 'copy-cell',
                   label: 'Copy Cell',
@@ -2003,7 +2005,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
                 }
               ] : []),
               ...(selection ? [
-                {
+                ...(compact ? [] : [{
                   id: 'copy-selection-headers',
                   label: 'Copy Selection with Headers',
                   icon: (
@@ -2013,7 +2015,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
                   ),
                   shortcut: 'Ctrl+Shift+C',
                   action: () => handleCopySelection(selection, true),
-                },
+                }]),
                 {
                   id: 'copy-selection',
                   label: 'Copy Selection',

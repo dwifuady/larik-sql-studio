@@ -3,6 +3,7 @@ import type { Toast } from '../../components/Toast';
 import * as api from '../../api';
 import type { AppState } from '../index';
 import { syncNativeTheme } from '../../utils/nativeWindow';
+import { isPopoutWindow } from '../../utils/popout';
 
 export interface UISlice {
     sidebarWidth: number;
@@ -165,6 +166,10 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
     },
 
     saveAppSettings: async () => {
+        // A pop-out only knows its own tab; saving from it would overwrite the
+        // main window's last space/tab and the user's settings.
+        if (isPopoutWindow()) return;
+
         const {
             validationEnabled,
             enableStickyNotes,

@@ -37,6 +37,8 @@ export function TitleBar({ sidebarWidth = 280, sidebarHidden = false, onToggleSi
   const activeTabHasSelection = useAppStore(s => s.activeTabHasSelection);
   const isExecuting = useAppStore(s => activeTabId ? (s.tabExecuting[activeTabId] ?? false) : false);
   const cancelRunningQueries = useAppStore(s => s.cancelRunningQueries);
+  // A popped-out tab has no editor here, so its toolbar would act on nothing
+  const activeTabPoppedOut = useAppStore(s => !!s.activeTabId && s.activeTabId in s.poppedOutTabs);
 
   const revealTitleBar = () => {
     if (hideTimer.current) {
@@ -241,7 +243,7 @@ export function TitleBar({ sidebarWidth = 280, sidebarHidden = false, onToggleSi
         <div className="ml-auto" />
 
         {/* Action buttons (formerly in editor toolbar) - in-flow, left of search */}
-        {activeTab && (
+        {activeTab && !activeTabPoppedOut && (
           <div className="flex items-center gap-0.5 pointer-events-auto shrink-0">
             {/* Format button */}
             <button

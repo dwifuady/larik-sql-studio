@@ -15,6 +15,7 @@ import {
   useDraggable,
   useDroppable,
 } from '@dnd-kit/core';
+import { ExternalLink, PanelLeftClose } from 'lucide-react';
 import { useAppStore } from '../store';
 import { ContextMenu } from './ContextMenu';
 import { FolderItem } from './FolderItem';
@@ -49,6 +50,7 @@ const TabItem = memo(({
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const isPoppedOut = useAppStore(s => tab.id in s.poppedOutTabs);
 
   // Focus input when starting rename
   useEffect(() => {
@@ -167,7 +169,7 @@ const TabItem = memo(({
           className="flex-1 min-w-0 text-xs bg-white/10 px-1.5 py-0.5 rounded outline-none"
         />
       ) : (
-        <div className="flex-1 min-w-0 flex flex-col leading-tight">
+        <div className={`flex-1 min-w-0 flex flex-col leading-tight ${isPoppedOut ? 'opacity-60' : ''}`}>
           <span className={`truncate text-[13px] ${isActive ? 'text-[var(--text-primary)] font-semibold' : 'text-[--text-secondary] font-medium'}`}>
             {tab.title}
           </span>
@@ -179,6 +181,13 @@ const TabItem = memo(({
             {tab.database || (tab.tab_type === 'query' ? 'Query' : tab.tab_type)}
           </span>
         </div>
+      )}
+
+      {/* Open in a pop-out window */}
+      {isPoppedOut && !isRenaming && (
+        <span title="Open in a pop-out window" className="shrink-0 flex">
+          <ExternalLink className="w-3 h-3 text-[--text-muted]" aria-label="Open in a pop-out window" />
+        </span>
       )}
 
       {/* Pin indicator for pinned tabs */}
@@ -366,6 +375,10 @@ export function TabsList({ onNewTabClick }: { onNewTabClick?: () => void }) {
   const spaceColor = activeSpace?.color || 'var(--accent-color)';
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; tab: Tab } | null>(null);
+  const poppedOutTabs = useAppStore(s => s.poppedOutTabs);
+  const popOutTab = useAppStore(s => s.popOutTab);
+  const focusPopout = useAppStore(s => s.focusPopout);
+  const closePopout = useAppStore(s => s.closePopout);
   const [folderContextMenu, setFolderContextMenu] = useState<{ x: number; y: number; folder: TabFolder } | null>(null);
   const [tabToRename, setTabToRename] = useState<string | null>(null);
   const [folderToRename, setFolderToRename] = useState<string | null>(null);
@@ -459,6 +472,10 @@ export function TabsList({ onNewTabClick }: { onNewTabClick?: () => void }) {
 
   const handleSetActive = useCallback((id: string) => {
     setActiveTab(id);
+    // Clicking a popped-out tab brings its window forward
+    if (id in useAppStore.getState().poppedOutTabs) {
+      void useAppStore.getState().focusPopout(id);
+    }
   }, [setActiveTab]);
 
   // Folder handlers
@@ -894,6 +911,29 @@ export function TabsList({ onNewTabClick }: { onNewTabClick?: () => void }) {
                 action: () => handleCreateFolderForTab(contextMenu.tab.id),
               },
             ] : []),
+            ...(contextMenu.tab.id in poppedOutTabs ? [
+              {
+                id: 'show-popout',
+                label: 'Show Pop-out',
+                icon: <ExternalLink className="w-4 h-4" />,
+                shortcut: 'Ctrl+Alt+O',
+                action: () => void focusPopout(contextMenu.tab.id),
+              },
+              {
+                id: 'dock-popout',
+                label: 'Dock Back',
+                icon: <PanelLeftClose className="w-4 h-4" />,
+                action: () => void closePopout(contextMenu.tab.id),
+              },
+            ] : [
+              {
+                id: 'popout',
+                label: 'Pop Out',
+                icon: <ExternalLink className="w-4 h-4" />,
+                shortcut: 'Ctrl+Alt+O',
+                action: () => void popOutTab(contextMenu.tab.id),
+              },
+            ]),
             {
               id: 'rename',
               label: 'Rename',

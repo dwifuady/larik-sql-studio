@@ -17,6 +17,7 @@ import { ToastContainer } from './Toast';
 import { ArchiveModal } from './ArchiveModal';
 import { PeekPanel } from './PeekPanel';
 import { SetReferenceDialog } from './SetReferenceDialog';
+import { PoppedOutPlaceholder } from './PoppedOutPlaceholder';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { spaceHasConnection } from '../types';
 import * as api from '../api';
@@ -45,6 +46,7 @@ export function AppLayout() {
 
   const activeTabId = useAppStore(s => s.activeTabId);
   const lastCreatedTabId = useAppStore(s => s.lastCreatedTabId);
+  const poppedOutTabs = useAppStore(s => s.poppedOutTabs);
   const tabs = useAppStore(s => s.tabs);
   const spaces = useAppStore(s => s.spaces);
   const activeSpaceId = useAppStore(s => s.activeSpaceId);
@@ -137,6 +139,20 @@ export function AppLayout() {
     };
     loadAppInfo();
   }, []); // Empty dependency array - only run once on mount
+
+  // Answer pop-out windows asking for their tab's results, and take tabs back when they close
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    let cancelled = false;
+    useAppStore.getState().initPopoutHost().then((fn) => {
+      if (cancelled) fn();
+      else cleanup = fn;
+    }).catch(err => console.error('[AppLayout] Failed to start pop-out host:', err));
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
+  }, []);
 
   // Defer snippets loading to idle time (not needed for initial render)
   useEffect(() => {
@@ -711,6 +727,8 @@ export function AppLayout() {
                 </button>
               </div>
             </div>
+          ) : activeTab && activeTab.id in poppedOutTabs ? (
+            <PoppedOutPlaceholder tab={activeTab} />
           ) : activeTab ? (
             <div
               className={`flex-1 flex flex-col min-h-0 min-w-0 ${activeTab.id === lastCreatedTabId ? 'animate-tab-content-in' : ''}`}

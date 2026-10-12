@@ -1,6 +1,8 @@
 // Folder Item Component - Arc Browser-style folder with expand/collapse
 import { useState, useRef, useEffect, memo, useCallback } from 'react';
 import { useDraggable } from '@dnd-kit/core';
+import { ExternalLink } from 'lucide-react';
+import { useAppStore } from '../store';
 import type { Tab, TabFolder } from '../types';
 
 // Tab item for tabs inside folders (indented)
@@ -28,6 +30,7 @@ const FolderTabItem = memo(({
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const isPoppedOut = useAppStore(s => tab.id in s.poppedOutTabs);
 
   useEffect(() => {
     if (isRenaming && inputRef.current) {
@@ -147,7 +150,7 @@ const FolderTabItem = memo(({
           className="flex-1 min-w-0 text-xs bg-white/10 px-1.5 py-0.5 rounded outline-none"
         />
       ) : (
-        <div className="flex-1 min-w-0 flex flex-col leading-tight">
+        <div className={`flex-1 min-w-0 flex flex-col leading-tight ${isPoppedOut ? 'opacity-60' : ''}`}>
           <span className={`truncate text-[12px] ${isActive ? 'text-[var(--text-primary)] font-medium' : 'text-[--text-secondary]'}`}>
             {tab.title}
           </span>
@@ -157,6 +160,11 @@ const FolderTabItem = memo(({
             </span>
           )}
         </div>
+      )}
+      {isPoppedOut && !isRenaming && (
+        <span title="Open in a pop-out window" className="shrink-0 flex mr-1">
+          <ExternalLink className="w-3 h-3 text-[--text-muted]" aria-label="Open in a pop-out window" />
+        </span>
       )}
     </div>
   );

@@ -106,6 +106,13 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             app.manage(MicaEnabled(mica));
             Ok(())
         })
+        .on_window_event(|window, event| {
+            // Closing the main window quits the app, taking any pop-out tab
+            // windows with it; their tabs simply reopen docked on next launch.
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+                window.app_handle().exit(0);
+            }
+        })
         .manage(app_state)
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())

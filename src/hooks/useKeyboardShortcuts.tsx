@@ -34,7 +34,7 @@ function parseShortcut(shortcut: string): { ctrl: boolean; shift: boolean; alt: 
 /**
  * Check if a keyboard event matches a shortcut string
  */
-function matchesShortcut(event: KeyboardEvent, shortcut: string): boolean {
+export function matchesShortcut(event: KeyboardEvent, shortcut: string): boolean {
   const parsed = parseShortcut(shortcut);
   const eventKey = event.key.toLowerCase();
 
@@ -101,6 +101,7 @@ export function getAllShortcuts(): Array<{
     { id: 'previous-tab', label: 'Previous Tab', description: 'Switch to the previous tab', shortcut: 'Ctrl+Shift+Tab', category: 'Tabs' },
     { id: 'pin-tab', label: 'Toggle Pin', description: 'Pin or unpin the current tab', shortcut: 'Ctrl+P', category: 'Tabs' },
     { id: 'export-sql-file', label: 'Export as SQL File', description: 'Save the current tab to a .sql file', shortcut: 'Ctrl+Shift+E', category: 'Tabs' },
+    { id: 'popout-tab', label: 'Pop Out Tab', description: 'Open the current tab in an always-on-top window (focuses it if already open)', shortcut: 'Ctrl+Alt+O', category: 'Tabs' },
 
     // Query
     { id: 'execute-query', label: 'Execute Query', description: 'Execute the query or selection', shortcut: 'Ctrl+Enter', category: 'Query' },
@@ -313,6 +314,14 @@ export function useKeyboardShortcuts() {
       if (matchesShortcut(event, 'Ctrl+Shift+?') || (event.ctrlKey && event.key === '?')) {
         event.preventDefault();
         handleShowShortcuts();
+        return;
+      }
+
+      // Ctrl+Alt+O: Pop out the current tab, or bring its pop-out forward (works everywhere)
+      if (matchesShortcut(event, 'Ctrl+Alt+O')) {
+        event.preventDefault();
+        const activeTab = getActiveTab();
+        if (activeTab) void useAppStore.getState().popOutTab(activeTab.id);
         return;
       }
 
