@@ -146,7 +146,13 @@ fn numeric_text(raw: &[u8]) -> DecodeResult<String> {
         .map(|k| header(8 + 2 * k).map(|d| i32::from(d as i16)))
         .collect::<DecodeResult<Vec<i32>>>()?;
     // Group `i` holds the base-10000 digit for power (weight - i).
-    let digit = |i: i32| usize::try_from(i).ok().and_then(|i| digits.get(i)).copied().unwrap_or(0);
+    let digit = |i: i32| {
+        usize::try_from(i)
+            .ok()
+            .and_then(|i| digits.get(i))
+            .copied()
+            .unwrap_or(0)
+    };
 
     let mut out = String::new();
     if sign == 0x4000 {
@@ -244,7 +250,10 @@ fn interval_text(raw: &[u8]) -> DecodeResult<String> {
     for (value, unit) in [(months / 12, "year"), (months % 12, "mon"), (days, "day")] {
         if value != 0 {
             any_negative |= value < 0;
-            parts.push(format!("{value} {unit}{}", if value == 1 { "" } else { "s" }));
+            parts.push(format!(
+                "{value} {unit}{}",
+                if value == 1 { "" } else { "s" }
+            ));
         }
     }
     if micros != 0 || parts.is_empty() {
@@ -464,16 +473,25 @@ mod tests {
     #[test]
     fn numeric_is_exact() {
         // 12.345 -> groups [12, 3450], weight 0, dscale 3
-        assert_eq!(numeric_text(&numeric(0, 0, 3, &[12, 3450])).unwrap(), "12.345");
+        assert_eq!(
+            numeric_text(&numeric(0, 0, 3, &[12, 3450])).unwrap(),
+            "12.345"
+        );
         // -0.0001 -> groups [1], weight -1
-        assert_eq!(numeric_text(&numeric(-1, 0x4000, 4, &[1])).unwrap(), "-0.0001");
+        assert_eq!(
+            numeric_text(&numeric(-1, 0x4000, 4, &[1])).unwrap(),
+            "-0.0001"
+        );
         // 10^30 -> group [100] at weight 7 (100 * 10000^7)
         assert_eq!(
             numeric_text(&numeric(7, 0, 0, &[100])).unwrap(),
             "1000000000000000000000000000000"
         );
         assert_eq!(numeric_text(&numeric(0, 0xC000, 0, &[])).unwrap(), "NaN");
-        assert_eq!(numeric_text(&numeric(0, 0xD000, 0, &[])).unwrap(), "Infinity");
+        assert_eq!(
+            numeric_text(&numeric(0, 0xD000, 0, &[])).unwrap(),
+            "Infinity"
+        );
     }
 
     #[test]
@@ -501,8 +519,14 @@ mod tests {
             "1 year 2 mons 3 days 04:05:06.5"
         );
         assert_eq!(interval_text(&raw(0, 0, 0)).unwrap(), "00:00:00");
-        assert_eq!(interval_text(&raw(3_600_000_000, -1, 0)).unwrap(), "-1 days +01:00:00");
-        assert_eq!(interval_text(&raw(-3_600_000_000, 0, 0)).unwrap(), "-01:00:00");
+        assert_eq!(
+            interval_text(&raw(3_600_000_000, -1, 0)).unwrap(),
+            "-1 days +01:00:00"
+        );
+        assert_eq!(
+            interval_text(&raw(-3_600_000_000, 0, 0)).unwrap(),
+            "-01:00:00"
+        );
     }
 
     #[test]

@@ -33,10 +33,7 @@ pub fn validate_and_quote(s: &str) -> Result<String, String> {
     // Anything safe to double-quote is still accepted (spaces, unicode, etc.);
     // only statement delimiters, NUL bytes and control characters are rejected —
     // those are the real injection vectors even inside quoted identifiers.
-    if s.is_empty()
-        || s.chars()
-            .any(|c| c == '\0' || c.is_control())
-    {
+    if s.is_empty() || s.chars().any(|c| c == '\0' || c.is_control()) {
         return Err("Invalid identifier".to_string());
     }
     Ok(quote_double_ident(s))
@@ -66,10 +63,7 @@ mod tests {
     #[test]
     fn escapes_embedded_quotes() {
         assert_eq!(quote_double_ident("my\"db"), "\"my\"\"db\"");
-        assert_eq!(
-            validate_and_quote("weird name").unwrap(),
-            "\"weird name\""
-        );
+        assert_eq!(validate_and_quote("weird name").unwrap(), "\"weird name\"");
     }
 
     #[test]
