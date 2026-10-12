@@ -341,3 +341,13 @@ describe('SQL completion in MongoDB spaces', () => {
     expect(buildMongoSuggestions(getMongoCompletionContext(''), schema).map(i => i.label)).toContain('SELECT');
   });
 });
+
+describe('JSON_VALUE completion', () => {
+  it('offers JSON_VALUE with an escaped $ in its snippet', () => {
+    const items = buildMongoSuggestions(getMongoCompletionContext('SELECT * FROM logs WHERE '), null);
+    const jsonValue = items.find(i => i.label === 'JSON_VALUE');
+    expect(jsonValue?.isSnippet).toBe(true);
+    // Monaco snippets need `$` escaped as `\$`
+    expect(jsonValue?.insertText).toBe("JSON_VALUE($1, '\\$.${2:key}')");
+  });
+});

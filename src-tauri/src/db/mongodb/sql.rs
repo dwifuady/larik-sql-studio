@@ -1292,6 +1292,96 @@ fn walk(expr: &Expr, f: &mut dyn FnMut(&Expr)) {
     }
 }
 
+/// Keys of a JSON_VALUE path: `$.a.b`, `$."key with spaces"`, optional `lax`/`strict` prefix
+fn json_path(path: &str) -> SqlResult<Vec<String>> {
+    let mut text = path.trim();
+    for mode in ["lax ", "strict "] {
+        if text.len() >= mode.len() && text[..mode.len()].eq_ignore_ascii_case(mode) {
+            text = text[mode.len()..].trim_start();
+        }
+    }
+    let Some(mut rest) = text.strip_prefix('$') else {
+        return Err(format!(
+            "JSON path '{path}' must start with '$', e.g. '$.callerId'"
+        ));
+    };
+    let mut keys = Vec::new();
+    while !rest.is_empty() {
+        if rest.starts_with('[') {
+            return Err(format!(
+                "JSON path '{path}': array indexes are not supported"
+            ));
+        }
+        let Some(after_dot) = rest.strip_prefix('.') else {
+            return Err(format!("JSON path '{path}' is not valid"));
+        };
+        if let Some(quoted) = after_dot.strip_prefix('"') {
+            let Some(end) = quoted.find('"') else {
+                return Err(format!("JSON path '{path}' has an unterminated quoted key"));
+            };
+            keys.push(quoted[..end].to_string());
+            rest = &quoted[end + 1..];
+        } else {
+            let end = after_dot.find(['.', '[']).unwrap_or(after_dot.len());
+            if end == 0 {
+                return Err(format!("JSON path '{path}' has an empty key"));
+            }
+            keys.push(after_dot[..end].to_string());
+            rest = &after_dot[end..];
+        }
+    }
+    if keys.is_empty() {
+        return Err("JSON_VALUE needs a path to a value, e.g. '$.callerId'".into());
+    }
+    Ok(keys)
+}
+
+/// Regex capturing the scalar value of `key` in JSON text:
+/// group 1 = a string's contents, group 2 = a number / true / false / null
+fn json_extract_regex(key: &str) -> String {
+    format!(
+        r#""{}"\s*:\s*(?:"((?:[^"\\]|\\.)*)"|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null))"#,
+        regex_escape(key)
+    )
+}
+
+/// Regex matching JSON text where `key` has exactly `value` (quoted or not)
+fn json_equals_regex(key: &str, value: &str) -> String {
+    format!(
+        r#""{}"\s*:\s*"?{}"?\s*[,}}\]]"#,
+        regex_escape(key),
+        regex_escape(value)
+    )
+}
+
+/// JSON_VALUE(x, path) as `(column path, keys)` when `x` is a plain column
+fn json_value_call(expr: &Expr) -> Option<(&[String], &str)> {
+    match expr {
+        Expr::Function {
+            name,
+            args,
+            distinct: false,
+            star: false,
+        } if name.eq_ignore_ascii_case("JSON_VALUE") => match args.as_slice() {
+            [Expr::Column(c), Expr::Literal(Lit::Str(path))] => Some((c.as_slice(), path.as_str())),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Text form of a constant compared with JSON_VALUE (which returns text)
+fn json_comparable_text(value: &Bson) -> Option<String> {
+    match value {
+        Bson::String(s) => Some(s.clone()),
+        Bson::Int32(v) => Some(v.to_string()),
+        Bson::Int64(v) => Some(v.to_string()),
+        Bson::Double(v) => Some(v.to_string()),
+        Bson::Boolean(b) => Some(b.to_string()),
+        _ => None,
+    }
+}
+
 /// How aggregates and group keys are referenced after a $group stage
 struct GroupContext<'a> {
     keys: &'a [(Expr, String)],
@@ -1480,6 +1570,9 @@ impl Compiler<'_> {
         if distinct || star {
             return Err(format!("{upper}() does not take DISTINCT or *"));
         }
+        if upper == "JSON_VALUE" {
+            return self.json_value(args);
+        }
         let compiled = args
             .iter()
             .map(|a| self.expr(a))
@@ -1573,6 +1666,110 @@ impl Compiler<'_> {
         })
     }
 
+    /// JSON_VALUE(x, '$.a.b'): the scalar at the path as text, or NULL.
+    /// Works when `x` holds JSON text (by matching the last key — the first
+    /// occurrence of that key name anywhere in the text) and when `x` is a real
+    /// sub-document (exact path), so the query doesn't depend on how it's stored.
+    fn json_value(&self, args: &[Expr]) -> SqlResult<Bson> {
+        let [source, Expr::Literal(Lit::Str(path))] = args else {
+            return Err(
+                "JSON_VALUE(expression, '$.path') takes an expression and a path string".into(),
+            );
+        };
+        let keys = json_path(path)?;
+        let input = self.expr(source)?;
+        let Some(last) = keys.last() else {
+            return Err("JSON_VALUE needs a path to a value".into());
+        };
+
+        // A JSON string's contents with the common escapes (\" \/ \\) undone
+        let mut string_value = Bson::Document(doc! { "$arrayElemAt": ["$$m.captures", 0] });
+        for (find, replacement) in [("\\\"", "\""), ("\\/", "/"), ("\\\\", "\\")] {
+            string_value = Bson::Document(doc! {
+                "$replaceAll": { "input": string_value, "find": find, "replacement": replacement }
+            });
+        }
+
+        let from_text = doc! {
+            "$let": {
+                "vars": { "m": { "$regexFind": { "input": input.clone(), "regex": json_extract_regex(last) } } },
+                "in": { "$ifNull": [
+                    string_value,
+                    { "$let": {
+                        "vars": { "v": { "$arrayElemAt": ["$$m.captures", 1] } },
+                        "in": { "$cond": [{ "$eq": ["$$v", "null"] }, Bson::Null, "$$v"] },
+                    } },
+                ] },
+            }
+        };
+
+        let mut branches = vec![Bson::Document(doc! {
+            "case": { "$eq": [{ "$type": input.clone() }, "string"] },
+            "then": from_text,
+        })];
+        if let Expr::Column(parts) = source {
+            let value = Bson::String(format!("${}.{}", self.scope.path(parts), keys.join(".")));
+            branches.push(Bson::Document(doc! {
+                "case": { "$eq": [{ "$type": input }, "object"] },
+                // Like SQL Server: objects and arrays are not scalar values
+                "then": { "$cond": [
+                    { "$in": [{ "$type": value.clone() }, ["object", "array", "missing", "null"]] },
+                    Bson::Null,
+                    { "$toString": value },
+                ] },
+            }));
+        }
+        Ok(Bson::Document(
+            doc! { "$switch": { "branches": branches, "default": Bson::Null } },
+        ))
+    }
+
+    /// `JSON_VALUE(col, path) = constant` (or IN) as a query-language filter: a
+    /// regex on the JSON text, or the exact value when `col` is a sub-document.
+    fn json_value_filter(
+        &self,
+        call: &Expr,
+        values: &[Bson],
+        negated: bool,
+    ) -> SqlResult<Option<Document>> {
+        let Some((column, path)) = json_value_call(call) else {
+            return Ok(None);
+        };
+        let keys = json_path(path)?;
+        let Some(last) = keys.last() else {
+            return Ok(None);
+        };
+        let field = self.scope.path(column);
+        let nested = format!("{field}.{}", keys.join("."));
+
+        let mut alternatives = Vec::new();
+        for value in values {
+            let Some(text) = json_comparable_text(value) else {
+                return Ok(None);
+            };
+            alternatives.push(Bson::Document(doc! {
+                field.clone(): Bson::RegularExpression(Regex { pattern: json_equals_regex(last, &text), options: String::new() })
+            }));
+            // A sub-document may store the value as text or as a number
+            let mut exact = vec![Bson::String(text.clone())];
+            if let Ok(n) = text.parse::<i64>() {
+                exact.push(match i32::try_from(n) {
+                    Ok(small) => Bson::Int32(small),
+                    Err(_) => Bson::Int64(n),
+                });
+            } else if let Ok(f) = text.parse::<f64>() {
+                exact.push(Bson::Double(f));
+            }
+            alternatives.push(Bson::Document(doc! { nested.clone(): { "$in": exact } }));
+        }
+        let matches = doc! { "$or": alternatives };
+        Ok(Some(if negated {
+            doc! { "$nor": [matches] }
+        } else {
+            matches
+        }))
+    }
+
     /// Query-language filter for `expr`, when it can be written without $expr
     /// (which keeps indexes usable). `None` means "use $expr".
     fn filter(&self, expr: &Expr) -> SqlResult<Option<Document>> {
@@ -1586,6 +1783,34 @@ impl Compiler<'_> {
                 _ => None,
             },
             Expr::Not(e) => self.filter(e)?.map(|inner| doc! { "$nor": [inner] }),
+            // JSON_VALUE(col, path) = / <> constant
+            Expr::Binary(op @ (BinOp::Eq | BinOp::Ne), l, r)
+                if json_value_call(l).is_some() || json_value_call(r).is_some() =>
+            {
+                let (call, other) = if json_value_call(l).is_some() {
+                    (l, r)
+                } else {
+                    (r, l)
+                };
+                match constant(other)? {
+                    Some(value) => self.json_value_filter(call, &[value], *op == BinOp::Ne)?,
+                    None => None,
+                }
+            }
+            Expr::InList {
+                expr,
+                list,
+                negated,
+            } if json_value_call(expr).is_some() => {
+                let mut values = Vec::new();
+                for item in list {
+                    match constant(item)? {
+                        Some(v) => values.push(v),
+                        None => return Ok(None),
+                    }
+                }
+                self.json_value_filter(expr, &values, *negated)?
+            }
             Expr::Binary(op, l, r) if query_op(*op).is_some() => {
                 let (path, value, op) = match (l.as_ref(), r.as_ref()) {
                     (Expr::Column(c), other) => match constant(other)? {
@@ -1725,6 +1950,15 @@ fn sanitize(name: &str) -> String {
 }
 
 fn default_name(expr: &Expr, index: usize) -> String {
+    if let Expr::Function { name, args, .. } = expr {
+        if name.eq_ignore_ascii_case("JSON_VALUE") {
+            if let Some(Expr::Literal(Lit::Str(path))) = args.get(1) {
+                if let Some(last) = json_path(path).ok().and_then(|keys| keys.last().cloned()) {
+                    return last;
+                }
+            }
+        }
+    }
     match expr {
         Expr::Column(parts) => parts.last().cloned().unwrap_or_default(),
         Expr::Function {
@@ -2550,6 +2784,7 @@ mod tests {
             "SELECT country, COUNT(*) n, AVG(score) FROM [user stats] GROUP BY country HAVING AVG(score) > 2.5",
             "SELECT o.total, c.name FROM orders o JOIN customers c ON o.cid = c._id WHERE created >= DATE '2024-02-03T04:05:06Z' AND _id <> ObjectId('65a1f0c2e4b0a1b2c3d4e5f6')",
             "SELECT * FROM t WHERE big = 5000000000 AND f = 2.0 AND s = 'it''s \"quoted\"' AND tag = '$notAField'",
+            "SELECT JSON_VALUE(Request, '$.callerId') caller FROM logs WHERE JSON_VALUE(Request, '$.callerId') = '8019327' ORDER BY JSON_VALUE(Request, '$.at')",
         ] {
             let compiled = compile(sql).unwrap();
             let text = shell_pipeline(&compiled);
@@ -2564,6 +2799,96 @@ mod tests {
             };
             assert_eq!(reparsed, compiled.pipeline, "\n{text}");
         }
+    }
+
+    #[test]
+    fn json_paths_parse_like_sql_server() {
+        assert_eq!(json_path("$.callerId").unwrap(), vec!["callerId"]);
+        assert_eq!(json_path("lax $.a.b").unwrap(), vec!["a", "b"]);
+        assert_eq!(
+            json_path(r#"strict $."key with spaces".x"#).unwrap(),
+            vec!["key with spaces", "x"]
+        );
+        assert!(json_path("callerId")
+            .unwrap_err()
+            .contains("must start with '$'"));
+        assert!(json_path("$.items[0]")
+            .unwrap_err()
+            .contains("array indexes"));
+        assert!(json_path("$").is_err());
+    }
+
+    #[test]
+    fn json_value_equality_compiles_to_a_regex_filter() {
+        let p = pipeline("SELECT * FROM ApiRequestResponseLog WHERE JSON_VALUE(Request, '$.callerId') = '8019327'");
+        let expected_regex = Regex {
+            pattern: json_equals_regex("callerId", "8019327"),
+            options: String::new(),
+        };
+        assert_eq!(
+            p[0],
+            doc! { "$match": { "$or": [
+                { "Request": Bson::RegularExpression(expected_regex) },
+                { "Request.callerId": { "$in": ["8019327", 8019327] } },
+            ] } }
+        );
+        // The regex accepts quoted and unquoted values, with or without spaces
+        assert_eq!(
+            json_equals_regex("callerId", "8019327"),
+            r#""callerId"\s*:\s*"?8019327"?\s*[,}\]]"#
+        );
+
+        let p = pipeline("SELECT * FROM t WHERE JSON_VALUE(Request, '$.a.b') IN ('x', 'y') AND JSON_VALUE(Request, '$.c') <> 'z'");
+        let m = shell_value(&Bson::Document(p[0].clone()));
+        assert!(m.contains("\"Request.a.b\": { $in: [\"x\"] }"), "{m}");
+        assert!(m.contains("$nor"), "{m}");
+    }
+
+    #[test]
+    fn json_value_in_select_handles_text_and_subdocuments() {
+        let c = compile("SELECT JSON_VALUE(Request, '$.callerId'), JSON_VALUE(Request, '$.user.id') AS uid FROM logs").unwrap();
+        assert_eq!(
+            c.columns,
+            Some(vec!["callerId".to_string(), "uid".to_string()])
+        );
+        let project = c.pipeline[0].get_document("$project").unwrap();
+        let caller = project
+            .get_document("callerId")
+            .unwrap()
+            .get_document("$switch")
+            .unwrap();
+        let branches = caller.get_array("branches").unwrap();
+        assert_eq!(branches.len(), 2);
+        let text = shell_value(&branches[0]);
+        assert!(text.contains("$regexFind"), "{text}");
+        assert!(text.contains("$replaceAll"), "{text}");
+        assert!(shell_value(&branches[1]).contains("\"$Request.callerId\""));
+        let uid = shell_value(&Bson::Document(
+            project.get_document("uid").unwrap().clone(),
+        ));
+        assert!(uid.contains("\"$Request.user.id\""), "{uid}");
+    }
+
+    #[test]
+    fn json_value_works_in_order_by_group_by_and_rejects_bad_calls() {
+        let p = pipeline("SELECT JSON_VALUE(Request, '$.callerId') AS caller, COUNT(*) AS n FROM logs GROUP BY JSON_VALUE(Request, '$.callerId') ORDER BY n DESC");
+        assert!(p[0]
+            .get_document("$group")
+            .unwrap()
+            .get_document("_id")
+            .unwrap()
+            .contains_key("caller"));
+        let p = pipeline("SELECT * FROM logs ORDER BY JSON_VALUE(Request, '$.at') DESC");
+        assert!(p[0].contains_key("$addFields"));
+        assert!(err("SELECT JSON_VALUE(Request) FROM t").contains("path string"));
+        assert!(err("SELECT JSON_VALUE(Request, '$.a[1]') FROM t").contains("array indexes"));
+    }
+
+    #[test]
+    fn json_value_extract_regex_captures_strings_and_scalars() {
+        let re = json_extract_regex("callerId");
+        assert!(re.starts_with(r#""callerId"\s*:\s*(?:""#), "{re}");
+        assert!(re.contains("true|false|null"));
     }
 
     #[test]

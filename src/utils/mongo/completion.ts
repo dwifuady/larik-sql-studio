@@ -539,6 +539,7 @@ const SQL_FUNCTIONS: [string, string, string][] = [
   ['ROUND', 'ROUND($1, ${2:2})', 'Round'],
   ['YEAR', 'YEAR($1)', 'Year of a date'],
   ['CAST', 'CAST($1 AS ${2:INT})', 'Convert type'],
+  ['JSON_VALUE', "JSON_VALUE($1, '\\$.${2:key}')", 'Value at a JSON path, from JSON text or a sub-document'],
   ['ISODate', "ISODate('$1')", 'Date literal'],
   ['ObjectId', "ObjectId('$1')", 'ObjectId literal'],
 ];
