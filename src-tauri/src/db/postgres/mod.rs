@@ -879,4 +879,55 @@ mod live_tests {
         );
         assert_eq!(outs[1].data_type, "integer");
     }
+
+    /// Engine-level read-only enforcement: with `read_only: true` the server
+    /// itself rejects DDL/DML (the driver never even tries to sniff the SQL),
+    /// while reads keep working. This is the guarantee the MCP server relies
+    /// on for spaces exposed with `read` access.
+    #[ignore]
+    #[tokio::test]
+    async fn read_only_blocks_writes_engine_side() {
+        if !url_available() {
+            return;
+        }
+        let config = live_config().unwrap();
+        let driver = PostgresDriver::new();
+
+        // Reads are unaffected.
+        let output = driver
+            .execute(
+                &config,
+                "SELECT 1 AS one",
+                ExecuteOptions {
+                    database: None,
+                    row_limit: 10,
+                    read_only: true,
+                },
+            )
+            .await
+            .unwrap();
+        assert!(matches!(output, ExecutionOutput::ResultSets { .. }));
+
+        // DDL is rejected by the server, naming the read-only transaction.
+        let marker = format!(
+            "mcp_ro_{}",
+            &uuid::Uuid::new_v4().simple().to_string()[..8]
+        );
+        let err = driver
+            .execute(
+                &config,
+                &format!("CREATE TABLE {marker}(x int)"),
+                ExecuteOptions {
+                    database: None,
+                    row_limit: 1,
+                    read_only: true,
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().to_lowercase().contains("read-only"),
+            "expected server-side read-only rejection, got: {err}"
+        );
+    }
 }

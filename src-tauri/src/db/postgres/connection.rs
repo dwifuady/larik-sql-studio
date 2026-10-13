@@ -409,4 +409,17 @@ mod tests {
             Err(ConnectionError::ConfigError(_))
         ));
     }
+
+    #[test]
+    fn read_only_sets_startup_options() {
+        let cfg = config(false, false);
+        let pg = pg_config(&cfg, None, true).unwrap();
+        assert_eq!(
+            pg.get_options(),
+            Some("-c default_transaction_read_only=on")
+        );
+
+        let pg = pg_config(&cfg, None, false).unwrap();
+        assert_eq!(pg.get_options(), None);
+    }
 }

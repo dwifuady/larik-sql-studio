@@ -47,6 +47,7 @@ Use workspaces to organize your database connections, and tabs to manage your qu
     - PostgreSQL (via `tokio-postgres`)
     - MongoDB (mongo-shell syntax, via the official driver)
     - SQLite (via `rusqlite`)
+- **AI Agent Access (MCP)**: Built-in MCP server (loopback HTTP) that lets AI agents like Claude Code use your saved connections — nothing exposed by default, per-space read-only/read-write levels, server-side read-only enforcement, and a full audit log. See [MCP_DESIGN.md](MCP_DESIGN.md).
 
 ## 🚀 Getting Started
 
