@@ -9,9 +9,9 @@ use tokio::sync::{mpsc, Mutex, RwLock};
 
 use crate::storage::{
     AppSettings, ArchiveSearchResult, ArchivedTab, AutoArchiveSettings, CreateFolderInput,
-    CreateSnippetInput, CreateSpaceInput, CreateTabInput, DatabaseManager, Snippet, Space,
-    StickyNote, StorageError, Tab, TabFolder, TabType, UpdateFolderInput, UpdateSnippetInput,
-    UpdateSpaceInput, UpdateTabInput, VirtualReference,
+    CreateSnippetInput, CreateSpaceInput, CreateTabInput, DatabaseManager, McpLogEntry, Snippet,
+    Space, StickyNote, StorageError, Tab, TabFolder, TabType, UpdateFolderInput,
+    UpdateSnippetInput, UpdateSpaceInput, UpdateTabInput, VirtualReference,
 };
 
 use crate::db::{
@@ -22,18 +22,21 @@ use crate::db::{
 
 use crate::export::{CsvExporter, ExportOptions, ExportProgress, JsonExporter};
 
+use crate::mcp::McpSupervisor;
 #[allow(dead_code)]
 mod validate;
 
 /// Application state managed by Tauri
 pub struct AppState {
-    pub db: Mutex<DatabaseManager>,
+    pub db: Arc<Mutex<DatabaseManager>>,
     pub connections: Arc<ConnectionManager>,
     pub query_engine: Arc<QueryEngine>,
     pub schema_manager: Arc<SchemaMetadataManager>,
     pub export_cancel_flags: RwLock<HashMap<String, Arc<AtomicBool>>>,
     /// Handle of the background auto-archive task, so it can be aborted on exit.
     pub archive_task: std::sync::Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    /// Embedded MCP server supervisor (start/stop on toggle).
+    pub mcp: Arc<McpSupervisor>,
 }
 
 #[derive(serde::Serialize)]
@@ -111,7 +114,7 @@ fn parse_driver(driver: Option<String>) -> Result<Option<DriverKind>, ApiError> 
 
 /// Build the connection config for a space's (1:1) connection.
 /// The space ID doubles as the connection ID.
-fn connection_config_for_space(
+pub(crate) fn connection_config_for_space(
     space: &Space,
     password: String,
 ) -> Result<ConnectionConfig, ApiError> {
@@ -154,6 +157,7 @@ pub async fn create_space(
     connection_trust_cert: Option<bool>,
     connection_encrypt: Option<bool>,
     connection_driver: Option<String>,
+    mcp_access: Option<String>,
 ) -> Result<Space, ApiError> {
     let name = validate::validate_name(&name).map_err(ApiError::Validation)?;
     let connection_port = validate::validate_port(connection_port).map_err(ApiError::Validation)?;
@@ -172,10 +176,10 @@ pub async fn create_space(
             connection_trust_cert,
             connection_encrypt,
             connection_driver,
+            mcp_access,
         })
         .map_err(|e| ApiError::from(e))?
     };
-
     // If connection is configured, register it with the ConnectionManager
     if space.has_connection() {
         let config = connection_config_for_space(&space, connection_password.unwrap_or_default())?;
@@ -229,6 +233,7 @@ pub async fn update_space(
     connection_trust_cert: Option<bool>,
     connection_encrypt: Option<bool>,
     connection_driver: Option<String>,
+    mcp_access: Option<String>,
 ) -> Result<Option<Space>, ApiError> {
     let name = match name {
         Some(n) => Some(validate::validate_name(&n).map_err(ApiError::Validation)?),
@@ -253,6 +258,7 @@ pub async fn update_space(
                 connection_trust_cert,
                 connection_encrypt,
                 connection_driver,
+                mcp_access,
             },
         )
         .map_err(|e| ApiError::from(e))?
@@ -893,6 +899,7 @@ pub async fn execute_query(
             database.as_deref(),
             is_selection,
             max_rows,
+            false,
         )
         .await
         .map_err(|e| ApiError::from(e))
@@ -1693,5 +1700,89 @@ pub async fn delete_virtual_reference(
 ) -> Result<bool, ApiError> {
     let db = state.db.lock().await;
     db.delete_virtual_reference(&id)
+        .map_err(|e| ApiError::from(e))
+}
+
+// ============================================================================
+// MCP Server commands
+// ============================================================================
+
+/// Settings snapshot for the embedded MCP server
+#[derive(serde::Serialize)]
+pub struct McpSettings {
+    pub enabled: bool,
+    pub running: bool,
+    pub port: u16,
+    pub token: String,
+}
+
+#[command]
+pub async fn get_mcp_settings(state: State<'_, AppState>) -> Result<McpSettings, ApiError> {
+    let db = state.db.lock().await;
+    Ok(McpSettings {
+        enabled: db.get_mcp_enabled()?,
+        running: state.mcp.is_running(),
+        port: db.get_mcp_port()?,
+        token: db.get_mcp_token()?,
+    })
+}
+
+/// Toggle the MCP server. Persists the setting, then starts/stops the
+/// listener. A bind failure returns an error while the setting stays on —
+/// `get_mcp_settings().running` shows the actual state.
+#[command]
+pub async fn set_mcp_enabled(state: State<'_, AppState>, enabled: bool) -> Result<bool, ApiError> {
+    {
+        let db = state.db.lock().await;
+        db.set_mcp_enabled(enabled)?;
+        if enabled {
+            // Make sure a token exists so the UI can show the client command.
+            db.get_mcp_token()?;
+        }
+    }
+    if enabled {
+        state.mcp.start().await.map_err(ApiError::Storage)?;
+    } else {
+        state.mcp.stop();
+    }
+    Ok(state.mcp.is_running())
+}
+
+/// Change the MCP port; restarts the listener when running.
+#[command]
+pub async fn set_mcp_port(state: State<'_, AppState>, port: u16) -> Result<bool, ApiError> {
+    if port == 0 {
+        return Err(ApiError::Validation("port must be 1-65535".into()));
+    }
+    {
+        let db = state.db.lock().await;
+        db.set_mcp_port(port)?;
+    }
+    if state.mcp.is_running() {
+        state.mcp.stop();
+        state.mcp.start().await.map_err(ApiError::Storage)?;
+    }
+    Ok(state.mcp.is_running())
+}
+
+/// Generate a new bearer token; old clients stop working immediately.
+#[command]
+pub async fn regenerate_mcp_token(state: State<'_, AppState>) -> Result<String, ApiError> {
+    let token = {
+        let db = state.db.lock().await;
+        db.reset_mcp_token()?
+    };
+    state.mcp.set_token(token.clone()).await;
+    Ok(token)
+}
+
+/// Recent MCP audit log entries, newest first
+#[command]
+pub async fn get_mcp_log(
+    state: State<'_, AppState>,
+    limit: Option<usize>,
+) -> Result<Vec<McpLogEntry>, ApiError> {
+    let db = state.db.lock().await;
+    db.list_mcp_log(limit.unwrap_or(200).min(1000))
         .map_err(|e| ApiError::from(e))
 }

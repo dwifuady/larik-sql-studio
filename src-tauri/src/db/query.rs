@@ -234,6 +234,9 @@ impl QueryEngine {
     /// Execute a query (single or batch) and return results
     /// If the driver splits the input into multiple statements, executes them
     /// as a batch and returns multiple results
+    ///
+    /// `read_only` requests engine-level read-only enforcement (used by the MCP
+    /// server for spaces exposed with `read` access; the UI always passes `false`).
     pub async fn execute_query(
         &self,
         connection_id: &str,
@@ -241,6 +244,7 @@ impl QueryEngine {
         database: Option<&str>,
         is_selection: bool,
         max_rows: Option<usize>,
+        read_only: bool,
     ) -> Result<Vec<QueryResult>, ConnectionError> {
         let (driver, _) = self.connection_manager.resolve(connection_id).await?;
         let statements = driver.split_statements(query);
@@ -256,6 +260,7 @@ impl QueryEngine {
                     database,
                     is_selection,
                     max_rows,
+                    read_only,
                     None,
                     Some(statements[0].clone()),
                 )
@@ -264,8 +269,15 @@ impl QueryEngine {
         }
 
         // Multiple statements - execute as batch
-        self.execute_batch(connection_id, statements, database, is_selection, max_rows)
-            .await
+        self.execute_batch(
+            connection_id,
+            statements,
+            database,
+            is_selection,
+            max_rows,
+            read_only,
+        )
+        .await
     }
 
     /// Execute a batch of statements sequentially
@@ -278,6 +290,7 @@ impl QueryEngine {
         database: Option<&str>,
         is_selection: bool,
         max_rows: Option<usize>,
+        read_only: bool,
     ) -> Result<Vec<QueryResult>, ConnectionError> {
         let mut results = Vec::new();
 
@@ -290,6 +303,7 @@ impl QueryEngine {
                     database,
                     is_selection,
                     max_rows,
+                    read_only,
                     Some(index),
                     Some(statement.clone()),
                 )
@@ -328,6 +342,7 @@ impl QueryEngine {
         database: Option<&str>,
         is_selection: bool,
         max_rows: Option<usize>,
+        read_only: bool,
         statement_index: Option<usize>,
         statement_text: Option<String>,
     ) -> Result<Vec<QueryResult>, ConnectionError> {
@@ -368,8 +383,8 @@ impl QueryEngine {
         let options = ExecuteOptions {
             database,
             row_limit: effective_row_limit(max_rows),
+            read_only,
         };
-
         log_info!(
             "[QUERY] Executing query with tokio::select!, query_id={}",
             query_id

@@ -32,6 +32,13 @@ export function driverOf(driver?: string | null): DriverKind {
 export function defaultPortFor(driver?: string | null): number {
   return DRIVER_DEFAULT_PORTS[driver as DriverKind] ?? DRIVER_DEFAULT_PORTS[DEFAULT_DRIVER];
 }
+/** MCP exposure level for a space over the embedded MCP server */
+export type McpAccessLevel = 'off' | 'read' | 'write';
+
+/** Normalize an mcp_access value from storage (unknown values fall back to off) */
+export function mcpAccessOf(value?: string | null): McpAccessLevel {
+  return value === 'read' || value === 'write' ? value : 'off';
+}
 
 /** A Space represents a work environment containing related tabs and 1:1 connection */
 export interface Space {
@@ -51,6 +58,8 @@ export interface Space {
   connection_trust_cert: boolean | null;
   connection_encrypt: boolean | null;
   connection_driver: DriverKind;
+  // MCP exposure over the embedded server (per-space tri-state)
+  mcp_access: McpAccessLevel;
   last_active_tab_id: string | null;
 }
 
@@ -93,6 +102,7 @@ export interface CreateSpaceInput {
   connection_trust_cert?: boolean | null;
   connection_encrypt?: boolean | null;
   connection_driver?: DriverKind | null;
+  mcp_access?: McpAccessLevel | null;
 }
 
 /** Input for updating an existing space */
@@ -110,6 +120,29 @@ export interface UpdateSpaceInput {
   connection_trust_cert?: boolean | null;
   connection_encrypt?: boolean | null;
   connection_driver?: DriverKind | null;
+  mcp_access?: McpAccessLevel | null;
+}
+
+/** MCP server settings and runtime state from the backend */
+export interface McpSettings {
+  enabled: boolean;
+  running: boolean;
+  port: number;
+  token: string;
+}
+
+/** One audited MCP tool call */
+export interface McpLogEntry {
+  id: string;
+  ts: string;
+  tool: string;
+  connection_id: string;
+  space_name: string;
+  statement: string;
+  access_level: McpAccessLevel;
+  status: 'ok' | 'error' | 'denied';
+  duration_ms: number;
+  rows_returned: number;
 }
 
 /** A Tab represents a tab within a space (can be pinned or unpinned) */

@@ -4,10 +4,12 @@
 pub mod commands;
 pub mod db;
 pub mod export;
+pub mod mcp;
 pub mod storage;
 
 use commands::AppState;
 use db::{ConnectionManager, DriverRegistry, QueryEngine, SchemaMetadataManager};
+use mcp::{McpState, McpSupervisor};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex as StdMutex};
 use storage::{get_default_db_path, DatabaseManager};
@@ -72,13 +74,25 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(schema_db_manager),
     ));
 
+    let db = Arc::new(Mutex::new(db_manager));
+
+    let mcp_state = Arc::new(McpState {
+        connections: Arc::clone(&connections),
+        query_engine: Arc::clone(&query_engine),
+        schema_manager: Arc::clone(&schema_manager),
+        db: Arc::clone(&db),
+        token: RwLock::new(String::new()),
+    });
+    let mcp = Arc::new(McpSupervisor::new(Arc::clone(&mcp_state)));
+
     let app_state = AppState {
-        db: Mutex::new(db_manager),
+        db,
         connections,
         query_engine,
         schema_manager,
         export_cancel_flags: RwLock::new(HashMap::new()),
         archive_task: StdMutex::new(None),
+        mcp,
     };
 
     // Clone DB path for background task
@@ -96,6 +110,25 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|_| "AppState lock poisoned")?;
             *slot = Some(handle);
 
+            // MCP server: load the token, then start if the user enabled it.
+            let supervisor = state.mcp.clone();
+            tauri::async_runtime::spawn(async move {
+                let mcp_state = supervisor.state();
+                let token = {
+                    let db = mcp_state.db.lock().await;
+                    db.get_mcp_token().unwrap_or_default()
+                };
+                supervisor.set_token(token).await;
+                let enabled = {
+                    let db = mcp_state.db.lock().await;
+                    db.get_mcp_enabled().unwrap_or(false)
+                };
+                if enabled {
+                    if let Err(e) = supervisor.start().await {
+                        eprintln!("[MCP] failed to start on launch: {e}");
+                    }
+                }
+            });
             let mica = app
                 .get_webview_window("main")
                 .map(|w| {
@@ -223,6 +256,12 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::get_virtual_references,
             commands::save_virtual_reference,
             commands::delete_virtual_reference,
+            // MCP server commands
+            commands::get_mcp_settings,
+            commands::set_mcp_enabled,
+            commands::set_mcp_port,
+            commands::regenerate_mcp_token,
+            commands::get_mcp_log,
         ])
         .build(tauri::generate_context!())?
         .run(|app_handle, event| {

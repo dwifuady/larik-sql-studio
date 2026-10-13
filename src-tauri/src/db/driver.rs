@@ -87,6 +87,11 @@ pub struct ExecuteOptions<'a> {
     pub database: Option<&'a str>,
     /// Maximum rows to return per result set. Always > 0.
     pub row_limit: usize,
+    /// Enforce read-only execution at the engine level where the engine supports
+    /// it (PostgreSQL sets `default_transaction_read_only` on the dedicated
+    /// session). Set by the MCP server for spaces exposed with `read` access;
+    /// the UI always passes `false`.
+    pub read_only: bool,
 }
 
 /// One tabular result produced by a statement.

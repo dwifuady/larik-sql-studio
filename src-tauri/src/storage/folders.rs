@@ -372,6 +372,7 @@ mod tests {
                 connection_trust_cert: None,
                 connection_encrypt: None,
                 connection_driver: None,
+                mcp_access: None,
             })
             .unwrap()
             .id

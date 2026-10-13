@@ -119,10 +119,13 @@ impl rustls::client::danger::ServerCertVerifier for TrustAnyVerifier {
 
 /// Create a tokio-postgres Config from the neutral connection config.
 /// `database` overrides the target database (per-tab database selection);
-/// `None` keeps the configured database.
+/// `None` keeps the configured database. `read_only` sets
+/// `default_transaction_read_only` via the startup `options` parameter, so the
+/// server rejects writes/DDL for every statement on the connection.
 pub fn pg_config(
     config: &ConnectionConfig,
     database: Option<&str>,
+    read_only: bool,
 ) -> Result<tokio_postgres::Config, ConnectionError> {
     let database = match database {
         Some(db) if !db.is_empty() => db,
@@ -143,6 +146,10 @@ pub fn pg_config(
         .ssl_mode(TlsMode::from_config(config).ssl_mode())
         .application_name("Larik SQL Studio");
 
+    if read_only {
+        pg.options("-c default_transaction_read_only=on");
+    }
+
     Ok(pg)
 }
 
@@ -153,12 +160,12 @@ pub fn pg_config(
 pub async fn connect_dedicated(
     config: &ConnectionConfig,
     database: Option<&str>,
+    read_only: bool,
 ) -> Result<tokio_postgres::Client, ConnectionError> {
-    let pg = pg_config(config, database)?;
+    let pg = pg_config(config, database, read_only)?;
     let mode = TlsMode::from_config(config);
     connect_with(&pg, mode).await
 }
-
 pub async fn connect_with(
     pg: &tokio_postgres::Config,
     mode: TlsMode,
@@ -301,7 +308,7 @@ impl PgClients {
             self.remove(&config.id).await;
         }
 
-        let client = Arc::new(connect_dedicated(config, None).await?);
+        let client = Arc::new(connect_dedicated(config, None, false).await?);
         let mut clients = self.clients.write().await;
         // Another task may have raced us; keep whichever landed first.
         Ok(Arc::clone(
@@ -363,17 +370,19 @@ mod tests {
     #[test]
     fn encryption_is_required_not_preferred() {
         assert_eq!(
-            pg_config(&config(true, false), None)
+            pg_config(&config(true, false), None, false)
                 .unwrap()
                 .get_ssl_mode(),
             SslMode::Require
         );
         assert_eq!(
-            pg_config(&config(true, true), None).unwrap().get_ssl_mode(),
+            pg_config(&config(true, true), None, false)
+                .unwrap()
+                .get_ssl_mode(),
             SslMode::Require
         );
         assert_eq!(
-            pg_config(&config(false, false), None)
+            pg_config(&config(false, false), None, false)
                 .unwrap()
                 .get_ssl_mode(),
             SslMode::Disable
@@ -383,9 +392,9 @@ mod tests {
     #[test]
     fn builds_config_with_overrides() {
         let cfg = config(false, false);
-        let pg = pg_config(&cfg, Some("other_db")).unwrap();
+        let pg = pg_config(&cfg, Some("other_db"), false).unwrap();
         assert_eq!(pg.get_dbname(), Some("other_db"));
-        let pg = pg_config(&cfg, None).unwrap();
+        let pg = pg_config(&cfg, None, false).unwrap();
         assert_eq!(pg.get_dbname(), Some("postgres"));
         assert_eq!(pg.get_user(), Some("postgres"));
         assert_eq!(pg.get_ports(), &[5432]);
@@ -396,7 +405,7 @@ mod tests {
         let mut cfg = config(false, false);
         cfg.database = String::new();
         assert!(matches!(
-            pg_config(&cfg, None),
+            pg_config(&cfg, None, false),
             Err(ConnectionError::ConfigError(_))
         ));
     }

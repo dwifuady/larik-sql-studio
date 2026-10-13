@@ -1,7 +1,7 @@
 // Tauri IPC API wrapper functions
 import { invokeSafe } from './client';
 import { save, open } from '@tauri-apps/plugin-dialog';
-import type { Space, Tab, ConnectionInfo, DriverKind, QueryResult, QueryInfo, CreateSpaceInput, UpdateSpaceInput, SchemaInfo, SchemaColumnInfo } from '../types';
+import type { Space, Tab, ConnectionInfo, DriverKind, QueryResult, QueryInfo, CreateSpaceInput, UpdateSpaceInput, SchemaInfo, SchemaColumnInfo, McpSettings, McpLogEntry } from '../types';
 import type { TabFolder } from '../types';
 import type { Snippet, CreateSnippetInput, UpdateSnippetInput } from '../types';
 import type { ArchivedTab, ArchiveSearchResult, AutoArchiveSettings, AppSettings } from '../types';
@@ -24,6 +24,7 @@ export async function createSpace(input: CreateSpaceInput): Promise<Space> {
     connectionTrustCert: input.connection_trust_cert,
     connectionEncrypt: input.connection_encrypt,
     connectionDriver: input.connection_driver,
+    mcpAccess: input.mcp_access,
   });
 }
 
@@ -50,6 +51,7 @@ export async function updateSpace(id: string, input: UpdateSpaceInput): Promise<
     connectionTrustCert: input.connection_trust_cert,
     connectionEncrypt: input.connection_encrypt,
     connectionDriver: input.connection_driver,
+    mcpAccess: input.mcp_access,
   });
 }
 
@@ -712,4 +714,33 @@ export async function updateAppSettings(
     maxResultRows,
     referencePreviewRowLimit
   });
+}
+
+// ============================================================================
+// MCP Server API (embedded MCP server for local AI agents)
+// ============================================================================
+
+/** Get MCP server settings and runtime state */
+export async function getMcpSettings(): Promise<McpSettings> {
+  return invokeSafe<McpSettings>('get_mcp_settings');
+}
+
+/** Enable or disable the MCP server; returns the running state */
+export async function setMcpEnabled(enabled: boolean): Promise<boolean> {
+  return invokeSafe<boolean>('set_mcp_enabled', { enabled });
+}
+
+/** Change the MCP server port; returns the running state */
+export async function setMcpPort(port: number): Promise<boolean> {
+  return invokeSafe<boolean>('set_mcp_port', { port });
+}
+
+/** Generate a new MCP bearer token */
+export async function regenerateMcpToken(): Promise<string> {
+  return invokeSafe<string>('regenerate_mcp_token');
+}
+
+/** Get recent MCP audit log entries */
+export async function getMcpLog(limit?: number): Promise<McpLogEntry[]> {
+  return invokeSafe<McpLogEntry[]>('get_mcp_log', { limit });
 }

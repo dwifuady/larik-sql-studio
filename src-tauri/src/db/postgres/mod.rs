@@ -40,7 +40,7 @@ impl DatabaseDriver for PostgresDriver {
     }
 
     async fn test_connection(&self, config: &ConnectionConfig) -> Result<(), ConnectionError> {
-        connect_dedicated(config, None).await.map(|_| ())
+        connect_dedicated(config, None, false).await.map(|_| ())
     }
 
     async fn connect(&self, config: &ConnectionConfig) -> Result<(), ConnectionError> {
@@ -68,7 +68,7 @@ impl DatabaseDriver for PostgresDriver {
         &self,
         config: &ConnectionConfig,
     ) -> Result<Vec<DatabaseEntry>, ConnectionError> {
-        let conn = connect_dedicated(config, None).await?;
+        let conn = connect_dedicated(config, None, false).await?;
         let rows = conn
             .query(
                 "SELECT datname, has_database_privilege(current_user, datname, 'CONNECT') \
@@ -106,7 +106,7 @@ impl DatabaseDriver for PostgresDriver {
         statement: &str,
         options: ExecuteOptions<'_>,
     ) -> Result<ExecutionOutput, ConnectionError> {
-        let conn = connect_dedicated(config, options.database).await?;
+        let conn = connect_dedicated(config, options.database, options.read_only).await?;
         let guard = CancelOnDrop::new(&conn, TlsMode::from_config(config));
 
         let mut statements = parse_sql_statements(statement);
@@ -399,6 +399,7 @@ mod live_tests {
                 ExecuteOptions {
                     database,
                     row_limit: 10_000,
+                    read_only: false,
                 },
             )
             .await
@@ -553,6 +554,7 @@ mod live_tests {
                 ExecuteOptions {
                     database: None,
                     row_limit: 10,
+                    read_only: false,
                 },
             )
             .await
@@ -752,6 +754,7 @@ mod live_tests {
                 ExecuteOptions {
                     database: None,
                     row_limit: 2,
+                    read_only: false,
                 },
             )
             .await

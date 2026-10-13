@@ -213,6 +213,7 @@ mod live_tests {
                 ExecuteOptions {
                     database: Some(db),
                     row_limit: 3,
+                    read_only: false,
                 },
             )
             .await

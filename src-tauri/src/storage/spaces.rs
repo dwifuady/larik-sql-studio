@@ -27,12 +27,13 @@ pub struct Space {
     /// Database driver kind (`DriverKind` as a string, e.g. "mssql"). Kept as a raw
     /// string so a space saved by a newer build still loads; it is parsed on connect.
     pub connection_driver: String,
+    /// Exposure level for the embedded MCP server: `"off"`, `"read"`, or `"write"`.
+    pub mcp_access: String,
     pub last_active_tab_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub sort_order: i32,
 }
-
 impl Space {
     /// Check if this space has a connection configured.
     /// MongoDB lists its databases once connected, so its database is optional.
@@ -59,6 +60,7 @@ pub struct CreateSpaceInput {
     pub connection_trust_cert: Option<bool>,
     pub connection_encrypt: Option<bool>,
     pub connection_driver: Option<DriverKind>,
+    pub mcp_access: Option<String>,
 }
 
 /// Input for updating an existing space
@@ -77,6 +79,24 @@ pub struct UpdateSpaceInput {
     pub connection_trust_cert: Option<bool>,
     pub connection_encrypt: Option<bool>,
     pub connection_driver: Option<DriverKind>,
+    pub mcp_access: Option<String>,
+}
+
+/// Normalize a requested MCP access level to a known value; unknown → `"off"`.
+fn normalize_access(v: Option<&str>) -> &'static str {
+    match v {
+        Some("read") => "read",
+        Some("write") => "write",
+        _ => "off",
+    }
+}
+
+/// Sanitize an access level read from storage; unknown → `"off"` (fail-closed).
+fn sanitize_access(v: String) -> String {
+    match v.as_str() {
+        "read" | "write" => v,
+        _ => "off".to_string(),
+    }
 }
 
 impl DatabaseManager {
@@ -95,6 +115,7 @@ impl DatabaseManager {
         let sort_order = max_order + 1;
         let driver = input.connection_driver.unwrap_or_default();
 
+        let mcp_access = normalize_access(input.mcp_access.as_deref());
         self.with_connection(|conn| {
             conn.execute(
                 r#"
@@ -103,9 +124,10 @@ impl DatabaseManager {
                     connection_host, connection_port, connection_database,
                     connection_username, connection_password,
                     connection_trust_cert, connection_encrypt, connection_driver,
+                    mcp_access,
                     created_at, updated_at
                 )
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, datetime('now'), datetime('now'))
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, datetime('now'), datetime('now'))
                 "#,
                 params![
                     id,
@@ -120,7 +142,8 @@ impl DatabaseManager {
                     input.connection_password,
                     input.connection_trust_cert.unwrap_or(true),
                     input.connection_encrypt.unwrap_or(false),
-                    driver.as_str()
+                    driver.as_str(),
+                    mcp_access
                 ],
             )?;
             Ok(())
@@ -143,7 +166,7 @@ impl DatabaseManager {
                     connection_trust_cert, connection_encrypt,
                     last_active_tab_id,
                     created_at, updated_at, sort_order,
-                    connection_driver
+                    connection_driver, mcp_access
                 FROM spaces WHERE id = ?1"#,
             )?;
 
@@ -165,6 +188,7 @@ impl DatabaseManager {
                     updated_at: row.get(13)?,
                     sort_order: row.get(14)?,
                     connection_driver: row.get(15)?,
+                    mcp_access: sanitize_access(row.get(16)?),
                 })
             });
 
@@ -187,7 +211,7 @@ impl DatabaseManager {
                     connection_trust_cert, connection_encrypt,
                     last_active_tab_id,
                     created_at, updated_at, sort_order,
-                    connection_driver
+                    connection_driver, mcp_access
                 FROM spaces ORDER BY sort_order"#,
             )?;
 
@@ -210,6 +234,7 @@ impl DatabaseManager {
                         updated_at: row.get(13)?,
                         sort_order: row.get(14)?,
                         connection_driver: row.get(15)?,
+                        mcp_access: sanitize_access(row.get(16)?),
                     })
                 })?
                 .filter_map(|r| r.ok())
@@ -279,7 +304,12 @@ impl DatabaseManager {
                 updates.push("connection_driver = ?");
                 params_vec.push(Box::new(driver.as_str()));
             }
-
+            if let Some(mcp_access) = &input.mcp_access {
+                updates.push("mcp_access = ?");
+                params_vec.push(Box::new(
+                    normalize_access(Some(mcp_access.as_str())).to_string(),
+                ));
+            }
             params_vec.push(Box::new(id.to_string()));
 
             let sql = format!("UPDATE spaces SET {} WHERE id = ?", updates.join(", "));
@@ -387,6 +417,7 @@ mod tests {
                 connection_trust_cert: Some(true),
                 connection_encrypt: Some(false),
                 connection_driver: None,
+                mcp_access: None,
             })
             .unwrap();
 
@@ -420,6 +451,7 @@ mod tests {
                 connection_trust_cert: None,
                 connection_encrypt: None,
                 connection_driver: None,
+                mcp_access: None,
             })
             .unwrap();
 
@@ -467,6 +499,7 @@ mod tests {
                 connection_trust_cert: None,
                 connection_encrypt: None,
                 connection_driver: None,
+                mcp_access: None,
             })
             .unwrap();
 
@@ -483,6 +516,7 @@ mod tests {
                 connection_trust_cert: None,
                 connection_encrypt: None,
                 connection_driver: None,
+                mcp_access: None,
             })
             .unwrap();
 
@@ -513,6 +547,7 @@ mod tests {
                 connection_trust_cert: None,
                 connection_encrypt: None,
                 connection_driver: None,
+                mcp_access: None,
             })
             .unwrap();
 
@@ -532,6 +567,7 @@ mod tests {
                     connection_trust_cert: Some(true),
                     connection_encrypt: Some(false),
                     connection_driver: Some(DriverKind::Mssql),
+                    mcp_access: None,
                 },
             )
             .unwrap()
@@ -563,6 +599,7 @@ mod tests {
                 connection_trust_cert: None,
                 connection_encrypt: None,
                 connection_driver: None,
+                mcp_access: None,
             })
             .unwrap();
 
@@ -592,6 +629,7 @@ mod tests {
                 connection_trust_cert: None,
                 connection_encrypt: None,
                 connection_driver: None,
+                mcp_access: None,
             })
             .unwrap();
 
@@ -608,6 +646,7 @@ mod tests {
                 connection_trust_cert: None,
                 connection_encrypt: None,
                 connection_driver: None,
+                mcp_access: None,
             })
             .unwrap();
 
@@ -624,6 +663,7 @@ mod tests {
                 connection_trust_cert: None,
                 connection_encrypt: None,
                 connection_driver: None,
+                mcp_access: None,
             })
             .unwrap();
 
