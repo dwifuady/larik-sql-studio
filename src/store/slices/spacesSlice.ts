@@ -113,6 +113,7 @@ export const createSpacesSlice: StateCreator<AppState, [], [], SpacesSlice> = (s
     },
 
     deleteSpace: async (id) => {
+        await get().closePopoutsForSpace(id, 'its space was deleted');
         await api.deleteSpace(id);
         set((state) => {
             const newSpaces = state.spaces.filter((s) => s.id !== id);

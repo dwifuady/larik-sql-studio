@@ -107,6 +107,7 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
     },
 
     deleteTab: async (id) => {
+        await get().closePopout(id, { discard: true, reason: 'the tab was archived' });
         // Archive the tab instead of permanently deleting it (Arc Browser-style)
         await api.archiveTab(id);
         // Reload archive count so UI updates immediately

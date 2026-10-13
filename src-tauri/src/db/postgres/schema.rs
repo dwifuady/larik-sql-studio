@@ -7,9 +7,7 @@
 use super::connection::{connect_dedicated, statement_error};
 use crate::db::config::ConnectionConfig;
 use crate::db::error::ConnectionError;
-use crate::db::schema::{
-    ColumnInfo, RelationshipInfo, RoutineInfo, SchemaInfo, TableInfo,
-};
+use crate::db::schema::{ColumnInfo, RelationshipInfo, RoutineInfo, SchemaInfo, TableInfo};
 use tokio_postgres::Client;
 
 /// Schemas owned by PostgreSQL itself; hidden from the explorer tree.
@@ -247,18 +245,16 @@ async fn fetch_routines(
         let Some(current) = routines.last_mut() else {
             continue;
         };
-        current
-            .parameters
-            .push(crate::db::schema::ParameterInfo {
-                name: row.get(6),
-                data_type: row.get::<_, Option<String>>(7).unwrap_or_default(),
-                max_length: None,
-                precision: None,
-                scale: None,
-                parameter_mode: row.get(5),
-                ordinal_position,
-                has_default: false,
-            });
+        current.parameters.push(crate::db::schema::ParameterInfo {
+            name: row.get(6),
+            data_type: row.get::<_, Option<String>>(7).unwrap_or_default(),
+            max_length: None,
+            precision: None,
+            scale: None,
+            parameter_mode: row.get(5),
+            ordinal_position,
+            has_default: false,
+        });
     }
     Ok(routines)
 }

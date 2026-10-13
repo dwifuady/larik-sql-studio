@@ -32,6 +32,7 @@ const useTestStore = create<any>((set, get, api) => ({
     loadFolders: vi.fn(),
     touchActiveTab: vi.fn(),
     saveAppSettings: vi.fn(),
+    closePopout: vi.fn(),
 }));
 
 describe('tabsSlice', () => {

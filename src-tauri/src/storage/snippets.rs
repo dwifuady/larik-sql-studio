@@ -704,7 +704,8 @@ impl DatabaseManager {
 
     fn query_snippets(&self, clause: &str) -> StorageResult<Vec<Snippet>> {
         self.with_connection(|conn| {
-            let mut stmt = conn.prepare(&format!("SELECT {SNIPPET_COLUMNS} FROM snippets {clause}"))?;
+            let mut stmt =
+                conn.prepare(&format!("SELECT {SNIPPET_COLUMNS} FROM snippets {clause}"))?;
             let snippets = stmt
                 .query_map([], row_to_snippet)?
                 .filter_map(|r| r.ok())
@@ -734,7 +735,9 @@ impl DatabaseManager {
     pub fn get_snippet_by_trigger(&self, trigger: &str) -> StorageResult<Option<Snippet>> {
         self.with_connection(|conn| {
             let result = conn.query_row(
-                &format!("SELECT {SNIPPET_COLUMNS} FROM snippets WHERE trigger = ?1 AND enabled = 1"),
+                &format!(
+                    "SELECT {SNIPPET_COLUMNS} FROM snippets WHERE trigger = ?1 AND enabled = 1"
+                ),
                 params![trigger],
                 row_to_snippet,
             );
@@ -799,10 +802,7 @@ impl DatabaseManager {
             updates.push("updated_at = datetime('now')");
             values.push(Box::new(id.to_string()));
 
-            let sql = format!(
-                "UPDATE snippets SET {} WHERE id = ?",
-                updates.join(", ")
-            );
+            let sql = format!("UPDATE snippets SET {} WHERE id = ?", updates.join(", "));
 
             let params: Vec<&dyn rusqlite::ToSql> = values.iter().map(|v| v.as_ref()).collect();
             conn.execute(&sql, params.as_slice())?;
@@ -995,8 +995,12 @@ mod tests {
         manager.seed_builtin_snippets().unwrap();
 
         // Same trigger, one body per database
-        assert!(builtin(&manager, "selt", Some("mssql")).content.contains("TOP"));
-        assert!(builtin(&manager, "selt", Some("postgres")).content.contains("LIMIT"));
+        assert!(builtin(&manager, "selt", Some("mssql"))
+            .content
+            .contains("TOP"));
+        assert!(builtin(&manager, "selt", Some("postgres"))
+            .content
+            .contains("LIMIT"));
         // Generic snippets apply everywhere
         assert!(builtin(&manager, "sel", None).drivers.is_none());
         // T-SQL-only snippets have no PostgreSQL twin
@@ -1036,9 +1040,11 @@ mod tests {
         assert_eq!(by_id("a").drivers, Some(vec!["mssql".to_string()]));
         assert_eq!(by_id("b").drivers, None);
         assert_eq!(by_id("c").drivers, None); // user snippets stay unscoped
-        // The legacy row is the SQL Server builtin; PostgreSQL got its own
+                                              // The legacy row is the SQL Server builtin; PostgreSQL got its own
         assert_eq!(builtin(&manager, "selt", Some("mssql")).id, "a");
-        assert!(builtin(&manager, "selt", Some("postgres")).content.contains("LIMIT"));
+        assert!(builtin(&manager, "selt", Some("postgres"))
+            .content
+            .contains("LIMIT"));
         // No duplicate generic builtin was seeded
         let sel_count = manager
             .get_all_snippets()
@@ -1084,7 +1090,12 @@ mod tests {
                 description: None,
                 category: None,
                 // Normalized: aliases resolved, mongodb/unknown dropped, sorted
-                drivers: Some(vec!["pg".into(), "mongodb".into(), "oracle".into(), "mssql".into()]),
+                drivers: Some(vec![
+                    "pg".into(),
+                    "mongodb".into(),
+                    "oracle".into(),
+                    "mssql".into(),
+                ]),
             })
             .unwrap();
         assert_eq!(

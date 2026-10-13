@@ -34,9 +34,14 @@ import {
 import { MONGO_LANGUAGE_ID, registerMongoLanguage } from '../utils/mongo/language';
 import { ContextMenu, ContextMenuItem } from './ContextMenu';
 import { writeText, readText } from '@tauri-apps/plugin-clipboard-manager';
+import { flushPendingAutosave, setPendingAutosave } from '../utils/pendingAutosave';
 
 interface QueryEditorProps {
   tab: Tab;
+  /** Rendered inside a pop-out window: compact grid, no grid editing or export. */
+  popout?: boolean;
+  /** Pop-out only: hide the editor so the results fill the window. */
+  editorCollapsed?: boolean;
 }
 
 const EVENT_RUN_QUERY_CODELENS = 'larik:run-query-codelens';
@@ -310,7 +315,7 @@ function toMonacoCompletion(
   };
 }
 
-function QueryEditorComp({ tab }: QueryEditorProps) {
+function QueryEditorComp({ tab, popout = false, editorCollapsed = false }: QueryEditorProps) {
 
   // Atomic selectors to prevent re-renders
   const autosaveContent = useAppStore(s => s.autosaveContent);
@@ -381,11 +386,13 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   const codeLensProviderRef = useRef<IDisposable | null>(null);
   const mongoCompletionProviderRef = useRef<IDisposable | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSaveTabRef = useRef<string | null>(null);
   const lastTabIdRef = useRef<string>(tab.id);
   const executeQueryRef = useRef<(() => Promise<void>) | null>(null);
   const executeQueryAppendRef = useRef<(() => Promise<void>) | null>(null);
   const hasSelectionRef = useRef(false);
-  const [resultPanelHeight, setResultPanelHeight] = useState(450);
+  // Pop-out windows are small, so start the grid at about half the window
+  const [resultPanelHeight, setResultPanelHeight] = useState(() => popout ? Math.round(window.innerHeight * 0.5) : 450);
   const [isResizingResults, setIsResizingResults] = useState(false);
   const [hasSelection, setHasSelection] = useState(false);
   const [editingResultIndex, setEditingResultIndex] = useState<number | null>(null);
@@ -1826,22 +1833,38 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
   const handleChange: OnChange = useCallback((value) => {
     if (value === undefined || value === tab.content) return;
 
-    // Clear existing timeout
+    // Clear existing timeout; a save still pending for another tab is written now
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
     }
+    if (pendingSaveTabRef.current && pendingSaveTabRef.current !== tab.id) {
+      void flushPendingAutosave(pendingSaveTabRef.current);
+    }
+
+    const tabId = tab.id;
+    const save = async () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+      pendingSaveTabRef.current = null;
+      await autosaveContent(tabId, value);
+    };
+    pendingSaveTabRef.current = tabId;
+    setPendingAutosave(tabId, save);
 
     // Debounce save by 400ms
     saveTimeoutRef.current = setTimeout(() => {
-      autosaveContent(tab.id, value);
+      void flushPendingAutosave(tabId);
     }, 400);
   }, [tab.id, tab.content, autosaveContent]);
 
-  // Cleanup timeout on unmount
+  // Write any pending save on unmount instead of dropping the last edits
   useEffect(() => {
     return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
+      if (pendingSaveTabRef.current) {
+        void flushPendingAutosave(pendingSaveTabRef.current);
       }
     };
   }, []);
@@ -2331,7 +2354,7 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       {/* Monaco Editor — Arc-style frame, excludes result pane.
           NOTE: no overflow-hidden here — it would clip Monaco's suggest widget,
           which lives outside .overflow-guard and can extend below the editor. */}
-      <div className={`flex-1 min-h-0 relative mx-1.5 mt-1.5 ${showResults ? 'mb-0' : 'mb-1.5'} rounded-xl border border-[var(--border-subtle)]`} style={{ flex: showResults ? '1 1 auto' : '1 1 100%' }} data-allow-select-all>
+      <div className={`flex-1 min-h-0 relative mx-1.5 mt-1.5 ${showResults ? 'mb-0' : 'mb-1.5'} rounded-xl border border-[var(--border-subtle)]`} style={{ flex: showResults ? '1 1 auto' : '1 1 100%', display: editorCollapsed ? 'none' : undefined }} data-allow-select-all>
         <Editor
           height="100%"
           language={isMongo ? MONGO_LANGUAGE_ID : sqlDialect.monacoLanguage}
@@ -2388,15 +2411,17 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
       {showResults && (
         <>
           {/* Resize handle — matches container bg so it's invisible; only accent while dragging */}
-          <div
-            className={`mx-1.5 h-1 cursor-row-resize flex-shrink-0 ${isResizingResults ? 'bg-[var(--accent-color)]' : 'bg-[var(--bg-secondary)] hover:bg-[var(--border-subtle)]'
-              }`}
-            onMouseDown={() => setIsResizingResults(true)}
-          />
+          {!editorCollapsed && (
+            <div
+              className={`mx-1.5 h-1 cursor-row-resize flex-shrink-0 ${isResizingResults ? 'bg-[var(--accent-color)]' : 'bg-[var(--bg-secondary)] hover:bg-[var(--border-subtle)]'
+                }`}
+              onMouseDown={() => setIsResizingResults(true)}
+            />
+          )}
 
           <div
-            className="mx-1.5 mb-1.5 bg-[var(--bg-secondary)] flex flex-col overflow-hidden"
-            style={{ height: resultPanelHeight }}
+            className={`mx-1.5 mb-1.5 bg-[var(--bg-secondary)] flex flex-col overflow-hidden ${editorCollapsed ? 'flex-1 min-h-0 mt-1.5' : ''}`}
+            style={editorCollapsed ? undefined : { height: resultPanelHeight }}
           >
             {/* Results header with horizontal tabs for multiple results */}
             {queryResults && queryResults.length > 1 ? (
@@ -2565,7 +2590,8 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
                   onExecuteUpdate={handleExecuteUpdateQuery}
                   onLoadMore={handleLoadMore}
                   // Grid edits generate SQL; only dialects that implement it allow them
-                  canEdit={isConnected && !isMongo && sqlDialect.features.gridEdit}
+                  canEdit={!popout && isConnected && !isMongo && sqlDialect.features.gridEdit}
+                  compact={popout}
                   queryText={lastExecutedQuery ?? undefined}
                   tabId={tab.id}
                   resultIndex={activeResultIndex}
@@ -2584,6 +2610,13 @@ function QueryEditorComp({ tab }: QueryEditorProps) {
             </div>
           </div>
         </>
+      )}
+
+      {/* Collapsed pop-out with nothing to show yet */}
+      {editorCollapsed && !showResults && (
+        <div className="flex-1 flex items-center justify-center text-xs text-[var(--text-muted)]">
+          No results. Run the query or expand the editor.
+        </div>
       )}
     </div>
   );

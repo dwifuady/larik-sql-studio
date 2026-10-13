@@ -352,7 +352,10 @@ mod tests {
 
     #[test]
     fn tls_mode_matches_encrypt_flags() {
-        assert_eq!(TlsMode::from_config(&config(false, false)), TlsMode::Disable);
+        assert_eq!(
+            TlsMode::from_config(&config(false, false)),
+            TlsMode::Disable
+        );
         assert_eq!(TlsMode::from_config(&config(true, false)), TlsMode::Verify);
         assert_eq!(TlsMode::from_config(&config(true, true)), TlsMode::TrustAny);
     }
@@ -360,7 +363,9 @@ mod tests {
     #[test]
     fn encryption_is_required_not_preferred() {
         assert_eq!(
-            pg_config(&config(true, false), None).unwrap().get_ssl_mode(),
+            pg_config(&config(true, false), None)
+                .unwrap()
+                .get_ssl_mode(),
             SslMode::Require
         );
         assert_eq!(
@@ -368,7 +373,9 @@ mod tests {
             SslMode::Require
         );
         assert_eq!(
-            pg_config(&config(false, false), None).unwrap().get_ssl_mode(),
+            pg_config(&config(false, false), None)
+                .unwrap()
+                .get_ssl_mode(),
             SslMode::Disable
         );
     }

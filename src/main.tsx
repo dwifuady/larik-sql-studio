@@ -3,8 +3,15 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./index.css";
 import { initNativeMaterial } from "./utils/nativeWindow";
+import { getPopoutTabId } from "./utils/popout";
+import { PopoutApp } from "./components/PopoutApp";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
-void initNativeMaterial();
+// A pop-out window renders a single tab (see docs/popout-tab.md)
+const popoutTabId = getPopoutTabId();
+
+// Mica is only applied to the main window; pop-outs keep opaque surfaces
+if (!popoutTabId) void initNativeMaterial();
 
 // Prevent default browser context menu globally, but allow for inputs/textareas
 const handleContextMenu = (e: MouseEvent) => {
@@ -47,6 +54,12 @@ window.addEventListener('keydown', (e) => {
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <App />
+    {popoutTabId ? (
+      <ErrorBoundary>
+        <PopoutApp tabId={popoutTabId} />
+      </ErrorBoundary>
+    ) : (
+      <App />
+    )}
   </React.StrictMode>,
 );

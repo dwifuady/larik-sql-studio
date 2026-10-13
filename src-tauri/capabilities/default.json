@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
-  "windows": ["main"],
+  "description": "Capability for the main window and pop-out tab windows",
+  "windows": ["main", "popout-*"],
   "permissions": [
     "core:default",
     "opener:default",
@@ -14,8 +14,13 @@
     "core:window:allow-unmaximize",
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
+    "core:window:allow-destroy",
     "core:window:allow-is-maximized",
     "core:window:allow-set-theme",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-focus",
+    "core:window:allow-unminimize",
+    "core:webview:allow-create-webview-window",
     "clipboard-manager:allow-write-text",
     "clipboard-manager:allow-read-text"
   ]

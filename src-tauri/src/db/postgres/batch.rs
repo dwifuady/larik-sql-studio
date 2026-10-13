@@ -131,9 +131,7 @@ fn needs_session(sql: &str) -> bool {
         return true;
     }
     // SELECT ... INTO TEMP[ORARY] t, or explicit pg_temp references
-    upper
-        .windows(2)
-        .any(|w| w[0] == "INTO" && is_temp(&w[1]))
+    upper.windows(2).any(|w| w[0] == "INTO" && is_temp(&w[1]))
         || upper.iter().any(|t| t.contains("PG_TEMP."))
 }
 
@@ -434,7 +432,10 @@ mod tests {
     fn drops_empty_fragments() {
         let out = parse_sql_statements(";;  ; SELECT 1;");
         assert_eq!(out.len(), 1);
-        assert_eq!(parse_sql_statements("-- just a comment"), Vec::<String>::new());
+        assert_eq!(
+            parse_sql_statements("-- just a comment"),
+            Vec::<String>::new()
+        );
         assert_eq!(parse_sql_statements("/* block */"), Vec::<String>::new());
     }
 
@@ -470,13 +471,19 @@ mod tests {
 
     #[test]
     fn vacuum_uses_simple_protocol() {
-        assert_eq!(classify_statement("VACUUM t"), StatementKind::SimpleProtocol);
+        assert_eq!(
+            classify_statement("VACUUM t"),
+            StatementKind::SimpleProtocol
+        );
         assert_eq!(
             classify_statement("vacuum (analyze) public.t"),
             StatementKind::SimpleProtocol
         );
         assert_eq!(classify_statement("VACUUM;"), StatementKind::SimpleProtocol);
-        assert_eq!(classify_statement("vacuum(analyze)"), StatementKind::SimpleProtocol);
+        assert_eq!(
+            classify_statement("vacuum(analyze)"),
+            StatementKind::SimpleProtocol
+        );
     }
 
     #[test]
@@ -537,7 +544,10 @@ mod tests {
 
     #[test]
     fn tokens_skip_strings_and_comments() {
-        assert_eq!(top_level_tokens("SELECT 'a b' -- x\nFROM t"), ["SELECT", "FROM", "t"]);
+        assert_eq!(
+            top_level_tokens("SELECT 'a b' -- x\nFROM t"),
+            ["SELECT", "FROM", "t"]
+        );
         assert_eq!(
             top_level_tokens("SELECT $$ x y $$ FROM t"),
             ["SELECT", "FROM", "t"]

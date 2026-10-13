@@ -15,6 +15,8 @@ export function DatabaseSelector({ isCompact = false }: DatabaseSelectorProps) {
     const spaceDatabases = useAppStore(s => s.spaceDatabases);
     const databasesLoading = useAppStore(s => s.databasesLoading);
     const updateTabDatabase = useAppStore(s => s.updateTabDatabase);
+    // A pop-out is locked to the database it opened with
+    const activeTabPoppedOut = useAppStore(s => !!s.activeTabId && s.activeTabId in s.poppedOutTabs);
 
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
@@ -66,8 +68,9 @@ export function DatabaseSelector({ isCompact = false }: DatabaseSelectorProps) {
             {isConnected && spaceDatabases.length > 0 ? (
                 <div ref={dropdownRef} className="flex-1 min-w-0 h-full flex items-center">
                     <button
-                        onClick={() => !databasesLoading && setIsOpen(!isOpen)}
-                        disabled={databasesLoading}
+                        onClick={() => !databasesLoading && !activeTabPoppedOut && setIsOpen(!isOpen)}
+                        disabled={databasesLoading || activeTabPoppedOut}
+                        title={activeTabPoppedOut ? 'This tab is open in a pop-out window' : undefined}
                         className="w-full h-full flex items-center justify-between gap-1 text-left disabled:opacity-50"
                     >
                         <span className={`font-medium text-[var(--text-primary)] flex-1 overflow-hidden relative group/marquee max-w-full ${isCompact ? 'text-[11px]' : 'text-[13px]'}`}>

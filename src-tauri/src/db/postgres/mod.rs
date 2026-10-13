@@ -351,8 +351,14 @@ mod live_tests {
         // quietly connecting in plaintext.
         let mut config = live_config().unwrap();
         config.encrypt = true;
-        let err = PostgresDriver::new().test_connection(&config).await.unwrap_err();
-        assert!(matches!(err, ConnectionError::ConnectionFailed(_)), "{err:?}");
+        let err = PostgresDriver::new()
+            .test_connection(&config)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, ConnectionError::ConnectionFailed(_)),
+            "{err:?}"
+        );
     }
 
     /// Minimal postgres://user:pass@host:port/db parsing for the test env var.
@@ -417,7 +423,9 @@ mod live_tests {
         let dbs = driver.list_databases(&config).await.unwrap();
         assert!(!dbs.is_empty());
         // The configured database is always accessible by definition.
-        assert!(dbs.iter().any(|d| d.name == config.database && d.has_access));
+        assert!(dbs
+            .iter()
+            .any(|d| d.name == config.database && d.has_access));
     }
     #[ignore]
     #[tokio::test]
@@ -457,10 +465,7 @@ mod live_tests {
                 assert_eq!(r[5], CellValue::String("héllo".to_string()));
                 assert_eq!(r[6], CellValue::DateTime("2024-03-05".to_string()));
                 assert!(matches!(r[7], CellValue::DateTime(_)));
-                assert_eq!(
-                    r[8],
-                    CellValue::DateTime("2024-03-05 10:11:12".to_string())
-                );
+                assert_eq!(r[8], CellValue::DateTime("2024-03-05 10:11:12".to_string()));
                 assert_eq!(
                     r[9],
                     CellValue::String("a1b2c3d4-0000-4000-8000-000000000000".to_string())
@@ -483,9 +488,20 @@ mod live_tests {
         // Real table: temp tables are session-scoped and every statement uses
         // its own dedicated connection.
         let config = live_config().unwrap();
-        let table = format!("larik_pg_test_{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
-        run(&config, &format!("DROP TABLE IF EXISTS {table}"), None).await.unwrap();
-        run(&config, &format!("CREATE TABLE {table} (id int PRIMARY KEY, v text)"), None).await.unwrap();
+        let table = format!(
+            "larik_pg_test_{}",
+            &uuid::Uuid::new_v4().simple().to_string()[..8]
+        );
+        run(&config, &format!("DROP TABLE IF EXISTS {table}"), None)
+            .await
+            .unwrap();
+        run(
+            &config,
+            &format!("CREATE TABLE {table} (id int PRIMARY KEY, v text)"),
+            None,
+        )
+        .await
+        .unwrap();
 
         let result = run(
             &config,
@@ -498,20 +514,29 @@ mod live_tests {
             other => panic!("expected rows affected, got {other:?}"),
         }
 
-        match run(&config, &format!("UPDATE {table} SET v = v RETURNING id"), None)
-            .await
-            .unwrap()
+        match run(
+            &config,
+            &format!("UPDATE {table} SET v = v RETURNING id"),
+            None,
+        )
+        .await
+        .unwrap()
         {
             ExecutionOutput::ResultSets { sets, .. } => assert_eq!(sets[0].rows.len(), 3),
             other => panic!("expected returning rows, got {other:?}"),
         }
 
-        match run(&config, &format!("DELETE FROM {table}"), None).await.unwrap() {
+        match run(&config, &format!("DELETE FROM {table}"), None)
+            .await
+            .unwrap()
+        {
             ExecutionOutput::RowsAffected(n) => assert_eq!(n, 3),
             other => panic!("expected rows affected, got {other:?}"),
         }
 
-        run(&config, &format!("DROP TABLE {table}"), None).await.unwrap();
+        run(&config, &format!("DROP TABLE {table}"), None)
+            .await
+            .unwrap();
     }
     #[ignore]
     #[tokio::test]
@@ -553,9 +578,13 @@ mod live_tests {
         run(&config, &format!("DROP TABLE IF EXISTS {b}, {a}"), None)
             .await
             .unwrap();
-        run(&config, &format!("CREATE TABLE {a} (id int PRIMARY KEY)"), None)
-            .await
-            .unwrap();
+        run(
+            &config,
+            &format!("CREATE TABLE {a} (id int PRIMARY KEY)"),
+            None,
+        )
+        .await
+        .unwrap();
         run(
             &config,
             &format!("CREATE TABLE {b} (id int PRIMARY KEY, a_id int REFERENCES {a}(id))"),
@@ -573,7 +602,9 @@ mod live_tests {
             .fetch_table_columns(&config, &config.database, "public", &b)
             .await
             .unwrap();
-        run(&config, &format!("DROP TABLE {b}, {a}"), None).await.unwrap();
+        run(&config, &format!("DROP TABLE {b}, {a}"), None)
+            .await
+            .unwrap();
 
         assert!(schema
             .tables
@@ -583,7 +614,9 @@ mod live_tests {
             && r.source_column_name == "a_id"
             && r.target_table_name == a));
         assert_eq!(cols.len(), 2);
-        assert!(cols.iter().any(|c| c.name == "id" && c.is_primary_key && !c.is_nullable));
+        assert!(cols
+            .iter()
+            .any(|c| c.name == "id" && c.is_primary_key && !c.is_nullable));
         assert!(cols.iter().any(|c| c.name == "a_id" && c.is_nullable));
     }
 
@@ -618,15 +651,28 @@ mod live_tests {
             return;
         }
         let config = live_config().unwrap();
-        let table = format!("larik_pg_tx_{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
-        run(&config, &format!("CREATE TABLE {table} (id int)"), None).await.unwrap();
-        run(&config, &format!("INSERT INTO {table} VALUES (1), (2)"), None).await.unwrap();
+        let table = format!(
+            "larik_pg_tx_{}",
+            &uuid::Uuid::new_v4().simple().to_string()[..8]
+        );
+        run(&config, &format!("CREATE TABLE {table} (id int)"), None)
+            .await
+            .unwrap();
+        run(
+            &config,
+            &format!("INSERT INTO {table} VALUES (1), (2)"),
+            None,
+        )
+        .await
+        .unwrap();
 
         run_units(&config, &format!("BEGIN; DELETE FROM {table}; ROLLBACK;")).await;
         let count = run(&config, &format!("SELECT count(*)::int FROM {table}"), None)
             .await
             .unwrap();
-        run(&config, &format!("DROP TABLE {table}"), None).await.unwrap();
+        run(&config, &format!("DROP TABLE {table}"), None)
+            .await
+            .unwrap();
         assert_eq!(first_cell(&count), CellValue::Int(2));
     }
 
@@ -673,7 +719,10 @@ mod live_tests {
             return;
         }
         let config = live_config().unwrap();
-        let marker = format!("larik_cancel_{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        let marker = format!(
+            "larik_cancel_{}",
+            &uuid::Uuid::new_v4().simple().to_string()[..8]
+        );
         let sql = format!("SELECT pg_sleep(30), '{marker}'");
         let execution = run(&config, &sql, None);
         // Drop the future mid-query, like the QueryEngine's cancel.
@@ -689,11 +738,12 @@ mod live_tests {
             return;
         }
         let config = live_config().unwrap();
-        let marker = format!("larik_trunc_{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
-        // Rows trickle out slowly; without a cancel the server keeps going.
-        let sql = format!(
-            "SELECT g, pg_sleep(0.05), '{marker}' FROM generate_series(1, 2000) g"
+        let marker = format!(
+            "larik_trunc_{}",
+            &uuid::Uuid::new_v4().simple().to_string()[..8]
         );
+        // Rows trickle out slowly; without a cancel the server keeps going.
+        let sql = format!("SELECT g, pg_sleep(0.05), '{marker}' FROM generate_series(1, 2000) g");
         let driver = PostgresDriver::new();
         let output = driver
             .execute(
@@ -738,7 +788,10 @@ mod live_tests {
         match run(&config, sql, None).await.unwrap() {
             ExecutionOutput::ResultSets { sets, .. } => {
                 let r = &sets[0].rows[0];
-                assert_eq!(r[0], CellValue::String("1 year 2 mons 3 days 04:05:06.5".into()));
+                assert_eq!(
+                    r[0],
+                    CellValue::String("1 year 2 mons 3 days 04:05:06.5".into())
+                );
                 assert_eq!(
                     r[1],
                     CellValue::String("12345678901234567890.1234567890".into())
@@ -768,8 +821,13 @@ mod live_tests {
             return;
         }
         let config = live_config().unwrap();
-        let schema = format!("larik_fn_{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
-        run(&config, &format!("CREATE SCHEMA {schema}"), None).await.unwrap();
+        let schema = format!(
+            "larik_fn_{}",
+            &uuid::Uuid::new_v4().simple().to_string()[..8]
+        );
+        run(&config, &format!("CREATE SCHEMA {schema}"), None)
+            .await
+            .unwrap();
         for ddl in [
             format!("CREATE FUNCTION {schema}.noargs() RETURNS int LANGUAGE sql AS 'SELECT 1'"),
             format!("CREATE FUNCTION {schema}.ov(a int) RETURNS int LANGUAGE sql AS 'SELECT a'"),
@@ -792,18 +850,30 @@ mod live_tests {
             .unwrap();
         let routines = info.unwrap().routines;
 
-        let named = |name: &str| routines.iter().filter(|r| r.routine_name == name).collect::<Vec<_>>();
+        let named = |name: &str| {
+            routines
+                .iter()
+                .filter(|r| r.routine_name == name)
+                .collect::<Vec<_>>()
+        };
         assert_eq!(named("noargs").len(), 1);
         assert!(named("noargs")[0].parameters.is_empty());
 
-        let mut overload_sizes: Vec<usize> = named("ov").iter().map(|r| r.parameters.len()).collect();
+        let mut overload_sizes: Vec<usize> =
+            named("ov").iter().map(|r| r.parameters.len()).collect();
         overload_sizes.sort();
         assert_eq!(overload_sizes, vec![1, 2]);
 
         let outs = &named("outs")[0].parameters;
         assert_eq!(outs.len(), 2);
-        assert_eq!((outs[0].name.as_str(), outs[0].parameter_mode.as_str()), ("x", "OUT"));
-        assert_eq!((outs[1].name.as_str(), outs[1].parameter_mode.as_str()), ("y", "IN"));
+        assert_eq!(
+            (outs[0].name.as_str(), outs[0].parameter_mode.as_str()),
+            ("x", "OUT")
+        );
+        assert_eq!(
+            (outs[1].name.as_str(), outs[1].parameter_mode.as_str()),
+            ("y", "IN")
+        );
         assert_eq!(outs[1].data_type, "integer");
     }
 }
