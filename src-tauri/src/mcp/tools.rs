@@ -173,7 +173,9 @@ async fn resolve_connection(state: &McpState, connection_id: &str) -> Result<Res
                 .connections
                 .connect(connection_id)
                 .await
-                .map_err(|e| ToolFail::error(format!("failed to connect to '{}': {e}", space.name)))?;
+                .map_err(|e| {
+                    ToolFail::error(format!("failed to connect to '{}': {e}", space.name))
+                })?;
         }
         Ok((driver, _)) => {
             if !driver.is_connected(connection_id).await {
@@ -181,7 +183,9 @@ async fn resolve_connection(state: &McpState, connection_id: &str) -> Result<Res
                     .connections
                     .connect(connection_id)
                     .await
-                    .map_err(|e| ToolFail::error(format!("failed to connect to '{}': {e}", space.name)))?;
+                    .map_err(|e| {
+                        ToolFail::error(format!("failed to connect to '{}': {e}", space.name))
+                    })?;
             }
         }
     }
@@ -260,8 +264,8 @@ struct SchemaArgs {
 
 /// Cached schema (fetched on miss), optionally narrowed to one table.
 async fn get_schema(state: &McpState, resolved: Resolved, args: Value) -> Result<Value, ToolFail> {
-    let args: SchemaArgs =
-        serde_json::from_value(args).map_err(|e| ToolFail::error(format!("invalid arguments: {e}")))?;
+    let args: SchemaArgs = serde_json::from_value(args)
+        .map_err(|e| ToolFail::error(format!("invalid arguments: {e}")))?;
 
     let schema = match state
         .schema_manager
@@ -308,8 +312,8 @@ struct RunQueryArgs {
 }
 
 async fn run_query(state: &McpState, resolved: Resolved, args: Value) -> Result<Value, ToolFail> {
-    let args: RunQueryArgs =
-        serde_json::from_value(args).map_err(|e| ToolFail::error(format!("invalid arguments: {e}")))?;
+    let args: RunQueryArgs = serde_json::from_value(args)
+        .map_err(|e| ToolFail::error(format!("invalid arguments: {e}")))?;
     if args.query.trim().is_empty() {
         return Err(ToolFail::error("query must not be empty"));
     }
@@ -344,9 +348,39 @@ async fn run_query(state: &McpState, resolved: Resolved, args: Value) -> Result<
                     "statement refused: access level is 'read' and this statement is not \
                      provably read-only: \"{}\". Use a connection with 'write' access, or a \
                      read-only login for hard guarantees.",
-                    snippet(&unit)
+                    snippet(&unit, SNIPPET_MAX_CHARS)
                 )));
             }
+        }
+    }
+
+    // Human gate: every execution on a write-access space needs a click in the
+    // running Larik window. Read-only spaces skip this — they are enforced
+    // read-only server-side, and the user opted them in deliberately.
+    if !read_only {
+        let request = crate::mcp::approvals::ApprovalRequest {
+            id: uuid::Uuid::new_v4().to_string(),
+            connection_id: resolved.space.id.clone(),
+            space_name: resolved.space.name.clone(),
+            driver: resolved.space.connection_driver.clone(),
+            statement: snippet(&args.query, 4000),
+            access_level: "write".to_string(),
+            created_at: chrono::Utc::now().to_rfc3339(),
+        };
+        match crate::mcp::approvals::request_approval(
+            state,
+            request,
+            crate::mcp::approvals::APPROVAL_TIMEOUT,
+        )
+        .await
+        {
+            Ok(true) => {}
+            Ok(false) => {
+                return Err(ToolFail::deny(
+                    "statement denied by the user in Larik's approval prompt",
+                ));
+            }
+            Err(msg) => return Err(ToolFail::deny(msg)),
         }
     }
 
@@ -411,11 +445,11 @@ fn result_to_json(r: &QueryResult) -> Value {
     })
 }
 
-fn snippet(s: &str) -> String {
-    if s.chars().count() <= SNIPPET_MAX_CHARS {
+fn snippet(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
         s.to_string()
     } else {
-        let cut: String = s.chars().take(SNIPPET_MAX_CHARS).collect();
+        let cut: String = s.chars().take(max_chars).collect();
         format!("{cut}…")
     }
 }

@@ -21,7 +21,10 @@ design are noted inline (`rmcp` replaced by a hand-rolled JSON-mode server).
 
 - LAN/remote exposure, OAuth, multi-user auth. Loopback + bearer token only.
 - MCP resources, prompts, sampling, elicitation. Tools only.
-- GUI approval prompts per query (candidate for v2; adds latency to every call).
+- ~~GUI approval prompts per query~~ — **implemented (v2) for write access**: every
+  `run_query` on a `write` space parks in an approval queue and surfaces a dialog in
+  the running app; the MCP call blocks until Approve/Deny or a 2-minute auto-deny.
+  Reads stay ungated — server-side read-only enforcement covers them.
 - A headless stdio sibling binary (rejected for v1; HTTP-in-GUI chosen).
 - SSH tunneling passthrough (Larik has no tunnels today).
 
@@ -170,7 +173,7 @@ claude mcp add larik --transport http http://127.0.0.1:7487/mcp \
   `SELECT INTO`, dynamic `EXEC`, unicode/semicolon-in-string cases), access-level gating,
   row-cap clamping.
 - Live: `LARIK_TEST_MONGODB_URL`-style env-gated tests for Postgres read-only enforcement
-  (attempted `INSERT` under `read` must fail server-side).
+  (`read_only` blocks DDL server-side while reads keep working).
 - Integration: raw-socket HTTP tests in `mcp/server.rs` against the axum service on an
   ephemeral port — initialize, tools/list, notifications → 202, unknown method → -32601,
   GET → 405, token mismatch → 401.
@@ -191,3 +194,28 @@ claude mcp add larik --transport http http://127.0.0.1:7487/mcp \
    `SELECT 'x'; DELETE …` is denied without blanket-banning batches on engines that have
    real enforcement. Audit rows distinguish `denied` (policy) from `error` (execution)
    via `ToolFail`.
+
+## v2 — approval gateway (implemented)
+
+Spaces exposed with `write` access hand the saved login's own permissions to the agent.
+To keep a human in the loop, every `run_query` on such a space is gated:
+
+- `mcp/approvals.rs` parks the request (`ApprovalRequest` = id, connection, space,
+  driver, statement truncated to 4k chars) and surfaces it to the frontend via the
+  `mcp-approval-request` Tauri event. The MCP request blocks on a oneshot channel.
+- `McpApprovalDialog` (mounted at the app root) listens, queues requests, shows the
+  statement, and calls `respond_mcp_approval(id, approved)`; it rehydrates from
+  `get_pending_mcp_approvals` on mount.
+- Outcomes: **approved** → execution proceeds (audited `ok`/`error`); **denied** →
+  `ToolFail::deny` (audited `denied`); **timeout** (2 min, `APPROVAL_TIMEOUT`) →
+  auto-deny, queue entry removed (audited `denied`).
+- Reads (`read` spaces) skip the gate — they are enforced read-only server-side, and
+  the user opted them in deliberately. `list_connections`/`list_databases`/`get_schema`
+  are never gated.
+
+Build note (Windows): test harnesses link the tauri runtime and would import
+`TaskDialogIndirect` (Common-Controls **v6**) — without an embedded manifest the
+harness fails to load with `STATUS_ENTRYPOINT_NOT_FOUND`. tauri-build embeds its
+manifest for bins only, so `build.rs` disables that
+(`WindowsAttributes::new_without_app_manifest`) and passes the identical
+`windows-app-manifest.xml` to every target via `/MANIFEST:EMBED /MANIFESTINPUT`.

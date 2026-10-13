@@ -82,6 +82,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         schema_manager: Arc::clone(&schema_manager),
         db: Arc::clone(&db),
         token: RwLock::new(String::new()),
+        pending_approvals: parking_lot::Mutex::new(HashMap::new()),
+        app_handle: parking_lot::Mutex::new(None),
     });
     let mcp = Arc::new(McpSupervisor::new(Arc::clone(&mcp_state)));
 
@@ -110,8 +112,14 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|_| "AppState lock poisoned")?;
             *slot = Some(handle);
 
-            // MCP server: load the token, then start if the user enabled it.
+            // MCP server: attach the handle (approval dialogs), load the token,
+            // then start if the user enabled it.
             let supervisor = state.mcp.clone();
+            supervisor
+                .state()
+                .app_handle
+                .lock()
+                .replace(app.handle().clone());
             tauri::async_runtime::spawn(async move {
                 let mcp_state = supervisor.state();
                 let token = {
@@ -262,6 +270,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::set_mcp_port,
             commands::regenerate_mcp_token,
             commands::get_mcp_log,
+            commands::respond_mcp_approval,
+            commands::get_pending_mcp_approvals,
         ])
         .build(tauri::generate_context!())?
         .run(|app_handle, event| {

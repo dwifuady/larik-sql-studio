@@ -1786,3 +1786,26 @@ pub async fn get_mcp_log(
     db.list_mcp_log(limit.unwrap_or(200).min(1000))
         .map_err(|e| ApiError::from(e))
 }
+
+/// Deliver a user decision for a pending MCP approval. Returns whether the
+/// request was still pending (false = already resolved or timed out).
+#[command]
+pub async fn respond_mcp_approval(
+    state: State<'_, AppState>,
+    id: String,
+    approved: bool,
+) -> Result<bool, ApiError> {
+    Ok(crate::mcp::approvals::resolve(
+        &state.mcp.state(),
+        &id,
+        approved,
+    ))
+}
+
+/// Approval requests waiting for a decision (dialog rehydration after reload).
+#[command]
+pub async fn get_pending_mcp_approvals(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::mcp::approvals::ApprovalRequest>, ApiError> {
+    Ok(crate::mcp::approvals::list(&state.mcp.state()))
+}

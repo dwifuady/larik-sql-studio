@@ -92,7 +92,7 @@ PRODUCT.md and DESIGN.md at the project root define the design system. Read them
         *   `commands.rs`: Tauri command definitions (callable from frontend).
         *   `db/`: Database connection and management logic. Each engine is a `DatabaseDriver` (`db/driver.rs`): `db/mssql/` (SQL Server), `db/postgres/` (PostgreSQL) and `db/mongodb/` (MongoDB). Live MongoDB tests: `LARIK_TEST_MONGODB_URL=mongodb://localhost:27017 cargo test -- --ignored mongodb`.
         *   `export/`: Data export functionality.
-        *   `mcp/`: Embedded MCP server (loopback HTTP) that lets local AI agents use saved connections. Access is gated by a global setting plus a per-space `off`/`read`/`write` level; design and security model in `MCP_DESIGN.md` at the repo root.
+        *   `mcp/`: Embedded MCP server (loopback HTTP) that lets local AI agents use saved connections. Access is gated by a global setting plus a per-space `off`/`read`/`write` level; write executions additionally require approval in the app window (`mcp/approvals.rs` + `McpApprovalDialog`). Design and security model in `MCP_DESIGN.md` at the repo root.
         *   `storage/`: Local storage management (SQLite interactions).
         *   `capabilities/`: Tauri capabilities configuration.
 *   **Code Style & Linting:**

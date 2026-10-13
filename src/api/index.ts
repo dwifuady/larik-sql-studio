@@ -1,7 +1,7 @@
 // Tauri IPC API wrapper functions
 import { invokeSafe } from './client';
 import { save, open } from '@tauri-apps/plugin-dialog';
-import type { Space, Tab, ConnectionInfo, DriverKind, QueryResult, QueryInfo, CreateSpaceInput, UpdateSpaceInput, SchemaInfo, SchemaColumnInfo, McpSettings, McpLogEntry } from '../types';
+import type { Space, Tab, ConnectionInfo, DriverKind, QueryResult, QueryInfo, CreateSpaceInput, UpdateSpaceInput, SchemaInfo, SchemaColumnInfo, McpSettings, McpLogEntry, McpApprovalRequest } from '../types';
 import type { TabFolder } from '../types';
 import type { Snippet, CreateSnippetInput, UpdateSnippetInput } from '../types';
 import type { ArchivedTab, ArchiveSearchResult, AutoArchiveSettings, AppSettings } from '../types';
@@ -743,4 +743,14 @@ export async function regenerateMcpToken(): Promise<string> {
 /** Get recent MCP audit log entries */
 export async function getMcpLog(limit?: number): Promise<McpLogEntry[]> {
   return invokeSafe<McpLogEntry[]>('get_mcp_log', { limit });
+}
+
+/** Write executions waiting for the user's decision in the app window */
+export async function getPendingMcpApprovals(): Promise<McpApprovalRequest[]> {
+  return invokeSafe<McpApprovalRequest[]>('get_pending_mcp_approvals');
+}
+
+/** Deliver the user's decision for a pending MCP approval */
+export async function respondMcpApproval(id: string, approved: boolean): Promise<boolean> {
+  return invokeSafe<boolean>('respond_mcp_approval', { id, approved });
 }

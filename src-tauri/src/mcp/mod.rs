@@ -5,10 +5,12 @@
 // a global `mcp_enabled` setting (default off) and a per-space access level
 // (`off` / `read` / `write`). See MCP_DESIGN.md at the repo root.
 
+pub mod approvals;
 pub mod policy;
 pub mod server;
 pub mod tools;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -30,6 +32,10 @@ pub struct McpState {
     pub db: Arc<tokio::sync::Mutex<DatabaseManager>>,
     /// Bearer token; swapped live on regeneration without a restart.
     pub token: RwLock<String>,
+    /// Write-access approvals waiting for a human decision (id → waiter).
+    pub pending_approvals: Mutex<HashMap<String, approvals::Pending>>,
+    /// App handle for emitting events to the frontend; set during app setup.
+    pub app_handle: Mutex<Option<tauri::AppHandle>>,
 }
 
 struct Running {
@@ -129,6 +135,8 @@ impl McpState {
             schema_manager,
             db: Arc::new(tokio::sync::Mutex::new(db)),
             token: RwLock::new("tok".to_string()),
+            pending_approvals: Mutex::new(HashMap::new()),
+            app_handle: Mutex::new(None),
         }
     }
 }

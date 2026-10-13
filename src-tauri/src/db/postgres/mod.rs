@@ -909,10 +909,7 @@ mod live_tests {
         assert!(matches!(output, ExecutionOutput::ResultSets { .. }));
 
         // DDL is rejected by the server, naming the read-only transaction.
-        let marker = format!(
-            "mcp_ro_{}",
-            &uuid::Uuid::new_v4().simple().to_string()[..8]
-        );
+        let marker = format!("mcp_ro_{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
         let err = driver
             .execute(
                 &config,

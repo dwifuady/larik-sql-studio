@@ -145,6 +145,16 @@ export interface McpLogEntry {
   rows_returned: number;
 }
 
+/** A write-execution waiting for the user's decision in the app window */
+export interface McpApprovalRequest {
+  id: string;
+  connection_id: string;
+  space_name: string;
+  driver: string;
+  statement: string;
+  access_level: string;
+  created_at: string;
+}
 /** A Tab represents a tab within a space (can be pinned or unpinned) */
 export interface Tab {
   id: string;
