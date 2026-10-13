@@ -40,8 +40,8 @@ futures = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
 tauri-plugin-dialog = "2.6.0"
 tauri-plugin-clipboard-manager = "2"
+tauri-plugin-notification = "2"
 parking_lot = "0.12"
-
 # Embedded MCP server (HTTP transport, loopback only)
 axum = "0.8"
 # MongoDB driver (dns-resolver enables mongodb+srv:// connection strings)

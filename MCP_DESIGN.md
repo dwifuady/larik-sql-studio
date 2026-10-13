@@ -209,6 +209,10 @@ To keep a human in the loop, every `run_query` on such a space is gated:
 - Outcomes: **approved** → execution proceeds (audited `ok`/`error`); **denied** →
   `ToolFail::deny` (audited `denied`); **timeout** (2 min, `APPROVAL_TIMEOUT`) →
   auto-deny, queue entry removed (audited `denied`).
+- **Attention**: each request also fires a native Windows toast
+  (`tauri-plugin-notification`, fired Rust-side so it works regardless of webview
+  state) and flashes the taskbar (`UserAttentionType::Critical`) when the window is
+  not focused. Notification failure never blocks the approval flow.
 - Reads (`read` spaces) skip the gate — they are enforced read-only server-side, and
   the user opted them in deliberately. `list_connections`/`list_databases`/`get_schema`
   are never gated.

@@ -9,11 +9,11 @@
 use std::time::Duration;
 
 use serde::Serialize;
-use tauri::Emitter;
+use tauri::{Emitter, Manager, UserAttentionType};
+use tauri_plugin_notification::NotificationExt;
 use tokio::sync::oneshot;
 
 use crate::mcp::McpState;
-
 /// How long an MCP request waits for a human decision before auto-denying.
 pub const APPROVAL_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -80,6 +80,15 @@ pub(crate) async fn request_approval(
     request: ApprovalRequest,
     timeout: Duration,
 ) -> Result<bool, String> {
+    let preview: String = request
+        .statement
+        .lines()
+        .next()
+        .unwrap_or("")
+        .chars()
+        .take(140)
+        .collect();
+
     {
         let handle = state.app_handle.lock();
         let Some(handle) = handle.as_ref() else {
@@ -90,19 +99,30 @@ pub(crate) async fn request_approval(
             // pending list) can still answer; log and keep waiting.
             eprintln!("[MCP] failed to emit approval event: {e}");
         }
+
+        // The user may not be looking at the Larik window: raise a native
+        // Windows toast and flash the taskbar (window not focused) so the
+        // request cannot go unnoticed. Failure to notify must not break the
+        // approval flow — the in-app dialog is the decision surface.
+        if let Err(e) = handle
+            .notification()
+            .builder()
+            .title("MCP approval requested")
+            .body(format!("{} on '{}'", preview, request.space_name))
+            .show()
+        {
+            eprintln!("[MCP] failed to show approval notification: {e}");
+        }
+        if let Some(window) = handle.get_webview_window("main") {
+            if !window.is_focused().unwrap_or(true) {
+                let _ = window.request_user_attention(Some(UserAttentionType::Critical));
+            }
+        }
     }
+
     println!(
         "[MCP] approval requested [{}] on '{}': {}",
-        request.id,
-        request.space_name,
-        request
-            .statement
-            .lines()
-            .next()
-            .unwrap_or("")
-            .chars()
-            .take(120)
-            .collect::<String>()
+        request.id, request.space_name, preview
     );
 
     let rx = {
