@@ -60,7 +60,7 @@ impl ToolFail {
 
 /// Dispatch a tools/call. `Ok(result)` is a complete MCP CallToolResult;
 /// `Err(message)` means the request itself was malformed (unknown tool).
-pub async fn call_tool(
+pub(crate) async fn call_tool(
     state: &McpState,
     name: &str,
     args: Option<&Value>,
