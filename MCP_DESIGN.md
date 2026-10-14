@@ -130,8 +130,20 @@ statement is refused with the access level in the error message.
 - Bind `127.0.0.1:7487` (port overridable via `mcp_port` setting; bind failure surfaces
   in the GUI, no silent fallback — a silent random port would strand the client config).
 - Bearer token: 32 hex chars, generated on first enable, stored in settings (`mcp_token`).
-  Plaintext in the same SQLite as connection passwords — no new threat boundary. Regenerate
-  button in settings UI.
+  Regenerate button in settings UI.
+- **Credential redaction**: MongoDB spaces keep their full connection string
+  (`mongodb+srv://user:password@…`) in the host field. `list_connections` strips
+  userinfo (`mongodb+srv://***@host/db`) before responding — the agent can route
+  queries but never reads credentials, with zero approvals. Plain `host:port`
+  values pass through.
+- **Secrets at rest**: space passwords live in the OS keychain
+  (Windows Credential Manager via `keyring`), not SQLite. One-time startup
+  migration moves existing rows; create/update write straight to the keychain
+  (SQLite column stays empty), delete removes the secret. Keychain failure
+  falls back to the SQLite column so connections never break. MongoDB
+  connection strings embedded in the host field remain in SQLite (schema
+  limitation — the UI edits them as one field); the redaction above is what
+  protects the agent surface.
 - Constant-time token compare; 401 with no detail on mismatch; no CORS headers emitted
   (browser-origin requests fail outright); loopback bind → no Windows Firewall prompt.
 

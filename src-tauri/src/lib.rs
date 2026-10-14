@@ -53,11 +53,18 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             all_snippets.len()
         );
     }
-
-    // Initialize default settings for archive/history
     db_manager
         .init_default_settings()
         .map_err(|e| format!("Failed to initialize default settings: {e}"))?;
+
+    // Move saved passwords into the OS keychain (one-time, idempotent).
+    match storage::spaces::migrate_space_passwords_to_keyring(&db_manager) {
+        Ok(count) if count > 0 => {
+            println!("[Startup] Migrated {count} space passwords to the OS keychain")
+        }
+        Ok(_) => {}
+        Err(e) => eprintln!("[Startup] Password keychain migration failed: {e}"),
+    }
 
     // Initialize connection manager with all built-in database drivers (T015, T016)
     let connections = Arc::new(ConnectionManager::new(

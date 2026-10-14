@@ -8,6 +8,87 @@ use uuid::Uuid;
 use super::database::{DatabaseManager, StorageResult};
 use crate::db::DriverKind;
 
+/// OS keychain service name for saved space passwords (Windows Credential
+/// Manager et al.). Secrets live here — the SQLite column is kept empty after
+/// the startup migration.
+const KEYRING_SERVICE: &str = "larik-sql-studio";
+
+fn keyring_entry(space_id: &str) -> Result<keyring::Entry, keyring::Error> {
+    keyring::Entry::new(KEYRING_SERVICE, &format!("space-password/{space_id}"))
+}
+
+/// Store a space password in the OS keychain and clear the SQLite column.
+/// An empty password clears both. Any keychain failure keeps the value in
+/// SQLite (previous behavior) rather than losing it.
+fn store_password_in_keyring(
+    manager: &DatabaseManager,
+    space_id: &str,
+    password: &str,
+) -> StorageResult<()> {
+    if !password.is_empty() {
+        if let Ok(entry) = keyring_entry(space_id) {
+            match entry.set_password(password) {
+                Ok(()) => {
+                    manager.with_connection(|conn| {
+                        conn.execute(
+                            "UPDATE spaces SET connection_password = NULL WHERE id = ?1",
+                            params![space_id],
+                        )?;
+                        Ok(())
+                    })?;
+                    return Ok(());
+                }
+                Err(e) => eprintln!("[storage] keychain write failed, keeping SQLite copy: {e}"),
+            }
+        }
+    }
+    manager.with_connection(|conn| {
+        conn.execute(
+            "UPDATE spaces SET connection_password = ?1 WHERE id = ?1",
+            params![password],
+        )?;
+        Ok(())
+    })
+}
+
+/// One-time migration: move plaintext passwords from SQLite into the OS
+/// keychain. Rows whose keychain write fails keep their value and are retried
+/// on the next startup. Returns the number of migrated rows.
+pub fn migrate_space_passwords_to_keyring(manager: &DatabaseManager) -> StorageResult<usize> {
+    let rows: Vec<(String, String)> = manager.with_connection(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT id, connection_password FROM spaces \
+             WHERE connection_password IS NOT NULL AND connection_password != ''",
+        )?;
+        let rows = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
+    })?;
+
+    let mut migrated = 0;
+    for (id, password) in rows {
+        match keyring_entry(&id) {
+            Ok(entry) => match entry.set_password(&password) {
+                Ok(()) => {
+                    manager.with_connection(|conn| {
+                        conn.execute(
+                            "UPDATE spaces SET connection_password = NULL WHERE id = ?1",
+                            params![id],
+                        )?;
+                        Ok(())
+                    })?;
+                    migrated += 1;
+                }
+                Err(e) => eprintln!("[storage] keychain migration failed for space {id}: {e}"),
+            },
+            Err(e) => eprintln!("[storage] keychain unavailable for space {id}: {e}"),
+        }
+    }
+    Ok(migrated)
+}
+
 /// A Space represents a work environment with exactly one database connection
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Space {
@@ -139,7 +220,7 @@ impl DatabaseManager {
                     input.connection_port.unwrap_or(i32::from(driver.default_port())),
                     input.connection_database,
                     input.connection_username,
-                    input.connection_password,
+                    None::<String>, // password lives in the OS keychain; see store_password_in_keyring
                     input.connection_trust_cert.unwrap_or(true),
                     input.connection_encrypt.unwrap_or(false),
                     driver.as_str(),
@@ -148,6 +229,11 @@ impl DatabaseManager {
             )?;
             Ok(())
         })?;
+
+        // Route the password into the OS keychain (column stays empty).
+        if let Some(password) = &input.connection_password {
+            store_password_in_keyring(self, &id, password)?;
+        }
 
         // Fetch and return the created space
         self.get_space(&id)?.ok_or_else(|| {
@@ -288,10 +374,8 @@ impl DatabaseManager {
                 updates.push("connection_username = ?");
                 params_vec.push(Box::new(username.clone()));
             }
-            if let Some(ref password) = input.connection_password {
-                updates.push("connection_password = ?");
-                params_vec.push(Box::new(password.clone()));
-            }
+            // Password updates go to the OS keychain, not the SQLite column.
+            // (Handled after the UPDATE below.)
             if let Some(trust_cert) = input.connection_trust_cert {
                 updates.push("connection_trust_cert = ?");
                 params_vec.push(Box::new(trust_cert as i32));
@@ -321,6 +405,10 @@ impl DatabaseManager {
             Ok(())
         })?;
 
+        if let Some(password) = &input.connection_password {
+            store_password_in_keyring(self, id, password)?;
+        }
+
         self.get_space(id)
     }
 
@@ -339,8 +427,17 @@ impl DatabaseManager {
         })
     }
 
-    /// Get the connection password for a space (separate method to keep it secure)
+    /// Get the connection password for a space (separate method to keep it
+    /// secure). The OS keychain is authoritative; the SQLite column only
+    /// holds values that never migrated or whose keychain write failed.
     pub fn get_space_password(&self, id: &str) -> StorageResult<Option<String>> {
+        if let Ok(entry) = keyring_entry(id) {
+            match entry.get_password() {
+                Ok(password) => return Ok(Some(password)),
+                Err(keyring::Error::NoEntry) => {}
+                Err(e) => eprintln!("[storage] keychain read failed, using SQLite: {e}"),
+            }
+        }
         self.with_connection(|conn| {
             let result = conn.query_row(
                 "SELECT connection_password FROM spaces WHERE id = ?1",
@@ -358,10 +455,15 @@ impl DatabaseManager {
 
     /// Delete a space by ID (cascades to pinned_tabs)
     pub fn delete_space(&self, id: &str) -> StorageResult<bool> {
-        self.with_connection(|conn| {
-            let rows_affected = conn.execute("DELETE FROM spaces WHERE id = ?1", params![id])?;
-            Ok(rows_affected > 0)
-        })
+        // Drop the keychain secret too — orphaned credentials accumulate otherwise.
+        if let Ok(entry) = keyring_entry(id) {
+            let _ = entry.delete_credential();
+        }
+        let rows_affected = self.with_connection(|conn| {
+            let rows = conn.execute("DELETE FROM spaces WHERE id = ?1", params![id])?;
+            Ok(rows)
+        })?;
+        Ok(rows_affected > 0)
     }
 
     /// Reorder spaces - update sort_order for a list of space IDs
@@ -430,6 +532,54 @@ mod tests {
         assert!(space.has_connection());
         // Spaces default to the SQL Server driver
         assert_eq!(space.connection_driver, "mssql");
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    /// Passwords live in the OS keychain: readable through
+    /// `get_space_password`, absent from the SQLite column, and gone when the
+    /// space is deleted.
+    #[test]
+    fn password_lives_in_keychain_not_sqlite() {
+        let (manager, db_path) = create_test_db();
+
+        let space = manager
+            .create_space(CreateSpaceInput {
+                name: "Keychain Space".to_string(),
+                color: None,
+                icon: None,
+                connection_host: Some("localhost".to_string()),
+                connection_port: Some(1433),
+                connection_database: Some("db".to_string()),
+                connection_username: Some("sa".to_string()),
+                connection_password: Some("s3cret".to_string()),
+                connection_trust_cert: Some(true),
+                connection_encrypt: Some(false),
+                connection_driver: None,
+                mcp_access: None,
+            })
+            .unwrap();
+
+        assert_eq!(
+            manager.get_space_password(&space.id).unwrap().as_deref(),
+            Some("s3cret")
+        );
+
+        // The SQLite column must be empty.
+        let stored: Option<String> = manager
+            .with_connection(|conn| {
+                conn.query_row(
+                    "SELECT connection_password FROM spaces WHERE id = ?1",
+                    params![&space.id],
+                    |row| row.get(0),
+                )
+            })
+            .unwrap();
+        assert_eq!(stored, None);
+
+        // Deleting the space removes the keychain secret.
+        assert!(manager.delete_space(&space.id).unwrap());
+        assert_eq!(manager.get_space_password(&space.id).unwrap(), None);
 
         let _ = std::fs::remove_file(&db_path);
     }

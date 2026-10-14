@@ -207,6 +207,34 @@ async fn resolve_connection(state: &McpState, connection_id: &str) -> Result<Res
 // Tools
 // ---------------------------------------------------------------------------
 
+/// Strip credentials from a URL-shaped host. MongoDB spaces store their whole
+/// connection string (including `user:password@`) in the host field — the MCP
+/// surface must never echo that back to the agent. Plain `host:port` and
+/// scheme-less values pass through untouched.
+fn redact_host(host: &str) -> String {
+    let Some(scheme_end) = host.find("://") else {
+        return host.to_string();
+    };
+    let authority_start = scheme_end + 3;
+    let authority_end = host[authority_start..]
+        .find('/')
+        .map(|i| authority_start + i)
+        .unwrap_or(host.len());
+    let authority = &host[authority_start..authority_end];
+    // Last '@' in the authority: passwords may themselves contain '@'.
+    match authority.rfind('@') {
+        Some(at) => {
+            let mut out = String::with_capacity(host.len());
+            out.push_str(&host[..authority_start]);
+            out.push_str("***");
+            out.push_str(&authority[at..]);
+            out.push_str(&host[authority_end..]);
+            out
+        }
+        None => host.to_string(),
+    }
+}
+
 /// Spaces with a connection that are exposed to MCP. Never includes credentials.
 async fn list_connections(state: &McpState) -> Result<Value, ToolFail> {
     let spaces = {
@@ -225,7 +253,7 @@ async fn list_connections(state: &McpState) -> Result<Value, ToolFail> {
             "id": space.id,
             "name": space.name,
             "driver": space.connection_driver,
-            "host": space.connection_host,
+            "host": space.connection_host.as_deref().map(redact_host),
             "port": space.connection_port,
             "database": space.connection_database,
             "mcp_access": access.as_str(),
@@ -236,6 +264,41 @@ async fn list_connections(state: &McpState) -> Result<Value, ToolFail> {
         }));
     }
     Ok(json!({ "connections": out }))
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::redact_host;
+
+    #[test]
+    fn redacts_userinfo_in_mongo_connection_strings() {
+        assert_eq!(
+            redact_host(
+                "mongodb+srv://dev_legacy:hunter2@nonprod-pl-0.zwkkc.mongodb.net/dev-au_qbe"
+            ),
+            "mongodb+srv://***@nonprod-pl-0.zwkkc.mongodb.net/dev-au_qbe"
+        );
+        assert_eq!(
+            redact_host("mongodb://u:p@h1:27017/db?replicaSet=rs0"),
+            "mongodb://***@h1:27017/db?replicaSet=rs0"
+        );
+    }
+
+    #[test]
+    fn redacts_passwords_containing_at_signs() {
+        assert_eq!(redact_host("mongodb://u:p@ss@h/db"), "mongodb://***@h/db");
+    }
+
+    #[test]
+    fn leaves_plain_hosts_untouched() {
+        assert_eq!(redact_host("localhost:1433"), "localhost:1433");
+        assert_eq!(
+            redact_host("https://example.com/path"),
+            "https://example.com/path"
+        );
+        assert_eq!(redact_host(""), "");
+    }
 }
 
 async fn list_databases(
