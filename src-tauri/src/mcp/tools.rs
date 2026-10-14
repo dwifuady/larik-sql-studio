@@ -4,7 +4,7 @@
 // access level, gates reads (`policy.rs`), executes through the same
 // `QueryEngine` the UI uses, and writes an audit row — including denials.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
@@ -42,6 +42,9 @@ pub(crate) struct ToolFail {
     denied: bool,
 }
 
+/// Human decision telemetry, filled by the approval gate and read at log time.
+type DecisionSlot = Arc<StdMutex<Option<(i64, String)>>>;
+
 impl ToolFail {
     fn deny(message: impl Into<String>) -> Self {
         Self {
@@ -67,6 +70,7 @@ pub(crate) async fn call_tool(
 ) -> Result<Value, ToolFail> {
     let started = Instant::now();
     let args: Value = args.cloned().unwrap_or(Value::Null);
+    let decision_slot: DecisionSlot = Arc::new(StdMutex::new(None));
 
     let outcome = match name {
         "list_connections" => list_connections(state).await,
@@ -79,7 +83,7 @@ pub(crate) async fn call_tool(
             Err(fail) => Err(fail),
         },
         "run_query" => match resolve_args(state, &args).await {
-            Ok((resolved, rest)) => run_query(state, resolved, rest).await,
+            Ok((resolved, rest)) => run_query(state, resolved, rest, &decision_slot).await,
             Err(fail) => Err(fail),
         },
         other => return Err(ToolFail::error(format!("unknown tool: {other}"))),
@@ -97,9 +101,13 @@ pub(crate) async fn call_tool(
         ),
     };
     let is_error = status != STATUS_OK;
+    let decision = decision_slot
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .take();
 
     // Audit every call, including failures. Logging must not break the tool.
-    log_call(state, name, &args, status, started, &payload).await;
+    log_call(state, name, &args, status, started, &payload, decision).await;
 
     Ok(json!({
         "content": [
@@ -374,7 +382,12 @@ struct RunQueryArgs {
     row_limit: Option<usize>,
 }
 
-async fn run_query(state: &McpState, resolved: Resolved, args: Value) -> Result<Value, ToolFail> {
+async fn run_query(
+    state: &McpState,
+    resolved: Resolved,
+    args: Value,
+    decision: &DecisionSlot,
+) -> Result<Value, ToolFail> {
     let args: RunQueryArgs = serde_json::from_value(args)
         .map_err(|e| ToolFail::error(format!("invalid arguments: {e}")))?;
     if args.query.trim().is_empty() {
@@ -437,11 +450,17 @@ async fn run_query(state: &McpState, resolved: Resolved, args: Value) -> Result<
         )
         .await
         {
-            Ok(true) => {}
-            Ok(false) => {
-                return Err(ToolFail::deny(
-                    "statement denied by the user in Larik's approval prompt",
-                ));
+            Ok(outcome) => {
+                decision
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .replace((outcome.latency_ms as i64, outcome.decided_at.clone()));
+                if !outcome.approved {
+                    return Err(ToolFail::deny(format!(
+                        "statement not executed: {}",
+                        outcome.reason
+                    )));
+                }
             }
             Err(msg) => return Err(ToolFail::deny(msg)),
         }
@@ -525,6 +544,7 @@ async fn log_call(
     status: &str,
     started: Instant,
     payload: &Value,
+    decision: Option<(i64, String)>,
 ) {
     let connection = args
         .get("connection")
@@ -536,6 +556,9 @@ async fn log_call(
         None => args.to_string(),
     };
 
+    // Cross-space tools (no `connection` argument) carry no access level;
+    // targeting an `off` space is still logged as `off` because that is the
+    // reason the call was refused.
     let (space_name, access_level) = {
         let db = state.db.lock().await;
         match db.get_space(&connection) {
@@ -543,7 +566,7 @@ async fn log_call(
                 let a = Access::parse(&space.mcp_access);
                 (space.name, a.as_str().to_string())
             }
-            _ => (String::new(), "off".to_string()),
+            _ => (String::new(), String::new()),
         }
     };
 
@@ -567,6 +590,8 @@ async fn log_call(
         status,
         started.elapsed().as_millis() as i64,
         rows_returned,
+        decision.as_ref().map(|(ms, _)| *ms),
+        decision.as_ref().map(|(_, at)| at.clone()),
     );
     let db = state.db.lock().await;
     if let Err(e) = db.insert_mcp_log(&entry) {

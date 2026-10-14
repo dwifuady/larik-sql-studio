@@ -1795,11 +1795,7 @@ pub async fn respond_mcp_approval(
     id: String,
     approved: bool,
 ) -> Result<bool, ApiError> {
-    Ok(crate::mcp::approvals::resolve(
-        &state.mcp.state(),
-        &id,
-        approved,
-    ))
+    Ok(crate::mcp::approvals::resolve(&state.mcp.state(), &id, approved).await)
 }
 
 /// Approval requests waiting for a decision (dialog rehydration after reload).

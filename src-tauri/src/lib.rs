@@ -129,6 +129,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .replace(app.handle().clone());
             tauri::async_runtime::spawn(async move {
                 let mcp_state = supervisor.state();
+                // Requests left `pending` by a previous crash are dead: the
+                // waiting MCP client is gone.
+                mcp::approvals::mark_orphaned(&mcp_state).await;
                 let token = {
                     let db = mcp_state.db.lock().await;
                     db.get_mcp_token().unwrap_or_default()

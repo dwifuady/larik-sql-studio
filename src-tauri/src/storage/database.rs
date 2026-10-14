@@ -112,7 +112,9 @@ impl DatabaseManager {
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
 
-            -- Audit log for the embedded MCP server (denials included)
+            -- Audit log for the embedded MCP server (denials included).
+            -- duration_ms = total wall time; decision_latency_ms/decided_at are
+            -- set only when a human (or auto-deny timeout) decided on a write.
             CREATE TABLE IF NOT EXISTS mcp_log (
                 id TEXT PRIMARY KEY,
                 ts TEXT NOT NULL DEFAULT (datetime('now')),
@@ -123,7 +125,23 @@ impl DatabaseManager {
                 access_level TEXT NOT NULL,
                 status TEXT NOT NULL,
                 duration_ms INTEGER NOT NULL DEFAULT 0,
-                rows_returned INTEGER NOT NULL DEFAULT 0
+                rows_returned INTEGER NOT NULL DEFAULT 0,
+                decision_latency_ms INTEGER,
+                decided_at TEXT
+            );
+
+            -- Approval-request lifecycle, persisted independently of mcp_log so
+            -- abandoned/orphaned requests (client vanished, app died) leave a trace.
+            CREATE TABLE IF NOT EXISTS mcp_approvals (
+                id TEXT PRIMARY KEY,
+                ts TEXT NOT NULL DEFAULT (datetime('now')),
+                connection_id TEXT NOT NULL,
+                space_name TEXT NOT NULL,
+                driver TEXT NOT NULL,
+                statement TEXT NOT NULL,
+                access_level TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                decided_at TEXT
             );
             -- Create indexes for common queries
             CREATE INDEX IF NOT EXISTS idx_pinned_tabs_space_id ON pinned_tabs(space_id);
@@ -163,6 +181,22 @@ impl DatabaseManager {
                 ALTER TABLE spaces ADD COLUMN connection_password TEXT;
                 ALTER TABLE spaces ADD COLUMN connection_trust_cert INTEGER DEFAULT 1;
                 ALTER TABLE spaces ADD COLUMN connection_encrypt INTEGER DEFAULT 0;
+                "#,
+            )?;
+        }
+
+        // Migration: add MCP decision columns to mcp_log if they don't exist
+        let has_decision_latency: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('mcp_log') WHERE name = 'decision_latency_ms'",
+            [],
+            |row| row.get(0),
+        )?;
+
+        if !has_decision_latency {
+            conn.execute_batch(
+                r#"
+                ALTER TABLE mcp_log ADD COLUMN decision_latency_ms INTEGER;
+                ALTER TABLE mcp_log ADD COLUMN decided_at TEXT;
                 "#,
             )?;
         }

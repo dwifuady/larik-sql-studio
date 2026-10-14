@@ -4,8 +4,13 @@
 // the agent. To keep a human in the loop, every `run_query` on such a space is
 // parked here and surfaced as a dialog in the running Larik window; the MCP
 // request blocks until the user approves or denies, or the wait times out.
-// Every outcome is audited by the caller: granted → the normal ok/error row,
-// denied/timed out → a `denied` row.
+//
+// The full request lifecycle is persisted in `mcp_approvals` (pending →
+// approved/denied/timeout, plus abandoned when the MCP client vanished and
+// orphaned when the app died before a decision), so even requests nobody ever
+// answered leave a trace. Every outcome is also audited by the caller: granted
+// → the normal ok/error row, denied/timed out → a `denied` row.
+
 use std::time::Duration;
 
 use serde::Serialize;
@@ -14,6 +19,7 @@ use tauri_plugin_notification::NotificationExt;
 use tokio::sync::oneshot;
 
 use crate::mcp::McpState;
+
 /// How long an MCP request waits for a human decision before auto-denying.
 pub const APPROVAL_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -30,34 +36,113 @@ pub struct ApprovalRequest {
     pub created_at: String,
 }
 
+/// What a wait produced, for the audit trail.
+#[derive(Debug, Clone)]
+pub struct ApprovalOutcome {
+    pub approved: bool,
+    /// Human time: prompt shown → decision (user click or auto-deny).
+    pub latency_ms: u64,
+    pub decided_at: String,
+    pub reason: &'static str,
+}
+
 pub struct Pending {
-    #[allow(dead_code)] // kept for inspection/debugging of the queue
     request: ApprovalRequest,
     tx: oneshot::Sender<bool>,
 }
 
-/// Park a request and remember how to wake the waiting MCP handler.
-/// Entries whose waiter vanished (client disconnected mid-request) are purged
-/// here so abandoned calls cannot accumulate.
-pub(crate) fn register(state: &McpState, request: ApprovalRequest, tx: oneshot::Sender<bool>) {
-    state
-        .pending_approvals
-        .lock()
-        .retain(|_, pending| !pending.tx.is_closed());
-    state
-        .pending_approvals
-        .lock()
-        .insert(request.id.clone(), Pending { request, tx });
+/// Persisted status values for `mcp_approvals.status`.
+const STATUS_PENDING: &str = "pending";
+const STATUS_APPROVED: &str = "approved";
+const STATUS_DENIED: &str = "denied";
+const STATUS_TIMEOUT: &str = "timeout";
+const STATUS_ABANDONED: &str = "abandoned";
+const STATUS_ORPHANED: &str = "orphaned";
+
+async fn db_insert_pending(state: &McpState, request: &ApprovalRequest) {
+    let db = state.db.lock().await;
+    if let Err(e) = db.insert_mcp_approval(request, STATUS_PENDING) {
+        eprintln!("[MCP] failed to persist approval request: {e}");
+    }
+}
+
+async fn db_update_status(state: &McpState, id: &str, status: &str, decided_at: &str) {
+    let db = state.db.lock().await;
+    if let Err(e) = db.update_mcp_approval_status(id, status, decided_at) {
+        eprintln!("[MCP] failed to update approval status: {e}");
+    }
+}
+
+/// Park a request, persist it as `pending`, and remember how to wake the
+/// waiting MCP handler. Entries whose waiter vanished (client disconnected
+/// mid-request) are purged here and marked `abandoned` so abandoned calls
+/// cannot accumulate silently.
+async fn register(state: &McpState, request: ApprovalRequest, tx: oneshot::Sender<bool>) {
+    // Purge earlier waiters whose client vanished and mark them `abandoned`.
+    let abandoned: Vec<String> = {
+        let mut queue = state.pending_approvals.lock();
+        let mut abandoned = Vec::new();
+        queue.retain(|id, pending| {
+            if pending.tx.is_closed() {
+                abandoned.push(id.clone());
+                false
+            } else {
+                true
+            }
+        });
+        abandoned
+    };
+    for id in &abandoned {
+        db_update_status(state, id, STATUS_ABANDONED, "").await;
+    }
+
+    // Persist first (status `pending`), then park in memory — unless this
+    // request's own waiter is already gone (client disconnected between
+    // park and now), in which case it goes straight to `abandoned`.
+    db_insert_pending(state, &request).await;
+    let closed = tx.is_closed();
+    {
+        let mut queue = state.pending_approvals.lock();
+        if closed {
+            queue.remove(&request.id);
+        } else {
+            queue.insert(
+                request.id.clone(),
+                Pending {
+                    request: request.clone(),
+                    tx,
+                },
+            );
+        }
+    }
+    if closed {
+        db_update_status(state, &request.id, STATUS_ABANDONED, "").await;
+    }
 }
 
 /// Deliver a user decision. Returns `false` when the id is unknown or the
 /// waiter is already gone (e.g. timed out a moment earlier).
-pub fn resolve(state: &McpState, id: &str, approved: bool) -> bool {
-    state
+pub async fn resolve(state: &McpState, id: &str, approved: bool) -> bool {
+    let delivered = state
         .pending_approvals
         .lock()
         .remove(id)
-        .is_some_and(|pending| pending.tx.send(approved).is_ok())
+        .is_some_and(|pending| pending.tx.send(approved).is_ok());
+    if delivered {
+        let decided_at = chrono::Utc::now().to_rfc3339();
+        db_update_status(
+            state,
+            id,
+            if approved {
+                STATUS_APPROVED
+            } else {
+                STATUS_DENIED
+            },
+            &decided_at,
+        )
+        .await;
+    }
+    delivered
 }
 
 /// Currently pending requests (for UI rehydration after a reload).
@@ -70,16 +155,26 @@ pub fn list(state: &McpState) -> Vec<ApprovalRequest> {
         .collect()
 }
 
+/// Mark requests still `pending` after an app restart as `orphaned` — the
+/// process died before any decision, and the waiting MCP client is gone.
+pub async fn mark_orphaned(state: &McpState) {
+    let db = state.db.lock().await;
+    if let Err(e) = db.orphan_pending_mcp_approvals(STATUS_ORPHANED) {
+        eprintln!("[MCP] failed to sweep orphaned approvals: {e}");
+    }
+}
+
 /// Register, surface in the UI, and wait for the decision.
 ///
-/// `Ok(true)` — user approved. `Ok(false)` — user denied (or the waiter was
-/// dropped during shutdown). `Err(message)` — nobody answered in time (auto-
-/// deny; the queue entry is cleaned up) or the UI is not attached.
+/// `Ok(outcome)` — a decision was reached: user approved (`approved: true`),
+/// user denied, or the wait timed out (auto-deny). `Err(message)` — no
+/// decision was ever possible (UI not attached); nothing waited.
 pub(crate) async fn request_approval(
     state: &McpState,
     request: ApprovalRequest,
     timeout: Duration,
-) -> Result<bool, String> {
+) -> Result<ApprovalOutcome, String> {
+    let started = std::time::Instant::now();
     let preview: String = request
         .statement
         .lines()
@@ -127,8 +222,18 @@ pub(crate) async fn request_approval(
 
     let rx = {
         let (tx, rx) = oneshot::channel();
-        register(state, request.clone(), tx);
+        // register() persists the request as `pending` and marks any
+        // abandoned waiters from earlier calls.
+        register(state, request.clone(), tx).await;
         rx
+    };
+
+    let decided_at = || chrono::Utc::now().to_rfc3339();
+    let outcome = |approved: bool, reason: &'static str| ApprovalOutcome {
+        approved,
+        latency_ms: started.elapsed().as_millis() as u64,
+        decided_at: decided_at(),
+        reason,
     };
 
     match tokio::time::timeout(timeout, rx).await {
@@ -138,16 +243,31 @@ pub(crate) async fn request_approval(
                 request.id,
                 if approved { "granted" } else { "denied" }
             );
-            Ok(approved)
+            db_update_status(
+                state,
+                &request.id,
+                if approved {
+                    STATUS_APPROVED
+                } else {
+                    STATUS_DENIED
+                },
+                &decided_at(),
+            )
+            .await;
+            Ok(outcome(approved, "user decision"))
         }
         // Responder dropped (app shutting down) — treat as a denial.
-        Ok(Err(_)) => Ok(false),
+        Ok(Err(_)) => {
+            db_update_status(state, &request.id, STATUS_DENIED, &decided_at()).await;
+            Ok(outcome(false, "approval waiter dropped during shutdown"))
+        }
         Err(_) => {
             state.pending_approvals.lock().remove(&request.id);
             println!("[MCP] approval [{}] timed out", request.id);
-            Err(format!(
-                "timed out after {}s waiting for approval in Larik (auto-denied)",
-                timeout.as_secs()
+            db_update_status(state, &request.id, STATUS_TIMEOUT, &decided_at()).await;
+            Ok(outcome(
+                false,
+                "timed out waiting for a decision (auto-denied)",
             ))
         }
     }
@@ -175,25 +295,32 @@ mod tests {
     async fn register_resolve_roundtrip_grants() {
         let state = Arc::new(McpState::for_tests());
         let (tx, rx) = oneshot::channel();
-        register(&state, req("a1"), tx);
+        register(&state, req("a1"), tx).await;
         assert_eq!(list(&state).len(), 1);
         assert_eq!(list(&state)[0].space_name, "Local");
-        assert!(resolve(&state, "a1", true));
+        assert!(resolve(&state, "a1", true).await);
         assert_eq!(rx.await.unwrap(), true);
         assert!(list(&state).is_empty());
+
+        // lifecycle persisted: pending → approved
+        let db = state.db.lock().await;
+        let rows = db.list_mcp_approvals(10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].status, STATUS_APPROVED);
+        assert!(rows[0].decided_at.is_some());
     }
 
     #[tokio::test]
     async fn resolve_denies_and_unknown_ids_return_false() {
         let state = Arc::new(McpState::for_tests());
-        assert!(!resolve(&state, "ghost", true));
+        assert!(!resolve(&state, "ghost", true).await);
 
         let (tx, rx) = oneshot::channel();
-        register(&state, req("a2"), tx);
-        assert!(resolve(&state, "a2", false));
+        register(&state, req("a2"), tx).await;
+        assert!(resolve(&state, "a2", false).await);
         assert_eq!(rx.await.unwrap(), false);
         // second resolve: entry already gone
-        assert!(!resolve(&state, "a2", true));
+        assert!(!resolve(&state, "a2", true).await);
     }
 
     #[tokio::test]
@@ -201,12 +328,24 @@ mod tests {
         let state = Arc::new(McpState::for_tests());
         let (tx1, _rx1) = oneshot::channel();
         let (tx2, _rx2) = oneshot::channel();
-        register(&state, req("a3"), tx1);
-        register(&state, req("a4"), tx2);
+        register(&state, req("a3"), tx1).await;
+        register(&state, req("a4"), tx2).await;
         let pending = list(&state);
         assert_eq!(pending.len(), 2);
-        assert!(resolve(&state, "a4", true));
+        assert!(resolve(&state, "a4", true).await);
         assert_eq!(list(&state).len(), 1);
         assert_eq!(list(&state)[0].id, "a3");
+    }
+
+    #[tokio::test]
+    async fn abandoned_waiters_are_marked_in_db() {
+        let state = Arc::new(McpState::for_tests());
+        // waiter dropped immediately = client disconnected mid-request
+        let (tx, rx) = oneshot::channel();
+        drop(rx);
+        register(&state, req("a5"), tx).await;
+        let db = state.db.lock().await;
+        let rows = db.list_mcp_approvals(10).unwrap();
+        assert_eq!(rows[0].status, STATUS_ABANDONED);
     }
 }

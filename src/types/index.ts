@@ -139,10 +139,13 @@ export interface McpLogEntry {
   connection_id: string;
   space_name: string;
   statement: string;
-  access_level: McpAccessLevel;
+  access_level: McpAccessLevel | '';
   status: 'ok' | 'error' | 'denied';
   duration_ms: number;
   rows_returned: number;
+  /** Approval-wait duration; null when no approval gate was involved */
+  decision_latency_ms: number | null;
+  decided_at: string | null;
 }
 
 /** A write-execution waiting for the user's decision in the app window */

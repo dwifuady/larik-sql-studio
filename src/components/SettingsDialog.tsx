@@ -664,6 +664,14 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
                                                     <div className="flex items-center gap-2 mt-1 text-[10px] text-[var(--text-muted)]">
                                                         <span>{Number.isNaN(new Date(entry.ts).getTime()) ? entry.ts : new Date(entry.ts).toLocaleString()}</span>
                                                         <span>·</span>
+                                                        {entry.decision_latency_ms != null && (
+                                                            <>
+                                                                <span title="time from approval prompt to decision">
+                                                                    decided in {(entry.decision_latency_ms / 1000).toFixed(1)}s
+                                                                </span>
+                                                                <span>·</span>
+                                                            </>
+                                                        )}
                                                         <span>{entry.duration_ms} ms</span>
                                                         {entry.rows_returned > 0 && (
                                                             <>
