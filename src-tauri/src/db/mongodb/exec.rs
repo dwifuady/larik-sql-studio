@@ -199,6 +199,18 @@ fn single_value_set(column: &str, values: Vec<Bson>, truncated: bool) -> ResultS
     documents_to_result_set(&docs, truncated)
 }
 
+/// One-column `name` result from a list of names, cut to `row_limit` the way
+/// `distinct` is (the server returns these lists whole, with no cursor).
+fn name_list_set(names: Vec<String>, row_limit: usize) -> ResultSet {
+    let truncated = names.len() > row_limit;
+    let values = names
+        .into_iter()
+        .take(row_limit)
+        .map(Bson::String)
+        .collect();
+    single_value_set("name", values, truncated)
+}
+
 fn result_sets(set: ResultSet, row_limit: usize) -> ExecutionOutput {
     ExecutionOutput::ResultSets {
         sets: vec![set],
@@ -248,20 +260,12 @@ pub async fn execute(
                 .list_database_names()
                 .authorized_databases(true)
                 .await?;
-            let values = names.into_iter().map(Bson::String).collect();
-            Ok(result_sets(
-                single_value_set("name", values, false),
-                row_limit,
-            ))
+            Ok(result_sets(name_list_set(names, row_limit), row_limit))
         }
         Statement::Show(ShowTarget::Collections) => {
             let mut names = client.database(database).list_collection_names().await?;
             names.sort();
-            let values = names.into_iter().map(Bson::String).collect();
-            Ok(result_sets(
-                single_value_set("name", values, false),
-                row_limit,
-            ))
+            Ok(result_sets(name_list_set(names, row_limit), row_limit))
         }
         Statement::DatabaseCall {
             database: sibling,
@@ -305,8 +309,7 @@ async fn execute_database_call(
             check_arity(&call, 0)?;
             let mut names = db.list_collection_names().await?;
             names.sort();
-            let values = names.into_iter().map(Bson::String).collect();
-            Ok(result_sets(single_value_set("name", values, false), row_limit))
+            Ok(result_sets(name_list_set(names, row_limit), row_limit))
         }
         "stats" => {
             check_arity(&call, 0)?;
@@ -612,6 +615,21 @@ mod tests {
         assert_eq!(set.columns[1].data_type, "int");
         assert!(matches!(set.rows[1][1], CellValue::Null));
         assert!(matches!(set.rows[0][2], CellValue::Null));
+    }
+
+    #[test]
+    fn name_lists_are_cut_to_the_row_limit() {
+        let names = || vec!["a".to_string(), "b".to_string(), "c".to_string()];
+
+        let set = name_list_set(names(), 1);
+        assert!(set.truncated);
+        assert_eq!(set.rows.len(), 1);
+        assert!(matches!(set.rows[0][0], CellValue::String(ref s) if s == "a"));
+
+        // Exactly at the limit is not truncated, same as `distinct`.
+        let set = name_list_set(names(), 3);
+        assert!(!set.truncated);
+        assert_eq!(set.rows.len(), 3);
     }
 
     #[test]
