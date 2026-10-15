@@ -2,8 +2,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '../store';
-import type { CreateSpaceInput, UpdateSpaceInput, DriverKind } from '../types';
-import { DEFAULT_DRIVER, defaultPortFor, driverOf } from '../types';
+import type { CreateSpaceInput, UpdateSpaceInput, DriverKind, McpAccessLevel } from '../types';
+import { DEFAULT_DRIVER, defaultPortFor, driverOf, spaceHasConnection, mcpAccessOf, MCP_ACCESS_OPTIONS } from '../types';
 import {
   DriverPicker,
   MissingDatabaseHint,
@@ -68,6 +68,8 @@ export function SpacesSelector() {
   const [connection, setConnection] = useState<ConnectionFormState>(emptyConnection);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<'success' | string | null>(null);
+  const [editMcpAccess, setEditMcpAccess] = useState<McpAccessLevel>('off');
+  const editingSpace = isEditing ? spaces.find((s) => s.id === isEditing) : undefined;
   const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
@@ -184,6 +186,7 @@ export function SpacesSelector() {
         connection_encrypt: connection.encrypt,
         connection_driver: connection.driver,
       } : {}),
+      mcp_access: editMcpAccess,
     };
 
     await updateSpace(id, input);
@@ -231,6 +234,7 @@ export function SpacesSelector() {
     setEditName(space.name);
     setSelectedColor(getSpaceColor(index, space.color));
     // Load existing connection data
+    setEditMcpAccess(mcpAccessOf(space.mcp_access));
     setConnection({
       driver: driverOf(space.connection_driver),
       host: space.connection_host || '',
@@ -753,6 +757,29 @@ export function SpacesSelector() {
                     {testResult && testResult !== 'success' && <span className="text-xs text-red-400 break-words">✗ {testResult}</span>}
                   </div>
                 )}
+
+                {/* MCP access tri-state */}
+                <div className={`mt-2 ${editingSpace && (spaceHasConnection(editingSpace) || connectionIsComplete(connection)) ? '' : 'opacity-50 pointer-events-none'}`}>
+                  <label className="text-xs text-[var(--text-secondary)] block mb-1">MCP access</label>
+                  <div className="flex gap-1">
+                    {MCP_ACCESS_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        onClick={() => setEditMcpAccess(option.value)}
+                        className={`text-xs px-2 py-0.5 rounded transition-colors ${
+                          editMcpAccess === option.value
+                            ? 'bg-[var(--accent-color)] text-white font-medium'
+                            : 'bg-white/5 border border-white/10 text-[var(--text-secondary)] hover:bg-white/10'
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  {editingSpace && !spaceHasConnection(editingSpace) && !connectionIsComplete(connection) && (
+                    <p className="text-[10px] text-[var(--text-muted)] mt-1">Add a database connection to expose this space to MCP clients.</p>
+                  )}
+                </div>
               </div>
 
               <div className="flex justify-end gap-1.5">

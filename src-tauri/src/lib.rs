@@ -4,10 +4,12 @@
 pub mod commands;
 pub mod db;
 pub mod export;
+pub mod mcp;
 pub mod storage;
 
 use commands::AppState;
 use db::{ConnectionManager, DriverRegistry, QueryEngine, SchemaMetadataManager};
+use mcp::{McpState, McpSupervisor};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex as StdMutex};
 use storage::{get_default_db_path, DatabaseManager};
@@ -51,11 +53,18 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             all_snippets.len()
         );
     }
-
-    // Initialize default settings for archive/history
     db_manager
         .init_default_settings()
         .map_err(|e| format!("Failed to initialize default settings: {e}"))?;
+
+    // Move saved passwords into the OS keychain (one-time, idempotent).
+    match storage::spaces::migrate_space_passwords_to_keyring(&db_manager) {
+        Ok(count) if count > 0 => {
+            println!("[Startup] Migrated {count} space passwords to the OS keychain")
+        }
+        Ok(_) => {}
+        Err(e) => eprintln!("[Startup] Password keychain migration failed: {e}"),
+    }
 
     // Initialize connection manager with all built-in database drivers (T015, T016)
     let connections = Arc::new(ConnectionManager::new(
@@ -72,13 +81,27 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(schema_db_manager),
     ));
 
+    let db = Arc::new(Mutex::new(db_manager));
+
+    let mcp_state = Arc::new(McpState {
+        connections: Arc::clone(&connections),
+        query_engine: Arc::clone(&query_engine),
+        schema_manager: Arc::clone(&schema_manager),
+        db: Arc::clone(&db),
+        token: RwLock::new(String::new()),
+        pending_approvals: parking_lot::Mutex::new(HashMap::new()),
+        app_handle: parking_lot::Mutex::new(None),
+    });
+    let mcp = Arc::new(McpSupervisor::new(Arc::clone(&mcp_state)));
+
     let app_state = AppState {
-        db: Mutex::new(db_manager),
+        db,
         connections,
         query_engine,
         schema_manager,
         export_cancel_flags: RwLock::new(HashMap::new()),
         archive_task: StdMutex::new(None),
+        mcp,
     };
 
     // Clone DB path for background task
@@ -96,6 +119,29 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|_| "AppState lock poisoned")?;
             *slot = Some(handle);
 
+            // MCP server: attach the handle (approval dialogs), then start if
+            // the user enabled it (start() loads the token).
+            let supervisor = state.mcp.clone();
+            supervisor
+                .state()
+                .app_handle
+                .lock()
+                .replace(app.handle().clone());
+            tauri::async_runtime::spawn(async move {
+                let mcp_state = supervisor.state();
+                // Requests left `pending` by a previous crash are dead: the
+                // waiting MCP client is gone.
+                mcp::approvals::mark_orphaned(&mcp_state).await;
+                let enabled = {
+                    let db = mcp_state.db.lock().await;
+                    db.get_mcp_enabled().unwrap_or(false)
+                };
+                if enabled {
+                    if let Err(e) = supervisor.start().await {
+                        eprintln!("[MCP] failed to start on launch: {e}");
+                    }
+                }
+            });
             let mica = app
                 .get_webview_window("main")
                 .map(|w| {
@@ -117,6 +163,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             is_mica_enabled,
             // Space commands (T006) - with integrated connection
@@ -223,6 +270,14 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::get_virtual_references,
             commands::save_virtual_reference,
             commands::delete_virtual_reference,
+            // MCP server commands
+            commands::get_mcp_settings,
+            commands::set_mcp_enabled,
+            commands::set_mcp_port,
+            commands::regenerate_mcp_token,
+            commands::get_mcp_log,
+            commands::respond_mcp_approval,
+            commands::get_pending_mcp_approvals,
         ])
         .build(tauri::generate_context!())?
         .run(|app_handle, event| {

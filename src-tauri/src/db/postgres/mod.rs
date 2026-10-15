@@ -21,6 +21,16 @@ use connection::{
     connect_dedicated, is_healthy, statement_error, CancelOnDrop, PgClients, TlsMode,
 };
 
+/// Statements of `sql`, each as its upper-cased words (see `batch::gate_words`).
+/// Used by the MCP read gate, which must judge text with the same scanner the
+/// driver splits with.
+pub(crate) fn statement_words(sql: &str) -> Vec<Vec<String>> {
+    parse_sql_statements(sql)
+        .iter()
+        .map(|s| batch::gate_words(s))
+        .collect()
+}
+
 /// PostgreSQL implementation of `DatabaseDriver`
 #[derive(Default)]
 pub struct PostgresDriver {
@@ -40,7 +50,7 @@ impl DatabaseDriver for PostgresDriver {
     }
 
     async fn test_connection(&self, config: &ConnectionConfig) -> Result<(), ConnectionError> {
-        connect_dedicated(config, None).await.map(|_| ())
+        connect_dedicated(config, None, false).await.map(|_| ())
     }
 
     async fn connect(&self, config: &ConnectionConfig) -> Result<(), ConnectionError> {
@@ -68,7 +78,7 @@ impl DatabaseDriver for PostgresDriver {
         &self,
         config: &ConnectionConfig,
     ) -> Result<Vec<DatabaseEntry>, ConnectionError> {
-        let conn = connect_dedicated(config, None).await?;
+        let conn = connect_dedicated(config, None, false).await?;
         let rows = conn
             .query(
                 "SELECT datname, has_database_privilege(current_user, datname, 'CONNECT') \
@@ -106,7 +116,7 @@ impl DatabaseDriver for PostgresDriver {
         statement: &str,
         options: ExecuteOptions<'_>,
     ) -> Result<ExecutionOutput, ConnectionError> {
-        let conn = connect_dedicated(config, options.database).await?;
+        let conn = connect_dedicated(config, options.database, options.read_only).await?;
         let guard = CancelOnDrop::new(&conn, TlsMode::from_config(config));
 
         let mut statements = parse_sql_statements(statement);
@@ -399,6 +409,7 @@ mod live_tests {
                 ExecuteOptions {
                     database,
                     row_limit: 10_000,
+                    read_only: false,
                 },
             )
             .await
@@ -553,6 +564,7 @@ mod live_tests {
                 ExecuteOptions {
                     database: None,
                     row_limit: 10,
+                    read_only: false,
                 },
             )
             .await
@@ -752,6 +764,7 @@ mod live_tests {
                 ExecuteOptions {
                     database: None,
                     row_limit: 2,
+                    read_only: false,
                 },
             )
             .await
@@ -875,5 +888,53 @@ mod live_tests {
             ("y", "IN")
         );
         assert_eq!(outs[1].data_type, "integer");
+    }
+
+    /// Engine-level read-only enforcement: with `read_only: true` the server
+    /// itself rejects DDL/DML (the driver never even tries to sniff the SQL),
+    /// while reads keep working. This is the guarantee the MCP server relies
+    /// on for spaces exposed with `read` access.
+    #[ignore]
+    #[tokio::test]
+    async fn read_only_blocks_writes_engine_side() {
+        if !url_available() {
+            return;
+        }
+        let config = live_config().unwrap();
+        let driver = PostgresDriver::new();
+
+        // Reads are unaffected.
+        let output = driver
+            .execute(
+                &config,
+                "SELECT 1 AS one",
+                ExecuteOptions {
+                    database: None,
+                    row_limit: 10,
+                    read_only: true,
+                },
+            )
+            .await
+            .unwrap();
+        assert!(matches!(output, ExecutionOutput::ResultSets { .. }));
+
+        // DDL is rejected by the server, naming the read-only transaction.
+        let marker = format!("mcp_ro_{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        let err = driver
+            .execute(
+                &config,
+                &format!("CREATE TABLE {marker}(x int)"),
+                ExecuteOptions {
+                    database: None,
+                    row_limit: 1,
+                    read_only: true,
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().to_lowercase().contains("read-only"),
+            "expected server-side read-only rejection, got: {err}"
+        );
     }
 }

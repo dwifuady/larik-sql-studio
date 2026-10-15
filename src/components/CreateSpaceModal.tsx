@@ -2,8 +2,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '../store';
-import type { CreateSpaceInput, DriverKind } from '../types';
-import { DEFAULT_DRIVER, defaultPortFor } from '../types';
+import type { CreateSpaceInput, DriverKind, McpAccessLevel } from '../types';
+import { DEFAULT_DRIVER, defaultPortFor, MCP_ACCESS_OPTIONS } from '../types';
 import {
   DriverPicker,
   MissingDatabaseHint,
@@ -59,6 +59,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
   const [connection, setConnection] = useState<ConnectionFormState>(emptyConnection);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<'success' | string | null>(null);
+  const [mcpAccess, setMcpAccess] = useState<McpAccessLevel>('off');
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Focus input when modal opens
@@ -85,6 +86,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
         connection_encrypt: connection.encrypt,
         connection_driver: connection.driver,
       } : {}),
+      mcp_access: mcpAccess,
     };
 
     const space = await createSpace(input);
@@ -92,6 +94,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
     setConnection(emptyConnection);
     setSelectedColor(SPACE_COLORS[(spaces.length + 1) % SPACE_COLORS.length]);
     setTestResult(null);
+    setMcpAccess('off');
     if (space) {
       await setActiveSpace(space.id);
       onSpaceCreated?.();
@@ -128,6 +131,7 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
     setNewName('');
     setConnection(emptyConnection);
     setSelectedColor(SPACE_COLORS[0]);
+    setMcpAccess('off');
     setTestResult(null);
     onClose();
   };
@@ -270,6 +274,29 @@ export function CreateSpaceModal({ isOpen, onClose, onSpaceCreated }: CreateSpac
               {testResult && testResult !== 'success' && <span className="text-xs text-red-400">✗ {testResult}</span>}
             </div>
           )}
+
+          {/* MCP access tri-state (needs a complete connection to matter) */}
+          <div className={`mt-2 ${connectionIsComplete(connection) ? '' : 'opacity-50 pointer-events-none'}`}>
+            <label className="text-xs text-[var(--text-secondary)] block mb-1">MCP access</label>
+            <div className="flex gap-1">
+              {MCP_ACCESS_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => setMcpAccess(option.value)}
+                  className={`text-xs px-2 py-0.5 rounded transition-colors ${
+                    mcpAccess === option.value
+                      ? 'bg-[var(--accent-color)] text-white font-medium'
+                      : 'bg-white/5 border border-white/10 text-[var(--text-secondary)] hover:bg-white/10'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            {!connectionIsComplete(connection) && (
+              <p className="text-[10px] text-[var(--text-muted)] mt-1">Add a database connection to expose this space to MCP clients.</p>
+            )}
+          </div>
         </div>
 
         <div className="flex justify-end gap-2">

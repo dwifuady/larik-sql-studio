@@ -271,7 +271,7 @@ describe('optional MongoDB database', () => {
     id: 's', name: 'n', color: null, icon: null, created_at: '', updated_at: '', sort_order: 0,
     connection_host: '192.168.0.251', connection_port: 27017, connection_database: database,
     connection_username: null, connection_trust_cert: true, connection_encrypt: false,
-    connection_driver: driver, last_active_tab_id: null,
+    connection_driver: driver, last_active_tab_id: null, mcp_access: 'off' as const,
   });
   const dbs = [
     { name: 'BlazeXHub', hasAccess: true },

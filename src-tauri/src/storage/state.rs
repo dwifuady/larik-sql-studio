@@ -22,6 +22,17 @@ pub struct AppSettings {
     pub reference_preview_row_limit: i32,
 }
 
+/// Generate a 64-hex-char bearer token for the MCP server (256 bits of entropy
+/// from two v4 UUIDs). Stored in the app's SQLite settings; it only reaches a
+/// loopback listener, and the UI shows it to the user anyway.
+fn new_mcp_token() -> String {
+    format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    )
+}
+
 impl DatabaseManager {
     /// Get a setting value by key
     pub fn get_setting(&self, key: &str) -> StorageResult<Option<String>> {
@@ -125,6 +136,50 @@ impl DatabaseManager {
     /// Set max result rows setting
     pub fn set_max_result_rows(&self, max_rows: i32) -> StorageResult<()> {
         self.set_setting("max_result_rows", &max_rows.to_string())
+    }
+
+    // ---- Embedded MCP server settings ----
+
+    /// Get whether the embedded MCP server is enabled. Defaults to **off** —
+    /// the server binds no port unless explicitly enabled.
+    pub fn get_mcp_enabled(&self) -> StorageResult<bool> {
+        let value = self.get_setting("mcp_enabled")?;
+        Ok(value.as_deref() == Some("true"))
+    }
+
+    /// Set whether the embedded MCP server is enabled
+    pub fn set_mcp_enabled(&self, enabled: bool) -> StorageResult<()> {
+        self.set_setting("mcp_enabled", if enabled { "true" } else { "false" })
+    }
+
+    /// Get the MCP server port (default: 7487)
+    pub fn get_mcp_port(&self) -> StorageResult<u16> {
+        let value = self.get_setting("mcp_port")?;
+        Ok(value.and_then(|v| v.parse().ok()).unwrap_or(7487))
+    }
+
+    /// Set the MCP server port
+    pub fn set_mcp_port(&self, port: u16) -> StorageResult<()> {
+        self.set_setting("mcp_port", &port.to_string())
+    }
+
+    /// Get the MCP bearer token, generating one on first use
+    pub fn get_mcp_token(&self) -> StorageResult<String> {
+        if let Some(token) = self.get_setting("mcp_token")? {
+            if token.len() >= 32 {
+                return Ok(token);
+            }
+        }
+        let token = new_mcp_token();
+        self.set_setting("mcp_token", &token)?;
+        Ok(token)
+    }
+
+    /// Regenerate the MCP bearer token
+    pub fn reset_mcp_token(&self) -> StorageResult<String> {
+        let token = new_mcp_token();
+        self.set_setting("mcp_token", &token)?;
+        Ok(token)
     }
 
     /// Get reference (foreign key) preview row limit setting

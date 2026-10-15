@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../store';
+import { getMcpLog, getMcpSettings, regenerateMcpToken, setMcpEnabled, setMcpPort } from '../api';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import type { McpLogEntry, McpSettings } from '../types';
 
 interface SettingsDialogProps {
     isOpen: boolean;
@@ -10,6 +13,14 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
     const dialogRef = useRef<HTMLDivElement>(null);
     const [purgeMessage, setPurgeMessage] = useState<string | null>(null);
     const [confirmPurgeAll, setConfirmPurgeAll] = useState(false);
+    const [mcpSettings, setMcpSettings] = useState<McpSettings | null>(null);
+    const [mcpLog, setMcpLog] = useState<McpLogEntry[]>([]);
+    const [mcpError, setMcpError] = useState<string | null>(null);
+    const [mcpBusy, setMcpBusy] = useState(false);
+    const [mcpPortDraft, setMcpPortDraft] = useState('');
+    const [showMcpToken, setShowMcpToken] = useState(false);
+    const [confirmRegenToken, setConfirmRegenToken] = useState(false);
+    const [copiedMcp, setCopiedMcp] = useState<'token' | 'command' | null>(null);
 
     const {
         enableStickyNotes,
@@ -113,7 +124,96 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
         }
     };
 
+    // Load MCP settings and audit log when dialog opens
+    useEffect(() => {
+        if (!isOpen) return;
+        let cancelled = false;
+        setMcpError(null);
+        setConfirmRegenToken(false);
+        setShowMcpToken(false);
+        getMcpSettings()
+            .then((settings) => {
+                if (cancelled) return;
+                setMcpSettings(settings);
+                setMcpPortDraft(String(settings.port));
+                return getMcpLog(50)
+                    .then((log) => { if (!cancelled) setMcpLog(log); })
+                    .catch(() => { /* log view is non-critical */ });
+            })
+            .catch((e) => { if (!cancelled) setMcpError(e instanceof Error ? e.message : String(e)); });
+        return () => { cancelled = true; };
+    }, [isOpen]);
+
+    // Handle MCP enable/disable toggle (bind failures surface here)
+    const handleToggleMcp = async () => {
+        if (!mcpSettings || mcpBusy) return;
+        setMcpBusy(true);
+        setMcpError(null);
+        const enabled = !mcpSettings.enabled;
+        try {
+            const running = await setMcpEnabled(enabled);
+            setMcpSettings({ ...mcpSettings, enabled, running });
+        } catch (e) {
+            setMcpError(e instanceof Error ? e.message : String(e));
+            try {
+                const settings = await getMcpSettings();
+                setMcpSettings(settings);
+                setMcpPortDraft(String(settings.port));
+            } catch { /* keep current view */ }
+        }
+        setMcpBusy(false);
+    };
+
+    // Persist a changed port via set_mcp_port
+    const commitMcpPort = async () => {
+        if (!mcpSettings || mcpBusy) return;
+        const port = parseInt(mcpPortDraft, 10);
+        if (!Number.isFinite(port) || port === mcpSettings.port) {
+            setMcpPortDraft(String(mcpSettings.port));
+            return;
+        }
+        setMcpBusy(true);
+        setMcpError(null);
+        try {
+            const running = await setMcpPort(port);
+            setMcpSettings({ ...mcpSettings, port, running });
+        } catch (e) {
+            setMcpError(e instanceof Error ? e.message : String(e));
+            setMcpPortDraft(String(mcpSettings.port));
+        }
+        setMcpBusy(false);
+    };
+
+    // Handle token regeneration (with confirmation)
+    const handleRegenerateToken = async () => {
+        if (!mcpSettings || mcpBusy) return;
+        setMcpBusy(true);
+        setMcpError(null);
+        setConfirmRegenToken(false);
+        try {
+            const token = await regenerateMcpToken();
+            setMcpSettings({ ...mcpSettings, token });
+        } catch (e) {
+            setMcpError(e instanceof Error ? e.message : String(e));
+        }
+        setMcpBusy(false);
+    };
+
+    // Copy the token or the ready-made client onboarding command
+    const copyMcpText = async (what: 'token' | 'command', text: string) => {
+        try {
+            await writeText(text);
+            setCopiedMcp(what);
+            setTimeout(() => setCopiedMcp((current) => (current === what ? null : current)), 1500);
+        } catch { /* clipboard unavailable */ }
+    };
+
     if (!isOpen) return null;
+
+    // Ready-made client onboarding command with the live port and token
+    const mcpCommandText = mcpSettings
+        ? `claude mcp add larik --transport http http://127.0.0.1:${mcpSettings.port}/mcp --header "Authorization: Bearer ${mcpSettings.token}"`
+        : '';
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
@@ -418,6 +518,175 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
                             </div>
 
                         </div>
+                    </div>
+
+                    <div className="h-px bg-white/5" />
+
+                    {/* MCP Server */}
+                    <div>
+                        <h3 className="text-sm font-medium text-[var(--text-secondary)] uppercase tracking-wider mb-4">MCP Server</h3>
+                        {mcpError && (
+                            <p className="text-xs text-red-400 mb-3">{mcpError}</p>
+                        )}
+                        {!mcpSettings ? (
+                            <p className="text-xs text-[var(--text-muted)]">
+                                {mcpError ? 'MCP settings unavailable.' : 'Loading MCP settings...'}
+                            </p>
+                        ) : (
+                            <div className="space-y-4">
+                                {/* Enable toggle */}
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <label className="text-sm font-medium text-[var(--text-primary)]">Enable MCP Server</label>
+                                        <p className="text-xs text-[var(--text-muted)] mt-1">
+                                            Expose saved connections to local AI agents over loopback HTTP. Off by
+                                            default; per-space access is controlled in each space's settings.
+                                        </p>
+                                        <p className={`text-xs mt-1 ${mcpSettings.running ? 'text-green-400' : 'text-[var(--text-muted)]'}`}>
+                                            {mcpSettings.running ? `Running on 127.0.0.1:${mcpSettings.port}` : 'Stopped'}
+                                        </p>
+                                    </div>
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            className="sr-only peer"
+                                            checked={mcpSettings.enabled}
+                                            disabled={mcpBusy}
+                                            onChange={() => void handleToggleMcp()}
+                                        />
+                                        <div className="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--accent-color)]"></div>
+                                    </label>
+                                </div>
+
+                                {/* Port */}
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <label className="text-sm font-medium text-[var(--text-primary)]">Port</label>
+                                        <p className="text-xs text-[var(--text-muted)] mt-1">
+                                            Loopback port the MCP server listens on. Applied immediately.
+                                        </p>
+                                    </div>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max="65535"
+                                        value={mcpPortDraft}
+                                        disabled={mcpBusy}
+                                        onChange={(e) => setMcpPortDraft(e.target.value)}
+                                        onBlur={() => void commitMcpPort()}
+                                        onKeyDown={(e) => { if (e.key === 'Enter') void commitMcpPort(); }}
+                                        className="w-24 px-3 py-1.5 bg-[var(--bg-primary)] border border-white/10 rounded-lg text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                                    />
+                                </div>
+
+                                {/* Token */}
+                                <div>
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-sm font-medium text-[var(--text-primary)]">Bearer Token</label>
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                onClick={() => setShowMcpToken((v) => !v)}
+                                                className="px-2 py-1 text-xs rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/10 transition-colors"
+                                                aria-label={showMcpToken ? 'Hide token' : 'Reveal token'}
+                                            >
+                                                {showMcpToken ? 'Hide' : 'Reveal'}
+                                            </button>
+                                            <button
+                                                onClick={() => void copyMcpText('token', mcpSettings.token)}
+                                                className="px-2 py-1 text-xs rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/10 transition-colors"
+                                            >
+                                                {copiedMcp === 'token' ? 'Copied' : 'Copy'}
+                                            </button>
+                                            <button
+                                                onClick={() => setConfirmRegenToken(true)}
+                                                disabled={mcpBusy}
+                                                className="px-2 py-1 text-xs rounded-md text-[var(--text-muted)] hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                                            >
+                                                Regenerate
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <p className="text-xs font-mono text-[var(--text-secondary)] bg-[var(--bg-primary)] border border-white/10 rounded-lg px-3 py-2 mt-2 break-all">
+                                        {showMcpToken ? mcpSettings.token : '•'.repeat(Math.min(mcpSettings.token.length, 32))}
+                                    </p>
+                                    {confirmRegenToken && (
+                                        <div className="flex items-center gap-3 p-2 mt-2 rounded-lg bg-red-500/10 border border-red-500/30">
+                                            <p className="text-xs text-red-300 flex-1">Generate a new token? Existing client configs will stop working.</p>
+                                            <button
+                                                onClick={() => void handleRegenerateToken()}
+                                                disabled={mcpBusy}
+                                                className="px-2 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition-colors disabled:opacity-50"
+                                            >
+                                                Regenerate
+                                            </button>
+                                            <button
+                                                onClick={() => setConfirmRegenToken(false)}
+                                                className="px-2 py-1 text-xs text-[var(--text-muted)] bg-white/5 hover:bg-white/10 rounded-md transition-colors"
+                                            >
+                                                Cancel
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Client onboarding command */}
+                                <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <label className="text-sm font-medium text-[var(--text-primary)]">Connect a Client</label>
+                                        <button
+                                            onClick={() => void copyMcpText('command', mcpCommandText)}
+                                            className="px-2 py-1 text-xs rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/10 transition-colors"
+                                        >
+                                            {copiedMcp === 'command' ? 'Copied' : 'Copy Command'}
+                                        </button>
+                                    </div>
+                                    <pre className="text-[11px] font-mono text-[var(--text-secondary)] bg-[var(--bg-primary)] border border-white/10 rounded-lg px-3 py-2 whitespace-pre-wrap break-all">
+                                        {mcpCommandText}
+                                    </pre>
+                                </div>
+
+                                {/* Audit log */}
+                                <div>
+                                    <label className="text-sm font-medium text-[var(--text-primary)] block mb-2">Recent Activity</label>
+                                    {mcpLog.length === 0 ? (
+                                        <p className="text-xs text-[var(--text-muted)]">No MCP activity yet.</p>
+                                    ) : (
+                                        <div className="space-y-1 max-h-56 overflow-y-auto">
+                                            {mcpLog.map((entry) => (
+                                                <div key={entry.id} className="px-3 py-2 bg-[var(--bg-primary)] border border-white/10 rounded-lg">
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <span className="text-xs font-mono text-[var(--text-secondary)] truncate">{entry.tool}</span>
+                                                        <span className={`text-[10px] font-medium uppercase tracking-wide shrink-0 ${entry.status === 'ok' ? 'text-green-400' : entry.status === 'denied' ? 'text-amber-400' : 'text-red-400'}`}>{entry.status}</span>
+                                                    </div>
+                                                    {entry.statement && (
+                                                        <p className="text-[11px] font-mono text-[var(--text-muted)] truncate mt-0.5">{entry.statement}</p>
+                                                    )}
+                                                    <div className="flex items-center gap-2 mt-1 text-[10px] text-[var(--text-muted)]">
+                                                        <span>{Number.isNaN(new Date(entry.ts).getTime()) ? entry.ts : new Date(entry.ts).toLocaleString()}</span>
+                                                        <span>·</span>
+                                                        {entry.decision_latency_ms != null && (
+                                                            <>
+                                                                <span title="time from approval prompt to decision">
+                                                                    decided in {(entry.decision_latency_ms / 1000).toFixed(1)}s
+                                                                </span>
+                                                                <span>·</span>
+                                                            </>
+                                                        )}
+                                                        <span>{entry.duration_ms} ms</span>
+                                                        {entry.rows_returned > 0 && (
+                                                            <>
+                                                                <span>·</span>
+                                                                <span>{entry.rows_returned} rows</span>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                 </div>

@@ -21,7 +21,7 @@ async fn connect_to_database(
     config: &ConnectionConfig,
     database: &str,
 ) -> Result<Client, ConnectionError> {
-    connect_dedicated(config, Some(database)).await
+    connect_dedicated(config, Some(database), false).await
 }
 
 /// Fetch schema information for a database.
