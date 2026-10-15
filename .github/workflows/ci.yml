@@ -16,8 +16,9 @@ jobs:
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
       - run: cargo test --manifest-path src-tauri/Cargo.toml
       # Ignore advisories for transitive deps pinned by tauri/tiberius (no upstream fix yet):
-      # quick-xml (tauri plist, arboard wayland), rustls-webpki 0.101 (tiberius -> rustls 0.21)
-      - run: cargo install cargo-audit && cargo audit --file src-tauri/Cargo.lock --ignore RUSTSEC-2026-0194 --ignore RUSTSEC-2026-0195 --ignore RUSTSEC-2026-0098 --ignore RUSTSEC-2026-0099 --ignore RUSTSEC-2026-0104
+      # quick-xml (tauri plist, arboard wayland), rustls-webpki 0.101 (tiberius -> rustls 0.21),
+      # rustls 0.21 itself (RUSTSEC-2026-0346/0349; tiberius 0.12.3 -> tokio-rustls 0.24)
+      - run: cargo install cargo-audit && cargo audit --file src-tauri/Cargo.lock --ignore RUSTSEC-2026-0194 --ignore RUSTSEC-2026-0195 --ignore RUSTSEC-2026-0098 --ignore RUSTSEC-2026-0099 --ignore RUSTSEC-2026-0104 --ignore RUSTSEC-2026-0346 --ignore RUSTSEC-2026-0349
   frontend:
     runs-on: ubuntu-latest
     steps:
