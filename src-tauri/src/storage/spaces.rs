@@ -25,27 +25,35 @@ fn store_password_in_keyring(
     space_id: &str,
     password: &str,
 ) -> StorageResult<()> {
+    let entry = keyring_entry(space_id);
     if !password.is_empty() {
-        if let Ok(entry) = keyring_entry(space_id) {
-            match entry.set_password(password) {
-                Ok(()) => {
-                    manager.with_connection(|conn| {
-                        conn.execute(
-                            "UPDATE spaces SET connection_password = NULL WHERE id = ?1",
-                            params![space_id],
-                        )?;
-                        Ok(())
-                    })?;
-                    return Ok(());
-                }
-                Err(e) => eprintln!("[storage] keychain write failed, keeping SQLite copy: {e}"),
+        match entry.as_ref().map(|e| e.set_password(password)) {
+            Ok(Ok(())) => {
+                return manager.with_connection(|conn| {
+                    conn.execute(
+                        "UPDATE spaces SET connection_password = NULL WHERE id = ?1",
+                        params![space_id],
+                    )?;
+                    Ok(())
+                });
             }
+            Ok(Err(e)) => eprintln!("[storage] keychain write failed, keeping SQLite copy: {e}"),
+            Err(e) => eprintln!("[storage] keychain unavailable, keeping SQLite copy: {e}"),
         }
     }
+    // Empty password, or the keychain write failed: an older keychain secret
+    // would still win in `get_space_password`, so drop it.
+    if let Ok(entry) = &entry {
+        match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => {}
+            Err(e) => eprintln!("[storage] keychain delete failed: {e}"),
+        }
+    }
+    let stored = (!password.is_empty()).then_some(password);
     manager.with_connection(|conn| {
         conn.execute(
-            "UPDATE spaces SET connection_password = ?1 WHERE id = ?1",
-            params![password],
+            "UPDATE spaces SET connection_password = ?1 WHERE id = ?2",
+            params![stored, space_id],
         )?;
         Ok(())
     })
@@ -581,6 +589,56 @@ mod tests {
         assert!(manager.delete_space(&space.id).unwrap());
         assert_eq!(manager.get_space_password(&space.id).unwrap(), None);
 
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    /// An empty password clears the saved one everywhere: the keychain entry
+    /// must go too, or `get_space_password` keeps returning the old secret.
+    #[test]
+    fn empty_password_clears_keychain_and_sqlite() {
+        let (manager, db_path) = create_test_db();
+
+        let space = manager
+            .create_space(CreateSpaceInput {
+                name: "Clear Space".to_string(),
+                color: None,
+                icon: None,
+                connection_host: Some("localhost".to_string()),
+                connection_port: Some(1433),
+                connection_database: Some("db".to_string()),
+                connection_username: Some("sa".to_string()),
+                connection_password: Some("old-secret".to_string()),
+                connection_trust_cert: None,
+                connection_encrypt: None,
+                connection_driver: None,
+                mcp_access: None,
+            })
+            .unwrap();
+
+        manager
+            .update_space(
+                &space.id,
+                UpdateSpaceInput {
+                    name: None,
+                    color: None,
+                    icon: None,
+                    sort_order: None,
+                    connection_host: None,
+                    connection_port: None,
+                    connection_database: None,
+                    connection_username: None,
+                    connection_password: Some(String::new()),
+                    connection_trust_cert: None,
+                    connection_encrypt: None,
+                    connection_driver: None,
+                    mcp_access: None,
+                },
+            )
+            .unwrap();
+
+        assert_eq!(manager.get_space_password(&space.id).unwrap(), None);
+
+        manager.delete_space(&space.id).unwrap();
         let _ = std::fs::remove_file(&db_path);
     }
 

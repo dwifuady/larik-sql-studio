@@ -23,8 +23,8 @@ pub struct AppSettings {
 }
 
 /// Generate a 64-hex-char bearer token for the MCP server (256 bits of entropy
-/// from two v4 UUIDs). Stored in the same SQLite file as connection passwords —
-/// no new threat boundary.
+/// from two v4 UUIDs). Stored in the app's SQLite settings; it only reaches a
+/// loopback listener, and the UI shows it to the user anyway.
 fn new_mcp_token() -> String {
     format!(
         "{}{}",

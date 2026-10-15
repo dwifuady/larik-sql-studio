@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '../store';
 import type { CreateSpaceInput, UpdateSpaceInput, DriverKind, McpAccessLevel } from '../types';
-import { DEFAULT_DRIVER, defaultPortFor, driverOf, spaceHasConnection, mcpAccessOf } from '../types';
+import { DEFAULT_DRIVER, defaultPortFor, driverOf, spaceHasConnection, mcpAccessOf, MCP_ACCESS_OPTIONS } from '../types';
 import {
   DriverPicker,
   MissingDatabaseHint,
@@ -46,13 +46,6 @@ const emptyConnection: ConnectionFormState = {
   trustCert: true,
   encrypt: false,
 };
-
-// Per-space MCP exposure options, in display order
-const MCP_ACCESS_OPTIONS: { value: McpAccessLevel; label: string }[] = [
-  { value: 'off', label: 'Off' },
-  { value: 'read', label: 'Read-only' },
-  { value: 'write', label: 'Read-write' },
-];
 
 export function SpacesSelector() {
   const {

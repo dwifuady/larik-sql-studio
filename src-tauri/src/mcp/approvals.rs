@@ -30,7 +30,8 @@ pub struct ApprovalRequest {
     pub connection_id: String,
     pub space_name: String,
     pub driver: String,
-    /// Statement text, truncated by the caller before registering.
+    /// Full statement text — exactly what runs on approval. The caller refuses
+    /// statements too long to review instead of truncating them.
     pub statement: String,
     pub access_level: String,
     pub created_at: String,
@@ -184,34 +185,39 @@ pub(crate) async fn request_approval(
         .take(140)
         .collect();
 
-    {
-        let handle = state.app_handle.lock();
-        let Some(handle) = handle.as_ref() else {
-            return Err("approval prompt unavailable: Larik UI is not attached".to_string());
-        };
-        if let Err(e) = handle.emit("mcp-approval-request", &request) {
-            // The queue still holds the entry, so a rehydrated dialog (or the
-            // pending list) can still answer; log and keep waiting.
-            eprintln!("[MCP] failed to emit approval event: {e}");
-        }
+    let Some(handle) = state.app_handle.lock().clone() else {
+        return Err("approval prompt unavailable: Larik UI is not attached".to_string());
+    };
 
-        // The user may not be looking at the Larik window: raise a native
-        // Windows toast and flash the taskbar (window not focused) so the
-        // request cannot go unnoticed. Failure to notify must not break the
-        // approval flow — the in-app dialog is the decision surface.
-        if let Err(e) = handle
-            .notification()
-            .builder()
-            .title("MCP approval requested")
-            .body(format!("{} on '{}'", preview, request.space_name))
-            .show()
-        {
-            eprintln!("[MCP] failed to show approval notification: {e}");
-        }
-        if let Some(window) = handle.get_webview_window("main") {
-            if !window.is_focused().unwrap_or(true) {
-                let _ = window.request_user_attention(Some(UserAttentionType::Critical));
-            }
+    // Register before the dialog can see the request: a click that lands
+    // before the entry is parked would find nothing to resolve and the call
+    // would sit until the auto-deny. register() also persists the request as
+    // `pending` and marks any abandoned waiters from earlier calls.
+    let (tx, rx) = oneshot::channel();
+    register(state, request.clone(), tx).await;
+
+    if let Err(e) = handle.emit("mcp-approval-request", &request) {
+        // The queue holds the entry, so a rehydrated dialog (or the pending
+        // list) can still answer; log and keep waiting.
+        eprintln!("[MCP] failed to emit approval event: {e}");
+    }
+
+    // The user may not be looking at the Larik window: raise a native Windows
+    // toast and flash the taskbar (window not focused) so the request cannot
+    // go unnoticed. Failure to notify must not break the approval flow — the
+    // in-app dialog is the decision surface.
+    if let Err(e) = handle
+        .notification()
+        .builder()
+        .title("MCP approval requested")
+        .body(format!("{} on '{}'", preview, request.space_name))
+        .show()
+    {
+        eprintln!("[MCP] failed to show approval notification: {e}");
+    }
+    if let Some(window) = handle.get_webview_window("main") {
+        if !window.is_focused().unwrap_or(true) {
+            let _ = window.request_user_attention(Some(UserAttentionType::Critical));
         }
     }
 
@@ -219,14 +225,6 @@ pub(crate) async fn request_approval(
         "[MCP] approval requested [{}] on '{}': {}",
         request.id, request.space_name, preview
     );
-
-    let rx = {
-        let (tx, rx) = oneshot::channel();
-        // register() persists the request as `pending` and marks any
-        // abandoned waiters from earlier calls.
-        register(state, request.clone(), tx).await;
-        rx
-    };
 
     let decided_at = || chrono::Utc::now().to_rfc3339();
     let outcome = |approved: bool, reason: &'static str| ApprovalOutcome {
@@ -237,23 +235,13 @@ pub(crate) async fn request_approval(
     };
 
     match tokio::time::timeout(timeout, rx).await {
+        // resolve() already persisted the decision with its click time.
         Ok(Ok(approved)) => {
             println!(
                 "[MCP] approval [{}] {}",
                 request.id,
                 if approved { "granted" } else { "denied" }
             );
-            db_update_status(
-                state,
-                &request.id,
-                if approved {
-                    STATUS_APPROVED
-                } else {
-                    STATUS_DENIED
-                },
-                &decided_at(),
-            )
-            .await;
             Ok(outcome(approved, "user decision"))
         }
         // Responder dropped (app shutting down) — treat as a denial.

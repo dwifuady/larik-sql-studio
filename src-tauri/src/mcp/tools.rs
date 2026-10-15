@@ -26,6 +26,9 @@ pub const MAX_ROW_LIMIT: usize = 1000;
 const STATEMENT_TIMEOUT: Duration = Duration::from_secs(120);
 /// Longest statement snippet included in a denial message.
 const SNIPPET_MAX_CHARS: usize = 300;
+/// Longest statement sent for human approval. The dialog shows it in full, so
+/// it must stay reviewable; it also fits the approval and audit row caps.
+const APPROVAL_MAX_CHARS: usize = 10_000;
 
 /// Outcome of resolving a tool call's connection: the space, its access level,
 /// and the live driver.
@@ -400,8 +403,9 @@ async fn run_query(
 
     let read_only = resolved.access.is_read();
 
-    // Read-level gate. Postgres relies on engine-level enforcement instead;
-    // Mongo's undecidable statements (SQL subset / unparseable) go to the driver.
+    // Read-level gate. Postgres is also enforced engine-side; its gate only
+    // keeps the session from leaving read-only mode. Mongo's undecidable
+    // statements (SQL subset / unparseable) go to the driver.
     if read_only {
         let kind: DriverKind = resolved
             .space
@@ -417,7 +421,7 @@ async fn run_query(
                 DriverKind::Mongodb => {
                     crate::mcp::policy::mongo_read_allowed(&unit).unwrap_or(true)
                 }
-                DriverKind::Postgres => true,
+                DriverKind::Postgres => crate::mcp::policy::postgres_read_allowed(&unit),
             };
             if !allowed {
                 return Err(ToolFail::deny(format!(
@@ -434,12 +438,21 @@ async fn run_query(
     // running Larik window. Read-only spaces skip this — they are enforced
     // read-only server-side, and the user opted them in deliberately.
     if !read_only {
+        // The user must see exactly what runs: no truncated preview. Anything
+        // too long to review in the dialog is refused outright.
+        let query_chars = args.query.chars().count();
+        if query_chars > APPROVAL_MAX_CHARS {
+            return Err(ToolFail::deny(format!(
+                "statement not executed: {query_chars} characters is too long to review \
+                 for approval (limit {APPROVAL_MAX_CHARS}). Split it into smaller statements."
+            )));
+        }
         let request = crate::mcp::approvals::ApprovalRequest {
             id: uuid::Uuid::new_v4().to_string(),
             connection_id: resolved.space.id.clone(),
             space_name: resolved.space.name.clone(),
             driver: resolved.space.connection_driver.clone(),
-            statement: snippet(&args.query, 4000),
+            statement: args.query.clone(),
             access_level: "write".to_string(),
             created_at: chrono::Utc::now().to_rfc3339(),
         };

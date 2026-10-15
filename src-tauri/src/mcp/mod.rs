@@ -47,6 +47,10 @@ struct Running {
 pub struct McpSupervisor {
     state: Arc<McpState>,
     running: Mutex<Option<Running>>,
+    /// Serializes start/stop: without it two concurrent starts (launch task +
+    /// Settings toggle) both pass the `is_running` check and the second fails
+    /// to bind, or a stop slips in before a start records its listener.
+    lifecycle: tokio::sync::Mutex<()>,
 }
 
 impl McpSupervisor {
@@ -54,6 +58,7 @@ impl McpSupervisor {
         Self {
             state,
             running: Mutex::new(None),
+            lifecycle: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -63,14 +68,25 @@ impl McpSupervisor {
 
     /// Bind and serve. Bind errors (port taken, …) surface here so the UI can
     /// show them; a silent port fallback would strand the client config.
+    ///
+    /// Loads the bearer token first and refuses to serve without one: an
+    /// empty expected token would accept an empty `Bearer ` header.
     pub async fn start(&self) -> Result<(), String> {
+        let _lifecycle = self.lifecycle.lock().await;
         if self.is_running() {
             return Ok(());
         }
-        let port = {
+        let (port, token) = {
             let db = self.state.db.lock().await;
-            db.get_mcp_port().map_err(|e| e.to_string())?
+            (
+                db.get_mcp_port().map_err(|e| e.to_string())?,
+                db.get_mcp_token().map_err(|e| e.to_string())?,
+            )
         };
+        if token.is_empty() {
+            return Err("MCP bearer token is missing; regenerate it in Settings".to_string());
+        }
+        self.set_token(token).await;
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
             .await
             .map_err(|e| format!("cannot bind 127.0.0.1:{port}: {e}"))?;
@@ -89,7 +105,8 @@ impl McpSupervisor {
         Ok(())
     }
 
-    pub fn stop(&self) {
+    pub async fn stop(&self) {
+        let _lifecycle = self.lifecycle.lock().await;
         if let Some(running) = self.running.lock().take() {
             let _ = running.shutdown.send(());
             running.handle.abort();

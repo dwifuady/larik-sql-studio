@@ -103,8 +103,8 @@ button, inheriting statement splitting, cancellation plumbing, and per-driver qu
 
 | Engine | Mechanism | Strength |
 |---|---|---|
-| Postgres | Session-level `default_transaction_read_only = on` applied to sessions serving MCP requests (threaded via an added `ExecuteOptions::read_only`, drivers apply it themselves) | Strong: server rejects writes/DDL |
-| MongoDB | Shell-parser allow-list — only read statements (`find`, `aggregate`, `db.*` reads, the SQL SELECT subset which is read-only by construction) | Strong: parser already classifies |
+| Postgres | Session-level `default_transaction_read_only = on` applied to sessions serving MCP requests (threaded via an added `ExecuteOptions::read_only`, drivers apply it themselves), plus a gate (`postgres_read_allowed`) so the session cannot switch it off: one statement per unit, no session/transaction control (`SET`, `RESET`, `BEGIN`, `COMMIT`, `set_config`, `COPY`, `DO`, `CALL`, `dblink*`, …) | Strong: server rejects writes/DDL |
+| MongoDB | Shell-parser allow-list — only read statements (`find`, `aggregate`, `db.*` reads, the SQL SELECT subset which is read-only by construction); `$out`/`$merge` pipeline stages are denied anywhere in the arguments | Strong: parser already classifies |
 | MSSQL | Fail-closed statement classifier (`mcp/policy.rs`): deny unless confidently a read. Denies: non-SELECT verbs, multi-statement anything non-read, `EXEC`/`sp_*`, `xp_*`, `OPENROWSET`/`OPENQUERY`, `SELECT ... INTO`, unknown parses | **Best-effort** |
 
 MSSQL has no session-level read-only. Residual risk (documented, not hidden): exotic
@@ -202,9 +202,10 @@ claude mcp add larik --transport http http://127.0.0.1:7487/mcp \
    `options` parameter — race-free by construction, drop-safe (the session dies with
    the future).
 3. **MSSQL batch classification.** Each driver-split unit is classified independently
-   (`mssql_read_allowed`); a unit's semicolon-separated parts are judged separately, so
-   `SELECT 'x'; DELETE …` is denied without blanket-banning batches on engines that have
-   real enforcement. Audit rows distinguish `denied` (policy) from `error` (execution)
+   (`mssql_read_allowed`). Literals, comments and quoted identifiers are stripped first,
+   then the remaining semicolon-separated parts are judged separately, so
+   `SELECT 'x'; DELETE …` is denied and a quoted `;` cannot hide a write
+   (`SELECT 'x;' DELETE … --'`). Audit rows distinguish `denied` (policy) from `error` (execution)
    via `ToolFail`.
 
 ## v2 — approval gateway (implemented)

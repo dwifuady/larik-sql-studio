@@ -35,6 +35,13 @@ export function defaultPortFor(driver?: string | null): number {
 /** MCP exposure level for a space over the embedded MCP server */
 export type McpAccessLevel = 'off' | 'read' | 'write';
 
+/** Per-space MCP exposure options, in display order */
+export const MCP_ACCESS_OPTIONS: { value: McpAccessLevel; label: string }[] = [
+  { value: 'off', label: 'Off' },
+  { value: 'read', label: 'Read-only' },
+  { value: 'write', label: 'Read-write' },
+];
+
 /** Normalize an mcp_access value from storage (unknown values fall back to off) */
 export function mcpAccessOf(value?: string | null): McpAccessLevel {
   return value === 'read' || value === 'write' ? value : 'off';

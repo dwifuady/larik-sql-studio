@@ -5,13 +5,16 @@
 //   or `write`; unknown stored values fall back to `off`.
 // - At access level `read`, statements are gated per engine:
 //   - PostgreSQL: engine-level enforcement (`default_transaction_read_only` via
-//     startup options on the dedicated session) — no text gate here.
-//   - MongoDB: allow-list of read methods on the parsed shell statement.
+//     startup options on the dedicated session), plus a gate that keeps the
+//     session from switching it off (one statement per unit, no session or
+//     transaction control).
+//   - MongoDB: allow-list of read methods on the parsed shell statement, with
+//     write pipeline stages (`$out`, `$merge`) denied.
 //   - MS-SQL: no session-level read-only exists in T-SQL, so a conservative
 //     classifier denies anything not provably a read. For a hard guarantee use
 //     a read-only login; the Settings UI says the same.
 
-use crate::db::mongodb::shell::{parse_single, Statement};
+use crate::db::mongodb::shell::{parse_single, MethodCall, Statement, Value};
 
 /// Exposure level of a space to the MCP server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,10 +77,36 @@ pub fn mongo_read_allowed(unit: &str) -> Option<bool> {
     match parse_single(unit) {
         Ok(Statement::Use(_)) => Some(true),
         Ok(Statement::Show(_)) => Some(true),
-        Ok(Statement::DatabaseCall { call, .. }) | Ok(Statement::CollectionCall { call, .. }) => {
-            Some(MONGO_READ_METHODS.contains(&call.name.as_str()))
+        Ok(Statement::DatabaseCall { call, .. }) => Some(mongo_call_is_read(&call, &[])),
+        Ok(Statement::CollectionCall { call, chain, .. }) => {
+            Some(mongo_call_is_read(&call, &chain))
         }
         Err(_) => None,
+    }
+}
+
+/// Pipeline stages that write: `aggregate([..., {$out: "c"}])` replaces a
+/// collection and `$merge` upserts into one, so a read method carrying them
+/// is not a read.
+const MONGO_WRITE_STAGES: &[&str] = &["$out", "$merge"];
+
+fn mongo_call_is_read(call: &MethodCall, chain: &[MethodCall]) -> bool {
+    MONGO_READ_METHODS.contains(&call.name.as_str())
+        && !std::iter::once(call)
+            .chain(chain)
+            .flat_map(|c| &c.args)
+            .any(mongo_value_has_write_stage)
+}
+
+fn mongo_value_has_write_stage(value: &Value) -> bool {
+    match value {
+        Value::Object(fields) => fields.iter().any(|(key, v)| {
+            MONGO_WRITE_STAGES.contains(&key.as_str()) || mongo_value_has_write_stage(v)
+        }),
+        Value::Array(items) | Value::Call { args: items, .. } => {
+            items.iter().any(mongo_value_has_write_stage)
+        }
+        _ => false,
     }
 }
 
@@ -122,6 +151,7 @@ const MSSQL_BANNED: &[&str] = &[
     "OPENROWSET",
     "OPENQUERY",
     "OPENXML",
+    "OPENDATASOURCE",
     "INTO",
     "IDENTITY",
     "OUTPUT",
@@ -129,20 +159,17 @@ const MSSQL_BANNED: &[&str] = &[
 
 /// Classify one already-split T-SQL unit at access level `read`.
 ///
-/// Every semicolon-separated part must start with a read verb and contain no
-/// banned token outside string literals, comments, and quoted identifiers.
-/// Anything the classifier cannot prove a read is denied — including reads it
-/// misparses (e.g. a semicolon inside a string literal splits the unit and the
-/// fragments are judged independently). Best-effort by design; for a hard
-/// guarantee use a read-only login.
+/// Literals, comments and quoted identifiers are stripped first, then every
+/// remaining semicolon-separated part must start with a read verb and contain
+/// no banned token. Stripping before splitting matters: a `;` inside a string
+/// must not desync the scanner, or `SELECT 'x;' DELETE FROM t --'` would hide
+/// the DELETE inside a fake string. Anything the classifier cannot prove a
+/// read is denied. Best-effort by design; for a hard guarantee use a
+/// read-only login.
 pub fn mssql_read_allowed(unit: &str) -> bool {
-    unit.split(';').all(|part| {
-        let trimmed = part.trim();
-        if trimmed.is_empty() {
-            return true;
-        }
-        let stripped = strip_literals(trimmed);
-        let upper = stripped.to_ascii_uppercase();
+    let stripped = strip_literals(unit);
+    stripped.split(';').all(|part| {
+        let upper = part.to_ascii_uppercase();
         let tokens: Vec<&str> = upper
             .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
             .filter(|t| !t.is_empty())
@@ -158,6 +185,84 @@ pub fn mssql_read_allowed(unit: &str) -> bool {
             }
         }
     })
+}
+
+/// Statement leads that control the session or transaction. With these an
+/// agent could leave the read-only mode itself (`SET default_transaction_read_only
+/// = off`, `BEGIN READ WRITE`, `COMMIT` then write) or reach outside the
+/// database (`COPY ... TO PROGRAM`, `DO`/`CALL` bodies).
+const PG_BANNED_LEADS: &[&str] = &[
+    "SET",
+    "RESET",
+    "BEGIN",
+    "START",
+    "COMMIT",
+    "END",
+    "ROLLBACK",
+    "ABORT",
+    "SAVEPOINT",
+    "RELEASE",
+    "PREPARE",
+    "EXECUTE",
+    "DEALLOCATE",
+    "DISCARD",
+    "LOAD",
+    "COPY",
+    "DO",
+    "CALL",
+    "LISTEN",
+    "UNLISTEN",
+    "NOTIFY",
+    "LOCK",
+];
+
+/// Words banned anywhere in a statement: `SET`/`RESET` in any position, the
+/// function form of `SET` (`set_config`), side-channel connections that run
+/// outside the read-only session (`dblink*`), server-file and backend control,
+/// and `U&` (Unicode-escape names the gate cannot read).
+const PG_BANNED_ANYWHERE: &[&str] = &[
+    "U&",
+    "SET",
+    "RESET",
+    "SET_CONFIG",
+    "DBLINK",
+    "DBLINK_EXEC",
+    "DBLINK_CONNECT",
+    "DBLINK_CONNECT_U",
+    "DBLINK_SEND_QUERY",
+    "LO_IMPORT",
+    "LO_EXPORT",
+    "PG_TERMINATE_BACKEND",
+    "PG_CANCEL_BACKEND",
+    "PG_RELOAD_CONF",
+];
+
+/// Classify one PostgreSQL unit at access level `read`.
+///
+/// The engine enforces read-only through `default_transaction_read_only`,
+/// but that is a session setting any statement can switch off. Two rules keep
+/// the engine-level guarantee intact:
+/// - One statement per unit. Each unit runs on its own fresh connection and a
+///   transaction's read-only mode is fixed when it starts, so a setting
+///   changed inside a statement (even via a function called from a string,
+///   e.g. `query_to_xml('select set_config(...)')`) cannot reach a write.
+/// - No session/transaction control or known escape hatches (word lists
+///   above), as defense in depth.
+///
+/// Statements are split and tokenized with the driver's own scanner (dollar
+/// quotes, `E''` strings, nested comments).
+pub fn postgres_read_allowed(unit: &str) -> bool {
+    let statements = crate::db::postgres::statement_words(unit);
+    statements.len() <= 1
+        && statements.iter().all(|words| match words.first() {
+            None => true,
+            Some(lead) => {
+                !PG_BANNED_LEADS.contains(&lead.as_str())
+                    && !words
+                        .iter()
+                        .any(|w| PG_BANNED_ANYWHERE.contains(&w.as_str()))
+            }
+        })
 }
 
 /// Remove string literals ('...' with '' doubling), quoted identifiers ("...",
@@ -309,6 +414,69 @@ mod tests {
         assert!(!mssql_read_allowed("USE msdb; SELECT 1"));
         assert!(!mssql_read_allowed("SELECT 1; WAITFOR DELAY '0:0:5'"));
         assert!(!mssql_read_allowed("BEGIN TRAN; SELECT 1"));
+        assert!(!mssql_read_allowed(
+            "SELECT * FROM OPENDATASOURCE('SQLNCLI', 'Data Source=x').db.dbo.t"
+        ));
+    }
+
+    #[test]
+    fn mssql_semicolon_inside_string_cannot_hide_a_write() {
+        // Semicolons don't separate T-SQL statements; a quoted `;` used to
+        // split the unit and turn the DELETE into a "string".
+        assert!(!mssql_read_allowed("SELECT 'x;' DELETE FROM users --'"));
+        assert!(!mssql_read_allowed("SELECT ';' ; DELETE FROM users"));
+        assert!(!mssql_read_allowed("SELECT [a;b] DROP TABLE t"));
+        assert!(mssql_read_allowed("SELECT 'a;b' AS v; SELECT 2"));
+        assert!(mssql_read_allowed("SELECT 1 /* ; DELETE */ AS v"));
+    }
+
+    // ---- PostgreSQL gate ----
+
+    #[test]
+    fn postgres_allows_plain_reads() {
+        assert!(postgres_read_allowed("SELECT * FROM users"));
+        assert!(postgres_read_allowed(
+            "WITH c AS (SELECT 1 AS x) SELECT CASE WHEN x = 1 THEN 'a' END FROM c;"
+        ));
+        assert!(postgres_read_allowed("SELECT 'SET x = 1; BEGIN' AS s"));
+        assert!(postgres_read_allowed("SELECT $$ COMMIT $$ AS s"));
+        assert!(postgres_read_allowed("EXPLAIN SELECT 1"));
+        assert!(postgres_read_allowed("SELECT offset_col, setting FROM pg_settings"));
+    }
+
+    #[test]
+    fn postgres_denies_leaving_read_only_mode() {
+        assert!(!postgres_read_allowed("SET default_transaction_read_only = off"));
+        assert!(!postgres_read_allowed(
+            "SET default_transaction_read_only = off; DROP TABLE orders;"
+        ));
+        assert!(!postgres_read_allowed("BEGIN READ WRITE; DELETE FROM orders; COMMIT;"));
+        assert!(!postgres_read_allowed("START TRANSACTION READ WRITE"));
+        assert!(!postgres_read_allowed(
+            "SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE"
+        ));
+        assert!(!postgres_read_allowed(
+            "SELECT set_config('default_transaction_read_only', 'off', false)"
+        ));
+        assert!(!postgres_read_allowed(
+            "SELECT pg_catalog.\"set_config\"('default_transaction_read_only', 'off', false)"
+        ));
+        assert!(!postgres_read_allowed("SELECT U&\"\\0073et_config\"('a', 'b', false)"));
+        assert!(!postgres_read_allowed("RESET ALL"));
+        assert!(!postgres_read_allowed("COPY t TO PROGRAM 'calc.exe'"));
+        assert!(!postgres_read_allowed("DO $$ BEGIN PERFORM 1; END $$"));
+        assert!(!postgres_read_allowed("CALL do_stuff()"));
+        assert!(!postgres_read_allowed("SELECT dblink_exec('dbname=x', 'DROP TABLE t')"));
+        assert!(!postgres_read_allowed("SELECT pg_terminate_backend(123)"));
+    }
+
+    #[test]
+    fn postgres_denies_multi_statement_units() {
+        // A unit only holds several statements when they share a session;
+        // at `read` every statement must run on its own connection.
+        assert!(!postgres_read_allowed(
+            "DECLARE c CURSOR FOR SELECT 1; FETCH ALL FROM c;"
+        ));
     }
 
     // ---- MongoDB gate ----
@@ -344,6 +512,31 @@ mod tests {
         assert_eq!(
             mongo_read_allowed("db.getSiblingDB('admin').adminCommand({shutdown: 1})"),
             Some(false)
+        );
+    }
+
+    #[test]
+    fn mongo_denies_write_pipeline_stages() {
+        assert_eq!(
+            mongo_read_allowed("db.users.aggregate([{$match: {_id: null}}, {$out: \"users\"}])"),
+            Some(false)
+        );
+        assert_eq!(
+            mongo_read_allowed("db.users.aggregate([{$merge: {into: \"archive\"}}])"),
+            Some(false)
+        );
+        assert_eq!(
+            mongo_read_allowed("db.users.aggregate([{\"$out\": \"users\"}])"),
+            Some(false)
+        );
+        // Nested inside $facet / $lookup sub-pipelines.
+        assert_eq!(
+            mongo_read_allowed("db.users.aggregate([{$facet: {a: [{$out: \"x\"}]}}])"),
+            Some(false)
+        );
+        assert_eq!(
+            mongo_read_allowed("db.users.aggregate([{$match: {note: \"$out\"}}])"),
+            Some(true)
         );
     }
 

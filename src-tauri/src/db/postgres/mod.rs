@@ -21,6 +21,16 @@ use connection::{
     connect_dedicated, is_healthy, statement_error, CancelOnDrop, PgClients, TlsMode,
 };
 
+/// Statements of `sql`, each as its upper-cased words (see `batch::gate_words`).
+/// Used by the MCP read gate, which must judge text with the same scanner the
+/// driver splits with.
+pub(crate) fn statement_words(sql: &str) -> Vec<Vec<String>> {
+    parse_sql_statements(sql)
+        .iter()
+        .map(|s| batch::gate_words(s))
+        .collect()
+}
+
 /// PostgreSQL implementation of `DatabaseDriver`
 #[derive(Default)]
 pub struct PostgresDriver {

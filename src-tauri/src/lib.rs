@@ -119,8 +119,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|_| "AppState lock poisoned")?;
             *slot = Some(handle);
 
-            // MCP server: attach the handle (approval dialogs), load the token,
-            // then start if the user enabled it.
+            // MCP server: attach the handle (approval dialogs), then start if
+            // the user enabled it (start() loads the token).
             let supervisor = state.mcp.clone();
             supervisor
                 .state()
@@ -132,11 +132,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 // Requests left `pending` by a previous crash are dead: the
                 // waiting MCP client is gone.
                 mcp::approvals::mark_orphaned(&mcp_state).await;
-                let token = {
-                    let db = mcp_state.db.lock().await;
-                    db.get_mcp_token().unwrap_or_default()
-                };
-                supervisor.set_token(token).await;
                 let enabled = {
                     let db = mcp_state.db.lock().await;
                     db.get_mcp_enabled().unwrap_or(false)

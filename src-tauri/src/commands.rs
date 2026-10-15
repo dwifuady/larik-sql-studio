@@ -1743,7 +1743,7 @@ pub async fn set_mcp_enabled(state: State<'_, AppState>, enabled: bool) -> Resul
     if enabled {
         state.mcp.start().await.map_err(ApiError::Storage)?;
     } else {
-        state.mcp.stop();
+        state.mcp.stop().await;
     }
     Ok(state.mcp.is_running())
 }
@@ -1759,7 +1759,7 @@ pub async fn set_mcp_port(state: State<'_, AppState>, port: u16) -> Result<bool,
         db.set_mcp_port(port)?;
     }
     if state.mcp.is_running() {
-        state.mcp.stop();
+        state.mcp.stop().await;
         state.mcp.start().await.map_err(ApiError::Storage)?;
     }
     Ok(state.mcp.is_running())

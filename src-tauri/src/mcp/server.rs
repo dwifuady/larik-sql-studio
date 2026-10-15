@@ -70,7 +70,10 @@ async fn auth(State(state): State<Arc<McpState>>, req: Request, next: Next) -> R
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "));
 
-    let ok = provided.is_some_and(|p| ct_eq(p.as_bytes(), expected.as_bytes()));
+    // Fail closed when no token is loaded: an empty expected token would
+    // otherwise match an empty `Bearer ` header.
+    let ok = !expected.is_empty()
+        && provided.is_some_and(|p| ct_eq(p.as_bytes(), expected.as_bytes()));
     drop(expected);
 
     if ok {
@@ -230,7 +233,9 @@ fn tools_list() -> Value {
                 "Run a SQL statement (or mongo-shell statement on MongoDB) against a \
     connection, same engine as the studio UI. Row limit defaults to 200, max 1000 per \
     result set; results are truncated with a flag. Read-only enforced server-side on \
-    'read' connections (refused if not provably a read on MS-SQL/MongoDB).",
+    'read' connections (refused if not provably a read on MS-SQL/MongoDB; on PostgreSQL \
+    session/transaction control such as SET or BEGIN is refused). On 'write' connections \
+    every statement waits for the user's approval in the Larik window.",
                 json!({
                     "type": "object",
                     "properties": {
@@ -306,6 +311,17 @@ mod tests {
         assert_eq!(status, 401);
 
         let (status, _) = http_post(port, "/mcp", Some("wrong"), body).await;
+        assert_eq!(status, 401);
+    }
+
+    #[tokio::test]
+    async fn empty_server_token_rejects_empty_bearer() {
+        let state = test_state();
+        *state.token.write().await = String::new();
+        let (port, _tx) = spawn_server(state).await;
+        let body = r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;
+
+        let (status, _) = http_post(port, "/mcp", Some(""), body).await;
         assert_eq!(status, 401);
     }
 

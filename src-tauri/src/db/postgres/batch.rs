@@ -207,6 +207,50 @@ fn top_level_tokens(sql: &str) -> Vec<String> {
     tokens
 }
 
+/// Upper-cased words of one statement for the MCP read gate: identifier-like
+/// runs outside strings, comments and dollar quotes, split on every
+/// non-identifier character. Unlike `upper_tokens`, the contents of
+/// double-quoted identifiers count as words — `"set_config"(...)` still calls
+/// the function. A Unicode-escape identifier or string (`U&"..."`, `U&'...'`)
+/// cannot be judged and yields the word `U&`.
+pub(super) fn gate_words(sql: &str) -> Vec<String> {
+    let chars: Vec<char> = sql.chars().collect();
+    let mut code = String::with_capacity(chars.len());
+    let mut words = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let unicode_escape = i >= 2
+            && chars[i - 1] == '&'
+            && chars[i - 2].eq_ignore_ascii_case(&'u')
+            && matches!(chars[i], '"' | '\'');
+        if unicode_escape {
+            words.push("U&".to_string());
+        }
+        if chars[i] == '"' {
+            let end = skip_quoted(&chars, i, '"', false);
+            let inner_end = if end > i + 1 && chars[end - 1] == '"' { end - 1 } else { end };
+            code.push(' ');
+            code.extend(&chars[i + 1..inner_end]);
+            code.push(' ');
+            i = end;
+            continue;
+        }
+        if let Some(end) = skip_non_code(&chars, i) {
+            code.push(' ');
+            i = end;
+            continue;
+        }
+        code.push(chars[i]);
+        i += 1;
+    }
+    words.extend(
+        code.split(|c: char| !is_ident_char(c))
+            .filter(|w| !w.is_empty())
+            .map(|w| w.to_ascii_uppercase()),
+    );
+    words
+}
+
 /// Whitespace/comment-only and bare-`;` fragments are not statements.
 fn is_blank(s: &str) -> bool {
     let chars: Vec<char> = s.chars().collect();
