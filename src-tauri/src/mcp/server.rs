@@ -72,8 +72,8 @@ async fn auth(State(state): State<Arc<McpState>>, req: Request, next: Next) -> R
 
     // Fail closed when no token is loaded: an empty expected token would
     // otherwise match an empty `Bearer ` header.
-    let ok = !expected.is_empty()
-        && provided.is_some_and(|p| ct_eq(p.as_bytes(), expected.as_bytes()));
+    let ok =
+        !expected.is_empty() && provided.is_some_and(|p| ct_eq(p.as_bytes(), expected.as_bytes()));
     drop(expected);
 
     if ok {

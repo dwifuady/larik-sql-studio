@@ -441,16 +441,22 @@ mod tests {
         assert!(postgres_read_allowed("SELECT 'SET x = 1; BEGIN' AS s"));
         assert!(postgres_read_allowed("SELECT $$ COMMIT $$ AS s"));
         assert!(postgres_read_allowed("EXPLAIN SELECT 1"));
-        assert!(postgres_read_allowed("SELECT offset_col, setting FROM pg_settings"));
+        assert!(postgres_read_allowed(
+            "SELECT offset_col, setting FROM pg_settings"
+        ));
     }
 
     #[test]
     fn postgres_denies_leaving_read_only_mode() {
-        assert!(!postgres_read_allowed("SET default_transaction_read_only = off"));
+        assert!(!postgres_read_allowed(
+            "SET default_transaction_read_only = off"
+        ));
         assert!(!postgres_read_allowed(
             "SET default_transaction_read_only = off; DROP TABLE orders;"
         ));
-        assert!(!postgres_read_allowed("BEGIN READ WRITE; DELETE FROM orders; COMMIT;"));
+        assert!(!postgres_read_allowed(
+            "BEGIN READ WRITE; DELETE FROM orders; COMMIT;"
+        ));
         assert!(!postgres_read_allowed("START TRANSACTION READ WRITE"));
         assert!(!postgres_read_allowed(
             "SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE"
@@ -461,12 +467,16 @@ mod tests {
         assert!(!postgres_read_allowed(
             "SELECT pg_catalog.\"set_config\"('default_transaction_read_only', 'off', false)"
         ));
-        assert!(!postgres_read_allowed("SELECT U&\"\\0073et_config\"('a', 'b', false)"));
+        assert!(!postgres_read_allowed(
+            "SELECT U&\"\\0073et_config\"('a', 'b', false)"
+        ));
         assert!(!postgres_read_allowed("RESET ALL"));
         assert!(!postgres_read_allowed("COPY t TO PROGRAM 'calc.exe'"));
         assert!(!postgres_read_allowed("DO $$ BEGIN PERFORM 1; END $$"));
         assert!(!postgres_read_allowed("CALL do_stuff()"));
-        assert!(!postgres_read_allowed("SELECT dblink_exec('dbname=x', 'DROP TABLE t')"));
+        assert!(!postgres_read_allowed(
+            "SELECT dblink_exec('dbname=x', 'DROP TABLE t')"
+        ));
         assert!(!postgres_read_allowed("SELECT pg_terminate_backend(123)"));
     }
 

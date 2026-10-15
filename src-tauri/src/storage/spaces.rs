@@ -9,12 +9,23 @@ use super::database::{DatabaseManager, StorageResult};
 use crate::db::DriverKind;
 
 /// OS keychain service name for saved space passwords (Windows Credential
-/// Manager et al.). Secrets live here — the SQLite column is kept empty after
-/// the startup migration.
+/// Manager). Secrets live here — the SQLite column is kept empty after the
+/// startup migration.
 const KEYRING_SERVICE: &str = "larik-sql-studio";
 
+/// Keychain entry for a space password. Only Windows has a real backend
+/// compiled in (`keyring` feature `windows-native`); elsewhere the crate falls
+/// back to an in-memory mock whose secrets vanish between entries, so every
+/// other platform reports the keychain as unavailable and keeps passwords in
+/// SQLite.
 fn keyring_entry(space_id: &str) -> Result<keyring::Entry, keyring::Error> {
-    keyring::Entry::new(KEYRING_SERVICE, &format!("space-password/{space_id}"))
+    if cfg!(windows) {
+        keyring::Entry::new(KEYRING_SERVICE, &format!("space-password/{space_id}"))
+    } else {
+        Err(keyring::Error::NoStorageAccess(
+            "no OS keychain backend on this platform".into(),
+        ))
+    }
 }
 
 /// Store a space password in the OS keychain and clear the SQLite column.
@@ -63,6 +74,11 @@ fn store_password_in_keyring(
 /// keychain. Rows whose keychain write fails keep their value and are retried
 /// on the next startup. Returns the number of migrated rows.
 pub fn migrate_space_passwords_to_keyring(manager: &DatabaseManager) -> StorageResult<usize> {
+    // No keychain backend off Windows (see `keyring_entry`): nothing to move,
+    // and no point logging a failure per row on every startup.
+    if !cfg!(windows) {
+        return Ok(0);
+    }
     let rows: Vec<(String, String)> = manager.with_connection(|conn| {
         let mut stmt = conn.prepare(
             "SELECT id, connection_password FROM spaces \
@@ -544,9 +560,22 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    /// Passwords live in the OS keychain: readable through
+    /// Whether this machine has a usable OS keychain. CI runners (headless
+    /// Linux, no Secret Service) don't, and every write takes the SQLite
+    /// fallback there.
+    fn keychain_available() -> bool {
+        let Ok(entry) = keyring_entry(&format!("probe-{}", Uuid::new_v4())) else {
+            return false;
+        };
+        let ok = entry.set_password("probe").is_ok() && entry.get_password().is_ok();
+        let _ = entry.delete_credential();
+        ok
+    }
+
+    /// Passwords live in the OS keychain when there is one: readable through
     /// `get_space_password`, absent from the SQLite column, and gone when the
-    /// space is deleted.
+    /// space is deleted. Without a keychain the SQLite fallback must hold the
+    /// password instead of losing it.
     #[test]
     fn password_lives_in_keychain_not_sqlite() {
         let (manager, db_path) = create_test_db();
@@ -573,7 +602,8 @@ mod tests {
             Some("s3cret")
         );
 
-        // The SQLite column must be empty.
+        // The SQLite column is empty when the keychain holds the secret, and
+        // holds it otherwise.
         let stored: Option<String> = manager
             .with_connection(|conn| {
                 conn.query_row(
@@ -583,7 +613,8 @@ mod tests {
                 )
             })
             .unwrap();
-        assert_eq!(stored, None);
+        let expected = (!keychain_available()).then(|| "s3cret".to_string());
+        assert_eq!(stored, expected);
 
         // Deleting the space removes the keychain secret.
         assert!(manager.delete_space(&space.id).unwrap());

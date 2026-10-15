@@ -228,7 +228,11 @@ pub(super) fn gate_words(sql: &str) -> Vec<String> {
         }
         if chars[i] == '"' {
             let end = skip_quoted(&chars, i, '"', false);
-            let inner_end = if end > i + 1 && chars[end - 1] == '"' { end - 1 } else { end };
+            let inner_end = if end > i + 1 && chars[end - 1] == '"' {
+                end - 1
+            } else {
+                end
+            };
             code.push(' ');
             code.extend(&chars[i + 1..inner_end]);
             code.push(' ');
