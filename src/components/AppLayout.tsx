@@ -19,6 +19,7 @@ import { PeekPanel } from './PeekPanel';
 import { SetReferenceDialog } from './SetReferenceDialog';
 import { PoppedOutPlaceholder } from './PoppedOutPlaceholder';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { useSpaceSwipe } from '../hooks/useSpaceSwipe';
 import { spaceHasConnection } from '../types';
 import * as api from '../api';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -84,6 +85,9 @@ export function AppLayout() {
 
   // Initialize global keyboard shortcuts (T041)
   const { exportDialog } = useKeyboardShortcuts();
+
+  // Trackpad swipe left/right to switch spaces
+  useSpaceSwipe();
 
   const [isResizing, setIsResizing] = useState(false);
   const [isDbDropdownOpen, setIsDbDropdownOpen] = useState(false);
@@ -731,7 +735,10 @@ export function AppLayout() {
             <PoppedOutPlaceholder tab={activeTab} />
           ) : activeTab ? (
             <div
-              className={`flex-1 flex flex-col min-h-0 min-w-0 ${activeTab.id === lastCreatedTabId ? 'animate-tab-content-in' : ''}`}
+              key={activeSpaceId}
+              className={`flex-1 flex flex-col min-h-0 min-w-0 ${activeTab.id === lastCreatedTabId ? 'animate-tab-content-in' : ''} ${animationDirection === 'right' ? 'animate-space-content-in-right' :
+                animationDirection === 'left' ? 'animate-space-content-in-left' : ''
+                }`}
             >
               <QueryEditor tab={activeTab} />
             </div>

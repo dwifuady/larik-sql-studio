@@ -18,6 +18,7 @@ export interface SpacesSlice {
     updateSpace: (id: string, input: UpdateSpaceInput) => Promise<void>;
     deleteSpace: (id: string) => Promise<void>;
     setActiveSpace: (id: string | null) => Promise<void>;
+    switchSpaceRelative: (direction: 'next' | 'prev') => Promise<void>;
     reorderSpaces: (spaceIds: string[]) => Promise<void>;
     connectToSpace: () => Promise<boolean>;
     disconnectFromSpace: () => Promise<boolean>;
@@ -169,6 +170,20 @@ export const createSpacesSlice: StateCreator<AppState, [], [], SpacesSlice> = (s
             // Persist null space
             await get().saveAppSettings();
         }
+    },
+
+    switchSpaceRelative: async (direction) => {
+        const { spaces, activeSpaceId } = get();
+        if (spaces.length < 2) return;
+        const currentIndex = spaces.findIndex((s) => s.id === activeSpaceId);
+        if (currentIndex === -1) {
+            await get().setActiveSpace(spaces[0].id);
+            return;
+        }
+        const offset = direction === 'next' ? 1 : -1;
+        const nextIndex = (currentIndex + offset + spaces.length) % spaces.length;
+        if (nextIndex === currentIndex) return;
+        await get().setActiveSpace(spaces[nextIndex].id);
     },
 
     reorderSpaces: async (spaceIds) => {
