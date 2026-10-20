@@ -142,13 +142,14 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             });
-            let mica = app
-                .get_webview_window("main")
-                .map(|w| {
-                    w.set_effects(EffectsBuilder::new().effect(Effect::Mica).build())
-                        .is_ok()
-                })
-                .unwrap_or(false);
+            let mica = cfg!(windows)
+                && app
+                    .get_webview_window("main")
+                    .map(|w| {
+                        w.set_effects(EffectsBuilder::new().effect(Effect::Mica).build())
+                            .is_ok()
+                    })
+                    .unwrap_or(false);
             app.manage(MicaEnabled(mica));
             Ok(())
         })

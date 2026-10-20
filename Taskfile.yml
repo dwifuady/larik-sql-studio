@@ -16,6 +16,10 @@ tasks:
 
   build:
     desc: Build the Tauri application
+    env:
+      # linuxdeploy ships binutils 2.35, whose strip cannot parse .relr.dyn
+      # sections in modern system libraries (e.g. Fedora 44). Skip stripping.
+      NO_STRIP: "1"
     cmds:
       - npm run tauri build
     silent: true
