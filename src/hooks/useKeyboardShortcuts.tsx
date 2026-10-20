@@ -127,8 +127,8 @@ export function getAllShortcuts(): Array<{
     { id: 'switch-space-7', label: 'Switch to Space 7', description: 'Switch to the seventh space', shortcut: 'Alt+7', category: 'Spaces' },
     { id: 'switch-space-8', label: 'Switch to Space 8', description: 'Switch to the eighth space', shortcut: 'Alt+8', category: 'Spaces' },
     { id: 'switch-space-9', label: 'Switch to Space 9', description: 'Switch to the ninth space', shortcut: 'Alt+9', category: 'Spaces' },
-    { id: 'switch-space-next', label: 'Next Space', description: 'Switch to the next space (or swipe left on the trackpad)', shortcut: 'Ctrl+ArrowRight', category: 'Spaces' },
-    { id: 'switch-space-prev', label: 'Previous Space', description: 'Switch to the previous space (or swipe right on the trackpad)', shortcut: 'Ctrl+ArrowLeft', category: 'Spaces' },
+    { id: 'switch-space-next', label: 'Next Space', description: 'Switch to the next space (not in the editor, where Ctrl+→ moves by word; or swipe left on the trackpad)', shortcut: 'Ctrl+ArrowRight', category: 'Spaces' },
+    { id: 'switch-space-prev', label: 'Previous Space', description: 'Switch to the previous space (not in the editor, where Ctrl+← moves by word; or swipe right on the trackpad)', shortcut: 'Ctrl+ArrowLeft', category: 'Spaces' },
 
     // Navigation
     { id: 'toggle-sidebar', label: 'Toggle Sidebar', description: 'Show or hide the sidebar', shortcut: 'Ctrl+Shift+S', category: 'Navigation' },
@@ -346,8 +346,9 @@ export function useKeyboardShortcuts() {
         }
       }
 
-      // Ctrl+ArrowRight / Ctrl+ArrowLeft: next/previous space (works everywhere)
-      if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey) {
+      // Ctrl+ArrowRight / Ctrl+ArrowLeft: next/previous space.
+      // Skipped inside the editor and inputs, where Ctrl+Arrow moves by word.
+      if (!isMonacoEditor && !isInput && event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey) {
         if (event.key === 'ArrowRight') {
           event.preventDefault();
           void handleSwitchSpaceRelative('next');
