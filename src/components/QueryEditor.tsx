@@ -345,6 +345,7 @@ function QueryEditorComp({ tab, popout = false, editorCollapsed = false }: Query
   const connectToSpace = useAppStore(s => s.connectToSpace);
   const schemaInfo = useAppStore(s => s.schemaInfo);
   const loadSchema = useAppStore(s => s.loadSchema);
+  const loadSchemaForTab = useAppStore(s => s.loadSchemaForTab);
 
   const setResultCustomName = useAppStore(s => s.setResultCustomName);
   const getResultCustomName = useAppStore(s => s.getResultCustomName);
@@ -773,21 +774,24 @@ function QueryEditorComp({ tab, popout = false, editorCollapsed = false }: Query
     }
   }, [tab.id, editorReady]);
 
-  // Load schema when connected and tab database changes — dedup inflight
-  const inflightSchemaRef = useRef<Map<string, Promise<void>>>(new Map());
-  const lastFetchedDbRef = useRef<Map<string, string>>(new Map());
+  // Load schema when connected and the tab's database changes. The store
+  // publishes the database immediately and drops a foreign one, so switching
+  // tabs to a different database can never serve autocomplete for the old one.
+  // Failures clear the slot instead of leaving stale tables behind; reads of
+  // the published database go through getState() rather than a subscription
+  // so a failing fetch doesn't retry-loop the effect while it is in flight.
+  const inflightSchemaDbRef = useRef<string | null>(null);
   useEffect(() => {
-    if (isConnected && tab.database) {
-      const lastDb = lastFetchedDbRef.current.get(tab.id);
-      if (lastDb === tab.database) return;
-      if (inflightSchemaRef.current.has(tab.id)) return;
-      const p = loadSchema(tab.database).finally(() => {
-        inflightSchemaRef.current.delete(tab.id);
-        if (tab.database) lastFetchedDbRef.current.set(tab.id, tab.database);
-      });
-      inflightSchemaRef.current.set(tab.id, p as Promise<void>);
-    }
-  }, [isConnected, tab.database, tab.id, loadSchema]);
+    if (!isConnected || !tab.database) return;
+    if (useAppStore.getState().schemaDatabase === tab.database) return;
+    if (inflightSchemaDbRef.current === tab.database) return;
+    inflightSchemaDbRef.current = tab.database;
+    loadSchemaForTab(tab.id, tab.database).finally(() => {
+      if (inflightSchemaDbRef.current === tab.database) {
+        inflightSchemaDbRef.current = null;
+      }
+    });
+  }, [isConnected, tab.database, tab.id, loadSchemaForTab]);
 
   // Load snippets on mount (if not already loaded)
   useEffect(() => {

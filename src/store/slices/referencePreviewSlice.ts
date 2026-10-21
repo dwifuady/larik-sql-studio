@@ -255,7 +255,7 @@ export const createReferencePreviewSlice: StateCreator<AppState, [], [], Referen
 
     const resolveDatabase = (tabId: string): string | null => {
         const tab = get().tabs.find((candidate) => candidate.id === tabId);
-        return tab?.database ?? get().schemaInfo?.database_name ?? null;
+        return tab?.database ?? get().schemaDatabase ?? null;
     };
 
     const buildListQuery = (

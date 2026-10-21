@@ -151,6 +151,7 @@ export const createSpacesSlice: StateCreator<AppState, [], [], SpacesSlice> = (s
             spaceConnectionStatus: null,
             spaceDatabases: [],
             schemaInfo: null,
+            schemaDatabase: null,
             schemaError: null,
         });
 

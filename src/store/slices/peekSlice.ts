@@ -73,7 +73,7 @@ export const createPeekSlice: StateCreator<AppState, [], [], PeekSlice> = (set, 
             return;
         }
 
-        const database = get().schemaInfo?.database_name ?? null;
+        const database = get().schemaDatabase ?? get().getActiveTab()?.database ?? null;
         const query = driverOf(get().getActiveSpace()?.connection_driver) === 'mongodb'
             ? mongoFindQuery(table.table_name, 100)
             : activeSqlDialect(get()).selectTopQuery(table.schema_name, table.table_name, 100);
@@ -124,7 +124,7 @@ export const createPeekSlice: StateCreator<AppState, [], [], PeekSlice> = (set, 
             return;
         }
 
-        const database = get().schemaInfo?.database_name ?? null;
+        const database = get().schemaDatabase ?? get().getActiveTab()?.database ?? null;
         const query = activeSqlDialect(get()).objectDefinitionQuery(objectType, schemaName, objectName);
         const token = ++peekToken;
 
@@ -181,7 +181,7 @@ export const createPeekSlice: StateCreator<AppState, [], [], PeekSlice> = (set, 
                 objectType: 'table',
                 schema: table.schema_name,
                 name: table.table_name,
-                database: get().schemaInfo?.database_name ?? null,
+                database: get().schemaDatabase ?? get().getActiveTab()?.database ?? null,
                 content: activeSqlDialect(get()).createTableScript(table),
                 loading: false,
             },
