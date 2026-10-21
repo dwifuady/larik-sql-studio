@@ -55,7 +55,7 @@ export const createVirtualReferencesSlice: StateCreator<AppState, [], [], Virtua
         const spaceId = get().activeSpaceId;
         const targetDb =
             database ??
-            get().schemaInfo?.database_name ??
+            get().schemaDatabase ??
             get().getActiveTab()?.database ??
             defaultDatabaseFor(get().getActiveSpace(), get().spaceDatabases);
 
@@ -76,7 +76,7 @@ export const createVirtualReferencesSlice: StateCreator<AppState, [], [], Virtua
 
     saveVirtualReference: async (input) => {
         const spaceId = get().activeSpaceId;
-        const targetDb = get().schemaInfo?.database_name ?? get().getActiveTab()?.database ?? null;
+        const targetDb = get().schemaDatabase ?? get().getActiveTab()?.database ?? null;
 
         if (!spaceId || !targetDb) {
             get().addToast({ type: 'error', message: 'No active database to attach the reference to' });
