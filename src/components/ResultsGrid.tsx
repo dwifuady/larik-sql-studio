@@ -1,7 +1,7 @@
 // Virtual scrolling results grid component (T021, T022)
 // Handles 100,000+ rows at 60 FPS using react-window v2
 import { useCallback, useMemo, useRef, useState, useEffect, memo, type ReactElement, type CSSProperties } from 'react';
-import { List } from 'react-window';
+import { List, type ListImperativeAPI } from 'react-window';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { ContextMenu } from './ContextMenu';
 import { ExportButton } from './ExportDialog';
@@ -128,6 +128,8 @@ function getTypeColor(dataType: string): string {
 // Constants for virtual scrolling
 const ROW_HEIGHT = 32;
 const HEADER_HEIGHT = 40;
+// Width of the sticky row-number gutter (w-12), needed to scroll a column into view
+const ROW_NUMBER_WIDTH = 48;
 const MIN_COLUMN_WIDTH = 100;
 const MAX_COLUMN_WIDTH = 400;
 
@@ -382,7 +384,7 @@ const Cell = memo(function Cell({
                 e.stopPropagation();
               }}
               className="absolute right-1 p-0.5 rounded bg-[var(--bg-secondary)] hover:bg-[var(--accent-color)] transition-colors z-10 cursor-pointer opacity-0 pointer-events-none group-hover/cell:opacity-100 group-hover/cell:pointer-events-auto"
-              title="Preview cell content (Space)"
+              title="Toggle cell preview (Space)"
             >
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
@@ -583,6 +585,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
   const resizeRafRef = useRef<number | null>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<ListImperativeAPI | null>(null);
   const [containerHeight, setContainerHeight] = useState(300);
   const [selectedCell, setSelectedCell] = useState<{ row: number; col: number } | null>(null);
   const [selection, setSelection] = useState<SelectionRange | null>(null);
@@ -739,7 +742,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
   }, [baseColumnWidths]);
 
   const totalWidth = useMemo(() => {
-    return columnWidths.reduce((sum, w) => sum + w, 0) + 48; // +48 for row number column
+    return columnWidths.reduce((sum, w) => sum + w, 0) + ROW_NUMBER_WIDTH;
   }, [columnWidths]);
 
   // Column order state from store (or default)
@@ -1063,6 +1066,103 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     containerRef.current?.focus();
   }, [displayRows.length, result.columns.length, columnOrder]);
 
+  // Arrow-key navigation between cells. Plain arrows move the selected cell and
+  // drop any multi-cell selection; Shift+arrows grow a selection from the cell
+  // the selection started on, the way a spreadsheet behaves.
+  const moveGridSelection = useCallback((direction: 'up' | 'down' | 'left' | 'right', extend: boolean) => {
+    const rowCount = displayRows.length;
+    const colCount = columnOrder.length;
+    if (rowCount === 0 || colCount === 0) return;
+
+    // Keep the target cell visible: vertically via the virtual list, and
+    // horizontally by adjusting the list's own scroll container.
+    const scrollCellIntoView = (row: number, col: number) => {
+      listRef.current?.scrollToRow({ index: row, align: 'smart' });
+      const element = listRef.current?.element;
+      if (!element) return;
+
+      const visualIdx = columnOrder.indexOf(col);
+      if (visualIdx === -1) return;
+
+      let left = ROW_NUMBER_WIDTH;
+      for (let i = 0; i < visualIdx; i++) left += columnWidths[columnOrder[i]] ?? 0;
+      const right = left + (columnWidths[col] ?? 0);
+      const viewLeft = element.scrollLeft;
+      const viewRight = viewLeft + element.clientWidth;
+
+      if (left < viewLeft) {
+        element.scrollLeft = Math.max(0, left - ROW_NUMBER_WIDTH);
+      } else if (right > viewRight) {
+        element.scrollLeft = Math.max(0, right - element.clientWidth);
+      }
+    };
+
+    const step = (fromRow: number, fromCol: number) => {
+      const startVisual = columnOrder.indexOf(fromCol);
+      let row = fromRow;
+      let visual = startVisual === -1 ? 0 : startVisual;
+
+      switch (direction) {
+        case 'up': row -= 1; break;
+        case 'down': row += 1; break;
+        case 'left': visual -= 1; break;
+        case 'right': visual += 1; break;
+      }
+
+      if (row < 0 || row >= rowCount) return null;
+      if (visual < 0 || visual >= colCount) return null;
+      return { row, col: columnOrder[visual] };
+    };
+
+    // No active cell yet: the first arrow key lands on the top-left cell.
+    if (!selectedCell) {
+      const first = { row: 0, col: columnOrder[0] };
+      setSelectedCell(first);
+      setSelection(null);
+      scrollCellIntoView(first.row, first.col);
+      return;
+    }
+
+    if (!extend) {
+      const next = step(selectedCell.row, selectedCell.col);
+      if (!next) return;
+      setSelectedCell(next);
+      setSelection(null);
+      scrollCellIntoView(next.row, next.col);
+      return;
+    }
+
+    // Extending keeps the anchor cell selected (so repeated Shift+arrows keep
+    // growing this selection) and moves the far end of the range.
+    const anchor = selectedCell;
+    let movingEnd = selectedCell;
+    if (selection) {
+      const start = { row: selection.startRow, col: selection.startCol };
+      const end = { row: selection.endRow, col: selection.endCol };
+      const isStart = start.row === selectedCell.row && start.col === selectedCell.col;
+      const isEnd = end.row === selectedCell.row && end.col === selectedCell.col;
+
+      if (isStart) {
+        movingEnd = end;
+      } else if (isEnd) {
+        movingEnd = start;
+      }
+      // selectedCell is not on the range: start a fresh selection from it.
+    }
+
+    const next = step(movingEnd.row, movingEnd.col);
+    if (!next) return;
+
+    setSelectedCell(anchor);
+    setSelection({
+      startRow: anchor.row,
+      startCol: anchor.col,
+      endRow: next.row,
+      endCol: next.col,
+    });
+    scrollCellIntoView(next.row, next.col);
+  }, [displayRows.length, columnOrder, columnWidths, selectedCell, selection]);
+
   // Keyboard shortcut: Ctrl+C to copy selected cell(s) - only when focus is in results grid
   useEffect(() => {
     const container = containerRef.current;
@@ -1077,12 +1177,36 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
         return;
       }
 
-      // Space opens the value preview; Shift+Space jumps straight to the
+      // Space opens the value preview; pressing it again on the same cell
+      // closes the pane (like Esc). Shift+Space jumps straight to the
       // referenced table for foreign key columns.
       if (e.key === ' ' && !e.ctrlKey && !e.metaKey && selectedCell) {
         e.preventDefault();
-        const wantsReference = e.shiftKey && columnReferences.has(selectedCell.col);
-        handlePreviewCell(selectedCell.row, selectedCell.col, wantsReference ? 'reference' : 'value');
+        const desiredTab: CellPreviewTab = e.shiftKey && columnReferences.has(selectedCell.col)
+          ? 'reference'
+          : 'value';
+        const previewIsOnThisCell =
+          cellPreviewVisible &&
+          cellPreviewEntry !== null &&
+          cellPreviewEntry.selectedCell.rowIndex === selectedCell.row &&
+          cellPreviewEntry.selectedCell.colIndex === selectedCell.col;
+
+        if (previewIsOnThisCell && cellPreviewEntry.activeTab === desiredTab && tabId) {
+          hideCellPreview(tabId);
+        } else {
+          handlePreviewCell(selectedCell.row, selectedCell.col, desiredTab);
+        }
+        return;
+      }
+
+      // Arrow keys move the selected cell; Shift+Arrow extends the selection
+      const isArrowKey =
+        e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight';
+      if (isArrowKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        const direction =
+          e.key === 'ArrowUp' ? 'up' : e.key === 'ArrowDown' ? 'down' : e.key === 'ArrowLeft' ? 'left' : 'right';
+        moveGridSelection(direction, e.shiftKey);
         return;
       }
 
@@ -1111,7 +1235,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
     // Attach to container instead of window so it only fires when grid has focus
     container.addEventListener('keydown', handleKeyDown);
     return () => container.removeEventListener('keydown', handleKeyDown);
-  }, [selectedCell, selection, editingCell, handleCopyCell, handleCopySelection, handlePreviewCell, handleSelectAll, columnReferences, compact]);
+  }, [selectedCell, selection, editingCell, handleCopyCell, handleCopySelection, handlePreviewCell, handleSelectAll, columnReferences, compact, cellPreviewVisible, cellPreviewEntry, hideCellPreview, tabId, moveGridSelection]);
 
   // Copy a single row as JSON, respecting visual column order
   const handleCopyRow = useCallback(async (rowIdx: number) => {
@@ -1777,6 +1901,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
           {displayRows.length > 0 ? (
             <List
               key={editingCell ? `editing-${editingCell.rowIndex}-${editingCell.colIndex}` : 'no-edit'}
+              listRef={listRef}
               defaultHeight={containerHeight}
               rowCount={displayRows.length}
               rowHeight={ROW_HEIGHT}
@@ -1793,8 +1918,8 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
         </div>
 
         {/* Status bar */}
-        <div className="shrink-0 flex items-center justify-between px-4 py-2 bg-[var(--bg-tertiary)] border-t border-[var(--border-color)] text-xs text-[var(--text-muted)]">
-          <div className="flex items-center gap-4">
+        <div className="shrink-0 flex items-center justify-between gap-3 px-3 py-1 bg-[var(--bg-tertiary)] border-t border-[var(--border-color)] text-[11px] text-[var(--text-muted)]">
+          <div className="flex items-center gap-3">
             <span>
               <strong className="text-[var(--text-primary)]">{result.row_count.toLocaleString()}</strong> row{result.row_count !== 1 ? 's' : ''}
               {pendingInsertRows.length > 0 && (
@@ -1838,17 +1963,17 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             {selectedCell && (
-              <span className="px-2 py-0.5 bg-[var(--bg-hover)] rounded">
-                Row {selectedCell.row + 1}, Col {selectedCell.col + 1}
+              <span className="px-1.5 py-0.5 bg-[var(--bg-hover)] rounded">
+                Row {selectedCell.row + 1}, Col {columnOrder.indexOf(selectedCell.col) + 1}
               </span>
             )}
 
             {result.truncated && onLoadMore && (
               <button
                 onClick={() => void onLoadMore()}
-                className="px-3 py-1 rounded bg-[var(--bg-hover)] hover:bg-[var(--bg-active)] transition-colors"
+                className="px-2 py-0.5 rounded bg-[var(--bg-hover)] hover:bg-[var(--bg-active)] transition-colors"
                 title="Load more rows"
               >
                 Load more
@@ -1860,10 +1985,10 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
               <button
                 onClick={handleAddNewRow}
                 disabled={isSaving}
-                className="flex items-center gap-1 px-3 py-1 rounded bg-[var(--bg-hover)] hover:bg-[var(--bg-active)] text-[var(--text-primary)] transition-colors disabled:opacity-50"
+                className="flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--bg-hover)] hover:bg-[var(--bg-active)] text-[var(--text-primary)] transition-colors disabled:opacity-50"
                 title="Add a new row (saved as INSERT)"
               >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
                 New Row
@@ -1876,7 +2001,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
                 <button
                   onClick={handleDiscardEdits}
                   disabled={isSaving}
-                  className="px-2 py-1 rounded bg-[var(--bg-hover)] hover:bg-red-500/20 hover:text-red-400 transition-colors disabled:opacity-50"
+                  className="px-2 py-0.5 rounded bg-[var(--bg-hover)] hover:bg-red-500/20 hover:text-red-400 transition-colors disabled:opacity-50"
                   title="Discard all changes"
                 >
                   Discard
@@ -1884,7 +2009,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
                 <button
                   onClick={handleSaveEdits}
                   disabled={isSaving || !canSaveEdits}
-                  className="px-3 py-1 rounded transition-colors disabled:opacity-50 flex items-center gap-1"
+                  className="px-2.5 py-0.5 rounded transition-colors disabled:opacity-50 flex items-center gap-1"
                   style={{
                     backgroundColor: canSaveEdits ? spaceColor : '#666',
                     color: canSaveEdits ? getReadableTextColor(spaceColor) : '#ffffff',
@@ -1898,7 +2023,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
                     </>
                   ) : (
                     <>
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
                       Save
@@ -1918,7 +2043,7 @@ function ResultsGridComp({ result, onClose, isExecuting = false, spaceColor = '#
             {!compact && <ExportButton result={reorderedResult} spaceColor={spaceColor} />}
             <button
               onClick={onClose}
-              className="px-2 py-1 rounded hover:bg-[var(--bg-active)] transition-colors"
+              className="px-2 py-0.5 rounded hover:bg-[var(--bg-active)] transition-colors"
             >
               Close
             </button>

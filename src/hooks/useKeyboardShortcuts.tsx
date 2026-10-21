@@ -142,8 +142,10 @@ export function getAllShortcuts(): Array<{
     { id: 'force-save', label: 'Force Save', description: 'Manually save the current tab content', shortcut: 'Ctrl+S', category: 'Query' },
     { id: 'format-sql', label: 'Format SQL', description: 'Format the SQL query or selection', shortcut: 'Ctrl+Alt+F', category: 'Query' },
     { id: 'toggle-results', label: 'Toggle Results', description: 'Show or hide the results panel', shortcut: 'Ctrl+R', category: 'Query' },
-    { id: 'preview-cell', label: 'Preview Cell', description: 'Open the preview panel for the selected result cell', shortcut: 'Space', category: 'Query' },
+    { id: 'preview-cell', label: 'Preview Cell', description: 'Toggle the preview panel for the selected result cell', shortcut: 'Space', category: 'Query' },
     { id: 'preview-reference', label: 'Preview Reference Data', description: 'Show the referenced table for a foreign key cell', shortcut: 'Shift+Space', category: 'Query' },
+    { id: 'navigate-cells', label: 'Move Between Cells', description: 'Move the selected cell in the results grid', shortcut: 'Arrow keys', category: 'Query' },
+    { id: 'extend-cell-selection', label: 'Extend Cell Selection', description: 'Grow the selected range of result cells', shortcut: 'Shift+Arrow keys', category: 'Query' },
 
     // Spaces
     { id: 'switch-space-1', label: 'Switch to Space 1', description: 'Switch to the first space', shortcut: 'Alt+1', category: 'Spaces' },
