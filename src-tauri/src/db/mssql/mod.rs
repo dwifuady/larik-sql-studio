@@ -8,6 +8,25 @@ mod values;
 
 pub use connection::{MssqlClient, MssqlPool};
 
+/// Error type for the in-house bb8 connection manager
+/// (see `connection::MssqlConnectionManager` for why it exists).
+#[derive(Debug, thiserror::Error)]
+pub enum TiberiusError {
+    #[error(transparent)]
+    Tiberius(#[from] tiberius::error::Error),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+}
+
+impl From<TiberiusError> for ConnectionError {
+    fn from(err: TiberiusError) -> Self {
+        match err {
+            TiberiusError::Tiberius(e) => e.into(),
+            TiberiusError::Io(e) => ConnectionError::ConnectionFailed(format!("I/O error: {}", e)),
+        }
+    }
+}
+
 use async_trait::async_trait;
 use std::collections::HashSet;
 use tiberius::{ColumnType, ToSql};
@@ -19,7 +38,7 @@ use crate::db::driver::{
 use crate::db::error::ConnectionError;
 use crate::db::schema::{ColumnInfo as SchemaColumnInfo, SchemaInfo};
 use batch::{infer_statement_kind, parse_sql_statements, StatementKind};
-use connection::{connect_dedicated, MssqlPools};
+use connection::{connect_dedicated, MssqlConnectionManager, MssqlPools};
 
 /// SQL Server implementation of `DatabaseDriver`
 #[derive(Default)]
@@ -46,7 +65,7 @@ fn statement_error(err: tiberius::error::Error) -> ConnectionError {
 
 /// Run a single-column `name` query on a pooled connection
 async fn query_names(
-    conn: &mut bb8::PooledConnection<'_, bb8_tiberius::ConnectionManager>,
+    conn: &mut bb8::PooledConnection<'_, MssqlConnectionManager>,
     query: &str,
 ) -> Result<Vec<String>, ConnectionError> {
     let rows = conn.simple_query(query).await?.into_first_result().await?;

@@ -2,7 +2,6 @@
 // tiberius client config, error mapping, pooling and dedicated connections
 
 use bb8::Pool;
-use bb8_tiberius::ConnectionManager as TiberiusConnectionManager;
 use secrecy::ExposeSecret;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -15,7 +14,53 @@ use crate::db::config::ConnectionConfig;
 use crate::db::error::ConnectionError;
 
 /// Type alias for our connection pool
-pub type MssqlPool = Pool<TiberiusConnectionManager>;
+pub type MssqlPool = Pool<MssqlConnectionManager>;
+
+/// bb8 pool manager for tiberius clients.
+///
+/// Written in-house instead of using the bb8-tiberius crate: its latest
+/// release pins tiberius 0.12, whose TLS stack (rustls 0.21 / webpki 0.101)
+/// has no patched release for RUSTSEC-2026-0382. This keeps pooling on the
+/// patched tiberius 0.13 / tokio-rustls 0.26 stack.
+#[derive(Clone)]
+pub struct MssqlConnectionManager {
+    config: Config,
+}
+
+impl bb8::ManageConnection for MssqlConnectionManager {
+    type Connection = MssqlClient;
+    type Error = crate::db::mssql::TiberiusError;
+
+    #[allow(refining_impl_trait)]
+    async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+        let tcp = tokio::net::TcpStream::connect(&self.config.get_addr())
+            .await
+            .map_err(crate::db::mssql::TiberiusError::Io)?;
+        tcp.set_nodelay(true)
+            .map_err(|e| crate::db::mssql::TiberiusError::Io(std::io::Error::other(e)))?;
+        tiberius::Client::connect(self.config.clone(), tcp.compat_write())
+            .await
+            .map_err(crate::db::mssql::TiberiusError::Tiberius)
+    }
+
+    #[allow(refining_impl_trait)]
+    async fn is_valid(&self, conn: &mut Self::Connection) -> Result<(), Self::Error> {
+        let mut stream = conn
+            .simple_query("SELECT 1")
+            .await
+            .map_err(crate::db::mssql::TiberiusError::Tiberius)?;
+        // Drain the stream so the ping completes server-side
+        use futures::StreamExt;
+        while let Some(item) = stream.next().await {
+            item.map_err(crate::db::mssql::TiberiusError::Tiberius)?;
+        }
+        Ok(())
+    }
+
+    fn has_broken(&self, _conn: &mut Self::Connection) -> bool {
+        false
+    }
+}
 
 /// A single (non-pooled) tiberius client over TCP
 pub type MssqlClient = tiberius::Client<Compat<tokio::net::TcpStream>>;
@@ -105,8 +150,9 @@ impl MssqlPools {
             return Ok(pool);
         }
 
-        let manager = TiberiusConnectionManager::build(tiberius_config(config)?)
-            .map_err(|e| ConnectionError::ConfigError(e.to_string()))?;
+        let manager = MssqlConnectionManager {
+            config: tiberius_config(config)?,
+        };
 
         let pool = Pool::builder()
             .connection_timeout(Duration::from_secs(5))
