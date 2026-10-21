@@ -9,6 +9,18 @@ function isEditableTarget(target: EventTarget | null): boolean {
   );
 }
 
+/**
+ * The query editor can't scroll its content (word wrap is on and
+ * scrollBeyondLastLine is off), so a horizontal trackpad swipe there is
+ * intentional space switching — the swipe would otherwise be eaten by the
+ * broader isEditableTarget guard. The app's read-only preview Monacos can
+ * scroll, so their wheel stays untouched.
+ */
+function wheelInQueryEditor(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.closest('.monaco-editor[data-larik-query-editor="true"]') !== null;
+}
+
 function consumesHorizontalWheel(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.closest('.monaco-editor, .ag-root-wrapper')) return true;
@@ -52,6 +64,7 @@ export function useSpaceSwipe(): void {
       if (e.ctrlKey || e.metaKey) return;
       if (isOverlayOpen()) return;
       if (isEditableTarget(e.target)) return;
+      if (wheelInQueryEditor(e.target)) return;
       if (consumesHorizontalWheel(e.target)) return;
 
       const direction = detectorRef.current!.feed({

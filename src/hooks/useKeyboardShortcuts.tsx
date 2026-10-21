@@ -1,6 +1,7 @@
 // Global keyboard shortcuts hook for Larik SQL Studio (T041)
 import { useEffect, useCallback, useState } from 'react';
 import { SqlExportDialog } from '../components/SqlExportDialog';
+import loader from '@monaco-editor/loader';
 import { useAppStore } from '../store';
 import * as api from '../api';
 
@@ -34,6 +35,33 @@ function parseShortcut(shortcut: string): { ctrl: boolean; shift: boolean; alt: 
 /**
  * Check if a keyboard event matches a shortcut string
  */
+/**
+ * True when the focused element belongs to a Monaco instance that actually
+ * owns text editing — the query editor, or any other writable instance with
+ * text focus. The app also mounts read-only Monacos for cell previews (see
+ * MonacoPreview); those must NOT suppress global shortcuts like Ctrl+Arrow
+ * space switching, because a focused read-only viewer never handles or
+ * consumes those keys and they would leak to the OS.
+ */
+export function isMonacoEditableTarget(event: KeyboardEvent): boolean {
+  const target = event.target as HTMLElement | null;
+  const monacoNode = target?.closest('.monaco-editor');
+  if (!monacoNode) return false;
+
+  // The query editor instance is tagged at mount (QueryEditor.handleEditorMount).
+  if (monacoNode.querySelector('[data-larik-query-editor="true"]')) return true;
+
+  // Any other Monaco: only if it currently has text focus and is writable.
+  const monaco = loader.__getMonacoInstance();
+  if (!monaco?.editor?.getEditors) return false;
+
+  return monaco.editor
+    .getEditors()
+    .some(
+      (ed: import('monaco-editor').editor.IStandaloneCodeEditor) =>
+        ed.getDomNode() === monacoNode && ed.hasTextFocus() && !ed.getOption(monaco.editor.EditorOption.readOnly),
+    );
+}
 export function matchesShortcut(event: KeyboardEvent, shortcut: string): boolean {
   const parsed = parseShortcut(shortcut);
   const eventKey = event.key.toLowerCase();
@@ -127,8 +155,8 @@ export function getAllShortcuts(): Array<{
     { id: 'switch-space-7', label: 'Switch to Space 7', description: 'Switch to the seventh space', shortcut: 'Alt+7', category: 'Spaces' },
     { id: 'switch-space-8', label: 'Switch to Space 8', description: 'Switch to the eighth space', shortcut: 'Alt+8', category: 'Spaces' },
     { id: 'switch-space-9', label: 'Switch to Space 9', description: 'Switch to the ninth space', shortcut: 'Alt+9', category: 'Spaces' },
-    { id: 'switch-space-next', label: 'Next Space', description: 'Switch to the next space (not in the editor, where Ctrl+→ moves by word; or swipe left on the trackpad)', shortcut: 'Ctrl+ArrowRight', category: 'Spaces' },
-    { id: 'switch-space-prev', label: 'Previous Space', description: 'Switch to the previous space (not in the editor, where Ctrl+← moves by word; or swipe right on the trackpad)', shortcut: 'Ctrl+ArrowLeft', category: 'Spaces' },
+    { id: 'switch-space-next', label: 'Next Space', description: 'Switch to the next space (not while typing in the editor or an input, where Ctrl+→ moves by word; or swipe left on the trackpad)', shortcut: 'Ctrl+ArrowRight', category: 'Spaces' },
+    { id: 'switch-space-prev', label: 'Previous Space', description: 'Switch to the previous space (not while typing in the editor or an input, where Ctrl+← moves by word; or swipe right on the trackpad)', shortcut: 'Ctrl+ArrowLeft', category: 'Spaces' },
 
     // Navigation
     { id: 'toggle-sidebar', label: 'Toggle Sidebar', description: 'Show or hide the sidebar', shortcut: 'Ctrl+Shift+S', category: 'Navigation' },
@@ -298,8 +326,8 @@ export function useKeyboardShortcuts() {
     const handleKeyDown = (event: KeyboardEvent) => {
       // Don't trigger shortcuts when typing in inputs (except for specific ones)
       const target = event.target as HTMLElement;
-      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
-      const isMonacoEditor = target.closest('.monaco-editor') !== null;
+      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+      const isMonacoEditor = isMonacoEditableTarget(event);
 
       // Ctrl+Shift+P: Command Palette (works everywhere)
       if (matchesShortcut(event, 'Ctrl+Shift+P')) {

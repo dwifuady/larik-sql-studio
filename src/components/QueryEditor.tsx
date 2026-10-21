@@ -2196,6 +2196,10 @@ function QueryEditorComp({ tab, popout = false, editorCollapsed = false }: Query
   const handleEditorMount: OnMount = useCallback((editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
+    // Mark this instance as the real editing surface so global shortcut guards
+    // (useKeyboardShortcuts.isMonacoEditableTarget) can tell it apart from the
+    // app's read-only preview Monacos, which must not suppress space switching.
+    editor.getDomNode()?.setAttribute('data-larik-query-editor', 'true');
     setEditorReady(true);
     console.log('[QueryEditor] Editor mounted');
 

@@ -2539,7 +2539,7 @@ dependencies = [
 
 [[package]]
 name = "larik-sql-studio"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "async-trait",
  "axum",
