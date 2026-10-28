@@ -145,6 +145,28 @@ impl DatabaseManager {
         })
     }
 }
+impl DatabaseManager {
+    /// Cleanup MCP log entries older than specified retention period.
+    /// Shares the `history_retention_days` setting with archived tabs.
+    pub fn cleanup_old_mcp_log(&self, retention_days: i32) -> StorageResult<usize> {
+        self.with_connection(|conn| {
+            let affected = conn.execute(
+                "DELETE FROM mcp_log
+                 WHERE julianday('now') - julianday(ts) > ?",
+                params![retention_days],
+            )?;
+            Ok(affected)
+        })
+    }
+
+    /// Permanently delete ALL MCP log entries (regardless of retention period)
+    pub fn purge_all_mcp_log(&self) -> StorageResult<usize> {
+        self.with_connection(|conn| {
+            let affected = conn.execute("DELETE FROM mcp_log", [])?;
+            Ok(affected)
+        })
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Approval-request lifecycle (mcp_approvals)
@@ -341,5 +363,64 @@ mod tests {
         manager.insert_mcp_log(&entry).unwrap();
         let log = manager.list_mcp_log(10).unwrap();
         assert_eq!(log[0].statement.chars().count(), STATEMENT_MAX_CHARS);
+    }
+
+    #[test]
+    fn cleanup_old_mcp_log_respects_retention() {
+        use rusqlite::params as sql_params;
+        let manager = create_test_db();
+        let entry = make_entry(
+            "run_query",
+            "c1",
+            "s",
+            "SELECT 1",
+            "read",
+            STATUS_OK,
+            1,
+            1,
+            None,
+            None,
+        );
+        manager.insert_mcp_log(&entry).unwrap();
+        // Backdate the row past the retention window.
+        manager
+            .with_connection(|conn| {
+                conn.execute(
+                    "UPDATE mcp_log SET ts = datetime('now', '-100 days') WHERE id = ?1",
+                    sql_params![entry.id],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+
+        let deleted = manager.cleanup_old_mcp_log(90).unwrap();
+        assert_eq!(deleted, 1);
+        assert!(manager.list_mcp_log(10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn cleanup_old_mcp_log_keeps_fresh_rows() {
+        let manager = create_test_db();
+        let entry = make_entry(
+            "run_query",
+            "c1",
+            "s",
+            "SELECT 1",
+            "read",
+            STATUS_OK,
+            1,
+            1,
+            None,
+            None,
+        );
+        manager.insert_mcp_log(&entry).unwrap();
+
+        let deleted = manager.cleanup_old_mcp_log(90).unwrap();
+        assert_eq!(deleted, 0);
+        assert_eq!(manager.list_mcp_log(10).unwrap().len(), 1);
+
+        let purged = manager.purge_all_mcp_log().unwrap();
+        assert_eq!(purged, 1);
+        assert!(manager.list_mcp_log(10).unwrap().is_empty());
     }
 }

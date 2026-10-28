@@ -688,6 +688,16 @@ export async function purgeAllArchivedTabs(): Promise<number> {
   return invokeSafe<number>('purge_all_archived_tabs');
 }
 
+/** Purge MCP log entries older than the retention period (manual trigger) */
+export async function purgeMcpLogNow(): Promise<number> {
+  return invokeSafe<number>('purge_mcp_log_now');
+}
+
+/** Permanently delete ALL MCP log entries (regardless of retention period) */
+export async function purgeAllMcpLog(): Promise<number> {
+  return invokeSafe<number>('purge_all_mcp_log');
+}
+
 // ============================================================================
 // App Settings API
 // ============================================================================

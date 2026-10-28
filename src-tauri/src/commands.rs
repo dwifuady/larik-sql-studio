@@ -1526,6 +1526,25 @@ pub async fn purge_all_archived_tabs(state: State<'_, AppState>) -> Result<usize
     db.purge_all_archived_tabs().map_err(|e| ApiError::from(e))
 }
 
+/// Purge MCP log entries older than the retention period (manual trigger).
+/// Shares the `history_retention_days` setting with archived tabs.
+#[command]
+pub async fn purge_mcp_log_now(state: State<'_, AppState>) -> Result<usize, ApiError> {
+    let db = state.db.lock().await;
+    let retention_days = db
+        .get_history_retention_days()
+        .map_err(|e| ApiError::from(e))?;
+    db.cleanup_old_mcp_log(retention_days)
+        .map_err(|e| ApiError::from(e))
+}
+
+/// Permanently delete ALL MCP log entries (regardless of retention period)
+#[command]
+pub async fn purge_all_mcp_log(state: State<'_, AppState>) -> Result<usize, ApiError> {
+    let db = state.db.lock().await;
+    db.purge_all_mcp_log().map_err(|e| ApiError::from(e))
+}
+
 // ============================================================================
 // App Settings Commands
 // ============================================================================

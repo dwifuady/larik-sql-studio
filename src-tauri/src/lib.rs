@@ -254,6 +254,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::update_history_retention_days,
             commands::purge_archived_tabs_now,
             commands::purge_all_archived_tabs,
+            commands::purge_mcp_log_now,
+            commands::purge_all_mcp_log,
             // App Settings commands
             commands::get_app_settings,
             commands::update_app_settings,
@@ -380,6 +382,16 @@ fn spawn_auto_archive_task(db_path: std::path::PathBuf) -> tauri::async_runtime:
                     }
                 }
                 Err(e) => eprintln!("[Auto-Archive] Failed to cleanup old tabs: {}", e),
+            }
+
+            // Cleanup old MCP log entries (same retention period)
+            match db.cleanup_old_mcp_log(retention_days) {
+                Ok(count) => {
+                    if count > 0 {
+                        println!("[Auto-Archive] Cleaned up {} old MCP log entries", count);
+                    }
+                }
+                Err(e) => eprintln!("[Auto-Archive] Failed to cleanup old MCP log: {}", e),
             }
         }
     })
