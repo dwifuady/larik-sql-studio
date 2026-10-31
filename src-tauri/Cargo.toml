@@ -55,6 +55,13 @@ rustls-native-certs = "0.8"
 # Raw wire decoding for result values (both already transitive deps of tokio-postgres)
 postgres-protocol = "0.6"
 fallible-iterator = "0.2"
+
+# WebView2 settings object (touchpad swipe navigation). Pinned to the same
+# release tauri/wry links against so the COM interfaces are the same types.
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.38"
+windows-core = "0.61"
+
 [lints.clippy]
 unwrap_used = "deny"
 expect_used = "deny"

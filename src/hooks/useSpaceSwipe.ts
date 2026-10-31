@@ -1,42 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 import { useAppStore } from '../store';
-import { SpaceSwipeDetector } from '../utils/spaceSwipe';
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return (
-    target.closest('input, textarea, select, [contenteditable="true"], .monaco-editor') !== null
-  );
-}
-
-/**
- * The query editor can't scroll its content (word wrap is on and
- * scrollBeyondLastLine is off), so a horizontal trackpad swipe there is
- * intentional space switching — the swipe would otherwise be eaten by the
- * broader isEditableTarget guard. The app's read-only preview Monacos can
- * scroll, so their wheel stays untouched.
- */
-function wheelInQueryEditor(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return target.closest('.monaco-editor[data-larik-query-editor="true"]') !== null;
-}
-
-function consumesHorizontalWheel(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target.closest('.monaco-editor, .ag-root-wrapper')) return true;
-  let el: HTMLElement | null = target;
-  while (el) {
-    const style = window.getComputedStyle(el);
-    if (
-      (style.overflowX === 'auto' || style.overflowX === 'scroll') &&
-      el.scrollWidth > el.clientWidth + 1
-    ) {
-      return true;
-    }
-    el = el.parentElement;
-  }
-  return false;
-}
+import { SpaceSwipeDetector, normalizeWheelDelta, swipeBlockedByTarget } from '../utils/spaceSwipe';
 
 function isOverlayOpen(): boolean {
   const s = useAppStore.getState();
@@ -48,55 +12,61 @@ function isOverlayOpen(): boolean {
     s.createSpaceModalOpen ||
     s.newTabSelectorOpen ||
     s.archiveModalOpen ||
+    s.referenceEditor.open ||
     s.peek.open
   );
 }
 
-export function useSpaceSwipe(): void {
+/**
+ * Swipe left/right on the left sidebar to switch spaces.
+ *
+ * The listener lives on the sidebar element itself rather than on `window`:
+ * that scopes the gesture to the pane the user pointed at (the editor, grids and
+ * preview panes keep their horizontal input) and it also means the events of a
+ * gesture that outlives a space switch simply stop arriving, because the sidebar
+ * subtree they were dispatched against was replaced.
+ */
+export function useSpaceSwipe(zoneRef: RefObject<HTMLElement | null>): void {
   const detectorRef = useRef<SpaceSwipeDetector | null>(null);
   if (!detectorRef.current) {
-    detectorRef.current = new SpaceSwipeDetector(100, 800, 220);
+    detectorRef.current = new SpaceSwipeDetector(80);
   }
 
   useEffect(() => {
+    const zone = zoneRef.current;
+    const detector = detectorRef.current;
+    if (!zone || !detector) return;
+
     const onWheel = (e: WheelEvent) => {
-      if (!e.cancelable) return;
+      // Ctrl/Cmd + wheel is pinch-zoom, never a swipe.
       if (e.ctrlKey || e.metaKey) return;
       if (isOverlayOpen()) return;
-      if (isEditableTarget(e.target)) return;
-      if (wheelInQueryEditor(e.target)) return;
-      if (consumesHorizontalWheel(e.target)) return;
 
-      const direction = detectorRef.current!.feed({
-        // Shift+wheel scrolls horizontally on mice/trackpads without horizontal scroll.
-        deltaX: e.shiftKey && e.deltaX === 0 ? e.deltaY : e.deltaX,
-        deltaY: e.shiftKey && e.deltaX === 0 ? 0 : e.deltaY,
-        deltaMode: e.deltaMode,
+      // Shift+wheel scrolls horizontally on mice/trackpads without horizontal scroll.
+      const shifted = e.shiftKey && e.deltaX === 0;
+      const deltaX = normalizeWheelDelta(shifted ? e.deltaY : e.deltaX, e.deltaMode);
+      const deltaY = shifted ? 0 : normalizeWheelDelta(e.deltaY, e.deltaMode);
+
+      if (swipeBlockedByTarget(e.target, deltaX)) return;
+
+      // Deltas are already in pixels, so the detector is fed deltaMode 0. Track
+      // the gesture even when the event is not cancelable: Chromium stops marking
+      // wheel events cancelable once it owns the scroll.
+      const direction = detector.feed({
+        deltaX,
+        deltaY,
+        deltaMode: 0,
         timeStamp: e.timeStamp || performance.now(),
       });
       if (!direction) return;
 
-      e.preventDefault();
+      if (e.cancelable) e.preventDefault();
+      // Keep the consumed swipe from reaching pane-level handlers as well.
+      e.stopPropagation();
       void useAppStore.getState().switchSpaceRelative(direction);
     };
 
-    // Mouse back/forward buttons (and some trackpad gestures mapped to them).
-    const onMouseDown = (e: MouseEvent) => {
-      if (isOverlayOpen()) return;
-      if (e.button === 3) {
-        e.preventDefault();
-        void useAppStore.getState().switchSpaceRelative('next');
-      } else if (e.button === 4) {
-        e.preventDefault();
-        void useAppStore.getState().switchSpaceRelative('prev');
-      }
-    };
-
-    window.addEventListener('wheel', onWheel, { passive: false });
-    window.addEventListener('mousedown', onMouseDown);
-    return () => {
-      window.removeEventListener('wheel', onWheel);
-      window.removeEventListener('mousedown', onMouseDown);
-    };
-  }, []);
+    zone.addEventListener('wheel', onWheel, { passive: false });
+    return () => zone.removeEventListener('wheel', onWheel);
+  }, [zoneRef]);
 }

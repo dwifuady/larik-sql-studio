@@ -368,6 +368,9 @@ body,
   height: 100%;
   width: 100%;
   overflow: hidden;
+  /* Keep Chromium's swipe-to-navigate from claiming horizontal trackpad
+     swipes: they are the space-switch gesture. */
+  overscroll-behavior: none;
 }
 
 body {

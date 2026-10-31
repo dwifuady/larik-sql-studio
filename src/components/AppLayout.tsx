@@ -86,15 +86,15 @@ export function AppLayout() {
   // Initialize global keyboard shortcuts (T041)
   const { exportDialog } = useKeyboardShortcuts();
 
-  // Trackpad swipe left/right to switch spaces
-  useSpaceSwipe();
-
   const [isResizing, setIsResizing] = useState(false);
   const [isDbDropdownOpen, setIsDbDropdownOpen] = useState(false);
   const [selectedDbIndex, setSelectedDbIndex] = useState(0);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [dbSearchQuery, setDbSearchQuery] = useState('');
   const sidebarRef = useRef<HTMLDivElement>(null);
+
+  // Trackpad swipe left/right over the sidebar to switch spaces
+  useSpaceSwipe(sidebarRef);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const newTabDropdownRef = useRef<HTMLDivElement>(null);
   const dbSearchInputRef = useRef<HTMLInputElement>(null);
