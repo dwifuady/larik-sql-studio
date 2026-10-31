@@ -28,6 +28,51 @@ fn is_mica_enabled(state: tauri::State<'_, MicaEnabled>) -> bool {
     state.0
 }
 
+/// Windows hands two-finger horizontal trackpad swipes to WebView2's history
+/// navigation, which consumes the gesture before the page sees a wheel event.
+/// The frontend needs those events to switch spaces, and Tauri exposes no
+/// config for this, so the gesture is turned off on the WebView2 settings
+/// object (`ICoreWebView2Settings6::IsSwipeNavigationEnabled`).
+///
+/// The COM calls are confined to this function and run on the WebView2 thread.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn disable_webview2_swipe_navigation(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings6;
+    use windows_core::Interface;
+
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+
+    let result = window.with_webview(|webview| {
+        // SAFETY: called on the WebView2 UI thread; the controller is owned by
+        // the webview and stays alive for the duration of this closure.
+        let Ok(core) = (unsafe { webview.controller().CoreWebView2() }) else {
+            return;
+        };
+        let Ok(settings) = (unsafe { core.Settings() }) else {
+            return;
+        };
+        // Settings6 ships with WebView2 runtime 88+; older runtimes simply
+        // keep the default (swipe navigation enabled).
+        let Ok(settings6) = settings.cast::<ICoreWebView2Settings6>() else {
+            eprintln!("[Startup] WebView2 runtime too old to disable swipe navigation");
+            return;
+        };
+        // SAFETY: plain settings setter on the UI thread.
+        match unsafe { settings6.SetIsSwipeNavigationEnabled(false) } {
+            Ok(()) => println!("[Startup] WebView2 swipe navigation disabled"),
+            Err(e) => eprintln!("[Startup] Failed to disable WebView2 swipe navigation: {e}"),
+        }
+    });
+
+    if let Err(e) = result {
+        eprintln!("[Startup] Could not access the main webview: {e}");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize the database
@@ -151,6 +196,12 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                     })
                     .unwrap_or(false);
             app.manage(MicaEnabled(mica));
+
+            // Trackpad swipe switches spaces, so WebView2 must not claim the
+            // gesture for back/forward navigation.
+            #[cfg(windows)]
+            disable_webview2_swipe_navigation(app.handle());
+
             Ok(())
         })
         .on_window_event(|window, event| {
