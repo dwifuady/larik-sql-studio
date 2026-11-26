@@ -196,6 +196,8 @@ pub struct StudioState {
     pub auto_archive_enabled: bool,
     #[serde(default = "default_auto_archive_days")]
     pub auto_archive_days: u32,
+    #[serde(default = "default_true")]
+    pub check_for_updates: bool,
     #[serde(default)]
     pub window_placement: Option<WindowPlacementState>,
 }
@@ -301,6 +303,7 @@ ORDER BY name;\n"
             rail_open: true,
             auto_archive_enabled: true,
             auto_archive_days: DEFAULT_AUTO_ARCHIVE_DAYS,
+            check_for_updates: true,
             window_placement: None,
         }
     }
@@ -967,6 +970,7 @@ mod tests {
             rail_open: true,
             auto_archive_enabled: true,
             auto_archive_days: 30,
+            check_for_updates: true,
             window_placement: None,
         };
 

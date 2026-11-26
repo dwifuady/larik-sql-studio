@@ -12,6 +12,7 @@ mod settings_page;
 mod snippets_page;
 mod studio;
 mod theme;
+mod update_banner;
 mod window_title_bar;
 
 use std::sync::Arc;

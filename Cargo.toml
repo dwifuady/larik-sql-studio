@@ -8,6 +8,7 @@ members = [
     "crates/larik-provider-mongodb",
     "crates/larik-core",
     "crates/larik-mcp",
+    "crates/larik-update",
     "crates/larik-ui",
 ]
 
@@ -35,6 +36,9 @@ tiberius = { version = "0.13", default-features = false, features = ["tds73", "t
 mongodb = "3"
 gpui-kit = { version = "0.10.0", features = ["tree-sitter-sql"] }
 lsp-types = "0.97"
+sha2 = "0.10"
+ureq = { version = "3.5", default-features = false, features = ["rustls", "gzip", "win-system-proxy"] }
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs", "time"] }
 larik-data = { path = "crates/larik-data" }
 larik-provider-demo = { path = "crates/larik-provider-demo" }
 larik-provider-mssql = { path = "crates/larik-provider-mssql" }
