@@ -15,3 +15,4 @@ Code comments are banned by the workspace comment-ratchet lint (`cargo test -p l
 | [0005](0005-sql-language-autocomplete-and-snippet-expansion.md) | Cross-Dialect SQL Lexing, Autocomplete Ranking & Snippet Expansion | `larik-data` |
 | [0006](0006-results-grid-editing-and-preview-performance.md) | Results Grid Virtualization, Staged Row Editing & Cell Preview Performance | `larik-data`, `larik-ui` |
 | [0007](0007-windows-gpui-shell-mica-and-workspace-ux.md) | Windows 11 GPUI Shell, DWM Mica, Title Bar Hit-Testing & Workspace UX | `larik-core`, `larik-ui` |
+| [0008](0008-auto-update-github-releases.md) | GitHub Releases Self-Update: Asset Selection, Verification & Install Hand-Off | `larik-update`, `larik-ui`, `larik-core`, `installer`, CI |

@@ -1125,6 +1125,7 @@ fn write_migrated_data(
             rail_open: true,
             auto_archive_enabled,
             auto_archive_days,
+            check_for_updates: true,
             window_placement: None,
         };
         Some(serde_json::to_string(&state)?)

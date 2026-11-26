@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Range;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -85,6 +86,7 @@ use crate::results_table::ResultTableDelegate;
 use crate::settings_page::{SettingsPageState, SettingsSection, render_settings_page};
 use crate::snippets_page::SnippetsPageState;
 use crate::theme::{StudioPalette, apply_larik_theme, parse_hex_color};
+use crate::update_banner::{UpdateState, render_update_banner};
 use crate::window_title_bar::render_app_title_bar;
 
 gpui_kit::actions!(
@@ -518,6 +520,8 @@ pub struct StudioView {
     deleted_note_undo: Option<DeletedNoteUndo>,
     status_notice: Option<String>,
 
+    pub(crate) update: UpdateState,
+
     _window_bounds_sub: Subscription,
     window_bounds_save_gen: u64,
 }
@@ -661,6 +665,11 @@ impl StudioView {
             });
 
         let app_icon = Arc::new(Image::from_bytes(ImageFormat::Png, APP_ICON_PNG.to_vec()));
+        let update_root = store
+            .db_path()
+            .parent()
+            .map(|dir| dir.join("updates"))
+            .unwrap_or_else(|| PathBuf::from("updates"));
 
         let _window_bounds_sub = cx.observe_window_bounds(window, |this, window, cx| {
             this.record_window_bounds(window, cx);
@@ -743,6 +752,7 @@ impl StudioView {
             note_save_gen: 0,
             deleted_note_undo: None,
             status_notice: None,
+            update: UpdateState::new(update_root),
             _window_bounds_sub,
             window_bounds_save_gen: 0,
         };
@@ -764,6 +774,18 @@ impl StudioView {
             }
         })
         .detach();
+
+        if view.update.supported() && view.state.check_for_updates {
+            cx.spawn_in(window, async move |this, cx| {
+                cx.background_executor()
+                    .timer(Duration::from_millis(1200))
+                    .await;
+                let _ = this.update_in(cx, |this, _window, cx| {
+                    this.run_launch_update_check(cx);
+                });
+            })
+            .detach();
+        }
 
         if let Some(space) = view.state.active_space() {
             if space.profile.provider_id.eq_ignore_ascii_case("demo") {
@@ -839,7 +861,12 @@ impl StudioView {
         let _ = self.store.save_snapshot_only(&self.state, &self.catalog);
     }
 
-    fn persist(&self, cx: &App) {
+    pub(crate) fn flush_before_update_exit(&mut self) {
+        self.flush_pending_notes();
+        let _ = self.store.save_snapshot_only(&self.state, &self.catalog);
+    }
+
+    pub(crate) fn persist(&self, cx: &App) {
         self.enqueue_persist(false, cx);
     }
 
@@ -4424,6 +4451,8 @@ impl Render for StudioView {
                     el.child(render_settings_page(
                         page,
                         self.state.theme,
+                        self.state.check_for_updates,
+                        &self.update,
                         self.store.db_path(),
                         &self.catalog,
                         &self.app_icon,
@@ -4576,6 +4605,9 @@ impl Render for StudioView {
                     palette,
                     cx,
                 ))
+            })
+            .when(self.update.banner_visible(), |el| {
+                el.child(render_update_banner(&self.update, palette, cx))
             })
     }
 }

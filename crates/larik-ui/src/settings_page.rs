@@ -2,6 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use gpui_kit::assets::IconName;
+use gpui_kit::base::Disableable as _;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::theme::ActiveTheme;
 use gpui_kit::component::{Icon, Sizable as _, h_flex, v_flex};
@@ -20,6 +21,7 @@ use crate::mcp_page::{McpSettingsState, render_ai_agents_section};
 use crate::snippets_page::{SnippetsPageState, render_snippets_section};
 use crate::studio::StudioView;
 use crate::theme::StudioPalette;
+use crate::update_banner::UpdateState;
 use crate::window_title_bar::render_app_title_bar;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,6 +29,7 @@ pub enum SettingsSection {
     Appearance,
     AiAgents,
     Snippets,
+    Updates,
     About,
 }
 
@@ -57,6 +60,8 @@ impl SettingsPageState {
 pub fn render_settings_page(
     page: &SettingsPageState,
     theme_pref: ThemePreference,
+    check_for_updates: bool,
+    update: &UpdateState,
     db_path: &Path,
     catalog: &ProviderCatalog,
     app_icon: &Arc<Image>,
@@ -156,6 +161,16 @@ pub fn render_settings_page(
                             cx,
                         ))
                         .child(render_nav_item(
+                            "updates",
+                            "Updates",
+                            IconName::RefreshCw,
+                            SettingsSection::Updates,
+                            active_section == SettingsSection::Updates,
+                            collapsed,
+                            palette,
+                            cx,
+                        ))
+                        .child(render_nav_item(
                             "about",
                             "About",
                             IconName::Info,
@@ -186,6 +201,10 @@ pub fn render_settings_page(
                             }
                             SettingsSection::Snippets => {
                                 render_snippets_section(&page.snippets, palette, cx)
+                                    .into_any_element()
+                            }
+                            SettingsSection::Updates => {
+                                render_updates_section(check_for_updates, update, palette, cx)
                                     .into_any_element()
                             }
                             SettingsSection::About => {
@@ -413,6 +432,161 @@ fn render_theme_radio(
                 .child(label),
         )
         .into_any_element()
+}
+
+fn render_updates_section(
+    check_for_updates: bool,
+    update: &UpdateState,
+    palette: StudioPalette,
+    cx: &mut Context<StudioView>,
+) -> impl IntoElement {
+    let supported = update.supported();
+    let status = update.status_line(check_for_updates);
+    let busy = update.busy();
+    let version = update.current_version().to_string();
+
+    div()
+        .id("settings-updates-scroll")
+        .size_full()
+        .overflow_y_scroll()
+        .child(
+            v_flex()
+                .max_w(px(680.0))
+                .gap_3p5()
+                .pb_6()
+                .child(
+                    v_flex()
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_size(px(20.0))
+                                .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                                .text_color(palette.text_primary)
+                                .child("Updates"),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(12.0))
+                                .text_color(palette.text_muted)
+                                .child(
+                                    "Larik can check GitHub Releases and install a newer build without leaving the app.",
+                                ),
+                        ),
+                )
+                .when(!supported, |col| {
+                    col.child(
+                        v_flex()
+                            .p_4()
+                            .gap_1()
+                            .rounded(px(8.0))
+                            .bg(palette.card_bg)
+                            .border_1()
+                            .border_color(palette.card_border)
+                            .child(
+                                div()
+                                    .text_size(px(13.0))
+                                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                                    .text_color(palette.text_primary)
+                                    .child("Automatic updates are off for this build"),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(11.5))
+                                    .text_color(palette.text_muted)
+                                    .child(format!(
+                                        "This build cannot replace its own files, so install new releases manually. Installed version {version}."
+                                    )),
+                            ),
+                    )
+                })
+                .when(supported, |col| {
+                    col.child(
+                        v_flex()
+                            .p_5()
+                            .gap_3p5()
+                            .rounded(px(8.0))
+                            .bg(palette.card_bg)
+                            .border_1()
+                            .border_color(palette.card_border)
+                            .child(
+                                h_flex()
+                                    .items_center()
+                                    .justify_between()
+                                    .gap_4()
+                                    .child(
+                                        v_flex()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .gap_0p5()
+                                            .child(
+                                                div()
+                                                    .text_size(px(14.0))
+                                                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                                                    .text_color(palette.text_primary)
+                                                    .child("Check for updates automatically"),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_size(px(11.5))
+                                                    .text_color(palette.text_muted)
+                                                    .child(
+                                                        "Larik checks GitHub Releases once at launch. No workspace data or connection details are sent.",
+                                                    ),
+                                            ),
+                                    )
+                                    .child(crate::update_banner::render_check_toggle(
+                                        "settings-updates-toggle",
+                                        check_for_updates,
+                                        palette,
+                                        cx,
+                                    )),
+                            )
+                            .child(div().h(px(1.0)).w_full().bg(palette.card_border))
+                            .child(
+                                h_flex()
+                                    .items_center()
+                                    .justify_between()
+                                    .gap_4()
+                                    .child(
+                                        v_flex()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .gap_0p5()
+                                            .child(
+                                                div()
+                                                    .text_size(px(11.5))
+                                                    .text_color(palette.text_secondary)
+                                                    .child(SharedString::from(status)),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_size(px(11.0))
+                                                    .text_color(palette.text_muted)
+                                                    .child(format!("Installed version {version}")),
+                                            ),
+                                    )
+                                    .child(
+                                        Button::new("updates-check-now")
+                                            .outline()
+                                            .small()
+                                            .label("Check now")
+                                            .disabled(busy)
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.check_for_updates_now(cx);
+                                            })),
+                                    ),
+                            ),
+                    )
+                })
+                .child(
+                    div()
+                        .text_size(px(11.5))
+                        .text_color(palette.text_muted)
+                        .child(
+                            "Downloads are verified against the SHA-256 checksums published with each release. An update that fails verification is never installed.",
+                        ),
+                ),
+        )
 }
 
 fn render_about_section(

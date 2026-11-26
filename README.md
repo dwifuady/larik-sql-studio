@@ -28,6 +28,9 @@ Larik organizes database connections into Arc-inspired **Spaces** (workspaces) w
 - **AI Agents via MCP (`larik-mcp`)**
   - Local stdio MCP server exposing schema inspection, read/write query execution, and `open_in_studio`.
   - Fail-closed security model: global opt-in toggle, per-workspace access levels (`Off`, `Read`, `Write`), audit log, and interactive in-app approval prompts over a local named pipe before any write statement runs.
+- **Self-Update**
+  - Once-per-launch GitHub Releases check with a dismissible in-app notice, background download with progress, and one-click install.
+  - Verified against the release's `SHA256SUMS.txt`; the installer edition relaunches itself, and the portable ZIP updates its own folder in place.
 
 ## Tech Stack & Workspace Structure
 
@@ -42,6 +45,7 @@ Larik SQL Studio is a pure-Rust Cargo workspace (Rust 2024 edition) rendered dir
 | `crates/larik-provider-demo` | In-memory demo database provider for local development and testing. |
 | `crates/larik-core` | Core studio state (`StudioState`, `SpaceState`, `TabState`), SQLite persistence (`StudioStore`), Windows Credential Manager secret backend, notes anchoring engine, snippets, run log, MCP types, and legacy Tauri DB migration. |
 | `crates/larik-mcp` | Standalone stdio MCP server binary (`larik-mcp.exe`) with named-pipe approval bridge to the desktop app. |
+| `crates/larik-update` | UI-free GitHub Releases update engine: release selection, SHA-256 verification, and installer/portable install hand-off. |
 | `crates/larik-ui` | Native GPUI desktop application binary (`larik-sql-studio.exe`). |
 
 ## Prerequisites
@@ -116,6 +120,12 @@ git push origin v0.11.0
 ```
 
 Pushing a `v*` tag triggers `.github/workflows/release.yml` on `windows-latest`, which runs tests, builds release binaries, packages an Inno Setup Windows installer, portable ZIP (`larik-sql-studio.exe` + `larik-mcp.exe`), standalone portable `.exe`, and `SHA256SUMS.txt`, and uploads them to a **draft GitHub Release** for review.
+
+## Updates
+
+Release builds check GitHub Releases once at launch (Settings → Updates turns this off) and offer a newer build as a dismissible notice over the workspace. The installer edition runs the new per-user setup silently with `/RELAUNCH`; the portable ZIP is unpacked and copied over the running folder by a short helper script. Both hand-offs close Larik first, and every download is verified against the `SHA256SUMS.txt` published with the release — a release without that file is never installed.
+
+Self-update is off in debug builds and in any packaged/Store copy, which own their files elsewhere. See [ADR 0008](docs/adr/0008-auto-update-github-releases.md) for the asset-naming, verification, and install contract.
 
 ## License
 
