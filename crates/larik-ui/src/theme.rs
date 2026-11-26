@@ -87,7 +87,7 @@ impl StudioPalette {
                 modal_bg: rgb(0x28282B).into(),
                 subtle_hover: hsla(0.0, 0.0, 1.0, 0.065),
                 subtle_fill: hsla(0.0, 0.0, 1.0, 0.085),
-                tab_active_bg: hsla(214.0 / 360.0, 0.28, 0.62, 0.16),
+                tab_active_bg: hsla(162.0 / 360.0, 0.50, 0.62, 0.16),
                 chip_active_bg: hsla(0.0, 0.0, 1.0, 0.14),
                 hairline: hsla(0.0, 0.0, 1.0, 0.085),
                 hairline_subtle: hsla(0.0, 0.0, 1.0, 0.055),
@@ -95,12 +95,12 @@ impl StudioPalette {
                 text_primary: rgb(0xF5F5F7).into(),
                 text_secondary: hsla(0.0, 0.0, 1.0, 0.76),
                 text_muted: hsla(0.0, 0.0, 1.0, 0.48),
-                accent: rgb(0x60CDFF).into(),
-                accent_hover: rgb(0x7AD6FF).into(),
-                accent_on: rgb(0x091620).into(),
-                accent_soft: hsla(199.0 / 360.0, 0.95, 0.68, 0.16),
-                selection: hsla(199.0 / 360.0, 0.85, 0.60, 0.25),
-                success: rgb(0x34D399).into(),
+                accent: rgb(0x2FD3A0).into(),
+                accent_hover: rgb(0x45DFB0).into(),
+                accent_on: rgb(0x04231A).into(),
+                accent_soft: hsla(161.0 / 360.0, 0.80, 0.51, 0.16),
+                selection: hsla(161.0 / 360.0, 0.75, 0.55, 0.25),
+                success: rgb(0x22C55E).into(),
                 warning: rgb(0xFBBF24).into(),
                 danger: rgb(0xF87171).into(),
             },
@@ -116,7 +116,7 @@ impl StudioPalette {
                 modal_bg: rgb(0xF9F9FB).into(),
                 subtle_hover: hsla(0.0, 0.0, 0.0, 0.045),
                 subtle_fill: hsla(0.0, 0.0, 0.0, 0.06),
-                tab_active_bg: hsla(210.0 / 360.0, 0.45, 0.50, 0.11),
+                tab_active_bg: hsla(162.0 / 360.0, 0.45, 0.50, 0.11),
                 chip_active_bg: hsla(0.0, 0.0, 1.0, 0.85),
                 hairline: hsla(0.0, 0.0, 0.0, 0.09),
                 hairline_subtle: hsla(0.0, 0.0, 0.0, 0.055),
@@ -124,11 +124,11 @@ impl StudioPalette {
                 text_primary: rgb(0x1A1A1A).into(),
                 text_secondary: hsla(0.0, 0.0, 0.0, 0.72),
                 text_muted: hsla(0.0, 0.0, 0.0, 0.48),
-                accent: rgb(0x005FB8).into(),
-                accent_hover: rgb(0x1975C5).into(),
+                accent: rgb(0x047857).into(),
+                accent_hover: rgb(0x05805E).into(),
                 accent_on: rgb(0xFFFFFF).into(),
-                accent_soft: hsla(209.0 / 360.0, 1.0, 0.36, 0.12),
-                selection: hsla(209.0 / 360.0, 0.90, 0.45, 0.20),
+                accent_soft: hsla(163.0 / 360.0, 0.93, 0.24, 0.12),
+                selection: hsla(163.0 / 360.0, 0.85, 0.30, 0.20),
                 success: rgb(0x15803D).into(),
                 warning: rgb(0xB45309).into(),
                 danger: rgb(0xDC2626).into(),
@@ -322,7 +322,7 @@ pub fn parse_hex_color(hex: &str) -> Hsla {
     if let Ok(value) = u32::from_str_radix(trimmed, 16) {
         rgb(value).into()
     } else {
-        rgb(0x60CDFF).into()
+        rgb(0x2FD3A0).into()
     }
 }
 
@@ -346,5 +346,150 @@ mod tests {
             "light editor bg must be transparent for Mica"
         );
         assert!(light.style.syntax.keyword.is_some());
+    }
+
+    fn rgb_hex(color: Hsla) -> (u8, u8, u8) {
+        let rgba: gpui_kit::Rgba = color.into();
+        (
+            (rgba.r * 255.0).round() as u8,
+            (rgba.g * 255.0).round() as u8,
+            (rgba.b * 255.0).round() as u8,
+        )
+    }
+
+    fn relative_luminance(color: Hsla) -> f32 {
+        let (r, g, b) = rgb_hex(color);
+        let channel = |c: u8| {
+            let v = c as f32 / 255.0;
+            if v <= 0.04045 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+    }
+
+    fn contrast_ratio(a: Hsla, b: Hsla) -> f32 {
+        let (la, lb) = (relative_luminance(a), relative_luminance(b));
+        let (hi, lo) = if la > lb { (la, lb) } else { (lb, la) };
+        (hi + 0.05) / (lo + 0.05)
+    }
+
+    fn lab(color: Hsla) -> (f32, f32, f32) {
+        let (r, g, b) = rgb_hex(color);
+        let linear = |c: u8| {
+            let v = c as f32 / 255.0;
+            if v <= 0.04045 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        let (r, g, b) = (linear(r), linear(g), linear(b));
+        let x = r * 0.4124 + g * 0.3576 + b * 0.1805;
+        let y = r * 0.2126 + g * 0.7152 + b * 0.0722;
+        let z = r * 0.0193 + g * 0.1192 + b * 0.9505;
+        let f = |t: f32| {
+            if t > 0.008856 {
+                t.cbrt()
+            } else {
+                7.787 * t + 16.0 / 116.0
+            }
+        };
+        (
+            116.0 * f(y) - 16.0,
+            500.0 * (f(x / 0.95047) - f(y)),
+            200.0 * (f(y) - f(z / 1.08883)),
+        )
+    }
+
+    fn ciede2000(a: Hsla, b: Hsla) -> f32 {
+        let (l1, a1, b1) = lab(a);
+        let (l2, a2, b2) = lab(b);
+        let c1 = (a1 * a1 + b1 * b1).sqrt();
+        let c2 = (a2 * a2 + b2 * b2).sqrt();
+        let c_bar = (c1 + c2) / 2.0;
+        let g = 0.5 * (1.0 - (c_bar.powi(7) / (c_bar.powi(7) + 25f32.powi(7))).sqrt());
+        let a1p = (1.0 + g) * a1;
+        let a2p = (1.0 + g) * a2;
+        let c1p = (a1p * a1p + b1 * b1).sqrt();
+        let c2p = (a2p * a2p + b2 * b2).sqrt();
+        let hue = |b: f32, a: f32| b.atan2(a).to_degrees().rem_euclid(360.0);
+        let h1p = hue(b1, a1p);
+        let h2p = hue(b2, a2p);
+        let dl = l2 - l1;
+        let dc = c2p - c1p;
+        let dh = if c1p * c2p == 0.0 {
+            0.0
+        } else {
+            let d = h2p - h1p;
+            if d > 180.0 {
+                d - 360.0
+            } else if d < -180.0 {
+                d + 360.0
+            } else {
+                d
+            }
+        };
+        let dh_term = 2.0 * (c1p * c2p).sqrt() * (dh.to_radians() / 2.0).sin();
+        let l_bar = (l1 + l2) / 2.0;
+        let c_bar_p = (c1p + c2p) / 2.0;
+        let h_bar = if c1p * c2p == 0.0 {
+            h1p + h2p
+        } else if (h1p - h2p).abs() <= 180.0 {
+            (h1p + h2p) / 2.0
+        } else if h1p + h2p < 360.0 {
+            (h1p + h2p + 360.0) / 2.0
+        } else {
+            (h1p + h2p - 360.0) / 2.0
+        };
+        let t = 1.0 - 0.17 * (h_bar - 30.0).to_radians().cos()
+            + 0.24 * (2.0 * h_bar).to_radians().cos()
+            + 0.32 * (3.0 * h_bar + 6.0).to_radians().cos()
+            - 0.20 * (4.0 * h_bar - 63.0).to_radians().cos();
+        let d_theta = 30.0 * (-(((h_bar - 275.0) / 25.0).powi(2))).exp();
+        let r_c = 2.0 * (c_bar_p.powi(7) / (c_bar_p.powi(7) + 25f32.powi(7))).sqrt();
+        let s_l = 1.0 + (0.015 * (l_bar - 50.0).powi(2)) / (20.0 + (l_bar - 50.0).powi(2)).sqrt();
+        let s_c = 1.0 + 0.045 * c_bar_p;
+        let s_h = 1.0 + 0.015 * c_bar_p * t;
+        let r_t = -(2.0 * d_theta).to_radians().sin() * r_c;
+        ((dl / s_l).powi(2)
+            + (dc / s_c).powi(2)
+            + (dh_term / s_h).powi(2)
+            + r_t * (dc / s_c) * (dh_term / s_h))
+            .sqrt()
+    }
+
+    #[test]
+    fn brand_accent_matches_the_icon_ramp_and_stays_legible() {
+        let dark = StudioPalette::for_mode(ThemePreference::Dark);
+        let light = StudioPalette::for_mode(ThemePreference::Light);
+
+        assert_eq!(rgb_hex(dark.accent), (0x2F, 0xD3, 0xA0));
+        assert_eq!(rgb_hex(light.accent), (0x04, 0x78, 0x57));
+
+        let shell_dark = rgb(0x161618).into();
+        let white = rgb(0xFFFFFF).into();
+        assert!(contrast_ratio(dark.accent, shell_dark) >= 7.0);
+        assert!(contrast_ratio(dark.accent_on, dark.accent) >= 7.0);
+        assert!(contrast_ratio(light.accent, white) >= 4.5);
+        assert!(contrast_ratio(light.accent_on, light.accent) >= 4.5);
+    }
+
+    #[test]
+    fn accent_and_success_share_a_hue_but_stay_distinguishable() {
+        for mode in [ThemePreference::Dark, ThemePreference::Light] {
+            let p = StudioPalette::for_mode(mode);
+            assert!(
+                ciede2000(p.accent, p.success) >= 8.0,
+                "accent and success must stay separable per mode"
+            );
+            assert!(ciede2000(p.accent, p.danger) >= 40.0);
+        }
+        assert_eq!(
+            rgb_hex(StudioPalette::for_mode(ThemePreference::Dark).success),
+            (0x22, 0xC5, 0x5E)
+        );
     }
 }
