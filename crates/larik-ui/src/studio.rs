@@ -5537,7 +5537,7 @@ impl StudioView {
 
         let is_dark = StudioPalette::resolve_is_dark(self.state.theme, Some(window));
         let active_pill_bg = if is_dark {
-            hsla(212.0 / 360.0, 0.24, 0.36, 0.52)
+            hsla(162.0 / 360.0, 0.40, 0.36, 0.52)
         } else {
             palette.accent_soft
         };

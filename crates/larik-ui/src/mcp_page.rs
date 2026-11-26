@@ -489,7 +489,7 @@ fn render_workspace_access_row(
                     let sid = space_id.clone();
                     let active_bg = match level {
                         McpAccess::Off => palette.subtle_hover,
-                        McpAccess::Read => hsla(210.0 / 360.0, 0.72, 0.52, 0.22),
+                        McpAccess::Read => hsla(162.0 / 360.0, 0.72, 0.52, 0.22),
                         McpAccess::Write => hsla(14.0 / 360.0, 0.85, 0.62, 0.24),
                     };
                     let active_text = match level {
