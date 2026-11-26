@@ -1,88 +1,103 @@
 # Larik SQL Studio
 
-<p align="center">
-  <img src="./public/larik-icon.png" alt="Larik SQL Studio" width="128" />
-</p>
+A fast, native SQL studio built in pure Rust with [GPUI](https://www.gpui.rs/) (`gpui-kit`).
 
-**Larik SQL Studio** is a modern, workspace-centric SQL client built for developers who want a fast, beautiful, and efficient data exploration and querying experience.
+Larik organizes database connections into Arc-inspired **Spaces** (workspaces) with pinned tabs, collapsible folders, a tree-sitter SQL editor, virtualized multi-result-set grids, statement-anchored notes, query history, and a built-in **Model Context Protocol (MCP)** server for AI coding agents.
 
-Use workspaces to organize your database connections, and tabs to manage your queries. Features an Arc-style sidebar, command palette, and a focus on keyboard-driven workflows.
+## Features
 
-> [!NOTE] 
-> **Built with AI Assistance**
-> 
-> This project is an experiment in AI-driven development. Approximately 90% of the code was generated with the assistance of LLMs. While we strive for high quality, some code patterns may reflect this origin. We welcome contributions and refactoring from the community!
+- **Spaces & Tab Organization**
+  - Color-coded workspaces, each bound to its own database connection profile and active database.
+  - Pinned tabs, collapsible tab groups/folders, drag-and-drop ordering, and automatic inactivity archiving with full restore.
+- **SQL Editor & Productivity**
+  - Tree-sitter SQL syntax highlighting, statement-under-caret execution (`Ctrl+Enter`) or full script execution (`F5`), and multi-statement execution.
+  - Built-in and custom dialect-aware SQL snippets with tab-stop placeholders and autocomplete.
+  - Schema explorer pane for browsing databases, tables, views, columns, and routines.
+- **Results & Export**
+  - Virtualized result grids built to stay responsive on large result sets, supporting multiple result sets and server `PRINT`/message output per run.
+  - Structured query run log (`run_log`) with search and configurable retention (30 / 90 / 120 days).
+- **Statement-Anchored & Tab Notes**
+  - Attach `Note`, `TODO`, `Decision`, or `Observation` annotations to specific SQL statements or as tab-level scratchpads.
+  - Fingerprint anchoring automatically tracks and rebases notes as you edit or reformat queries, and preserves notes when tabs are archived.
+- **SQL Server Provider + Demo Workspace**
+  - Native SQL Server (`mssql`) connectivity via `tiberius` (TLS, `trustServerCertificate`, Windows auth / SQL auth).
+  - Passwords are stored exclusively in Windows Credential Manager and never written to SQLite.
+  - Built-in offline Demo provider for instant exploration and testing.
+- **AI Agents via MCP (`larik-mcp`)**
+  - Local stdio MCP server exposing schema inspection, read/write query execution, and `open_in_studio`.
+  - Fail-closed security model: global opt-in toggle, per-workspace access levels (`Off`, `Read`, `Write`), audit log, and interactive in-app approval prompts over a local named pipe before any write statement runs.
 
-## 📸 Preview
+## Tech Stack & Workspace Structure
 
-<p align="center">
-  <img src="./public/screenshots/main-interface.png" alt="Main Interface" width="600" />
-  <br />
-  <em>The workspace-centric main interface.</em>
-</p>
+Larik SQL Studio is a pure-Rust Cargo workspace (Rust 2024 edition) rendered directly on the GPU with `gpui-kit`:
 
-<p align="center">
-  <img src="./public/screenshots/command-palette.png" alt="Command Palette" width="400" />
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="./public/screenshots/connection-manager.png" alt="Connection Manager" width="400" />
-</p>
-<p align="center">
-  <em>Quickly access actions via the Command Palette (left) and manage your database connections (right).</em>
-</p>
+| Crate | Purpose |
+| --- | --- |
+| `crates/larik-data` | Provider traits (`DatabaseProvider`, `DatabaseConnection`), connection profiles, schema types, SQL language definitions, and snippet primitives. |
+| `crates/larik-provider-mssql` | Native Microsoft SQL Server provider built on `tiberius` + `tokio`. |
+| `crates/larik-provider-demo` | In-memory demo database provider for local development and testing. |
+| `crates/larik-core` | Core studio state (`StudioState`, `SpaceState`, `TabState`), SQLite persistence (`StudioStore`), Windows Credential Manager secret backend, notes anchoring engine, snippets, run log, MCP types, and legacy Tauri DB migration. |
+| `crates/larik-mcp` | Standalone stdio MCP server binary (`larik-mcp.exe`) with named-pipe approval bridge to the desktop app. |
+| `crates/larik-ui` | Native GPUI desktop application binary (`larik-sql-studio.exe`). |
 
-<p align="center">
-  <img src="./public/screenshots/autocomplete.png" alt="Autocomplete & Intellisense" width="600" />
-  <br />
-  <em>Lightning-fast SQL autocomplete.</em>
-</p>
+## Prerequisites
 
-## ✨ Features
+- **Rust** (stable toolchain supporting Rust 2024 edition)
+- **Windows**: Visual Studio Build Tools (MSVC) and Windows SDK (for `rc.exe` icon embedding and native GPUI DirectX/Win32 backend)
 
-- **Workspace-Centric**: Group related database connections into spaces.
-- **Modern UI**: Dark mode, smooth animations, and a clean interface built with React & TailwindCSS.
-- **Keyboard First**: Command palette (`Ctrl+Shift+P`) for quick actions.
-- **Performance**: Powered by Rust (Tauri) for a lightweight footprint.
-- **SQL Support**: 
-    - MS SQL Server (via `tiberius`)
-    - PostgreSQL (via `tokio-postgres`)
-    - MongoDB (mongo-shell syntax, via the official driver)
-    - SQLite (via `rusqlite`)
-- **AI Agent Access (MCP)**: Built-in MCP server (loopback HTTP) that lets AI agents like Claude Code use your saved connections — nothing exposed by default, per-space read-only/read-write levels, server-side read-only enforcement, per-statement approval prompts for read-write spaces, and a full audit log. See [MCP_DESIGN.md](MCP_DESIGN.md).
+## Building & Running
 
-## 🚀 Getting Started
+```powershell
+# Run the desktop app (debug)
+cargo run --bin larik-sql-studio
 
-### Prerequisites
+# Build all binaries (larik-sql-studio.exe and larik-mcp.exe)
+cargo build --workspace
 
-- [Node.js](https://nodejs.org/) (v18+)
-- [Rust](https://www.rust-lang.org/tools/install) (latest stable)
+# Build optimized release binaries
+cargo build --workspace --release
 
-### Installation
+# Run the full workspace test suite
+cargo test --workspace
+```
 
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/yourusername/larik-sql-studio.git
-    cd larik-sql-studio
-    ```
+### State Directory
 
-2.  Install dependencies:
-    ```bash
-    npm install
-    ```
+By default, Larik SQL Studio stores its SQLite state database at:
 
-3.  Run in development mode:
-    ```bash
-    npm run tauri dev
-    ```
+```text
+%LOCALAPPDATA%\Larik SQL Studio\studio.db
+```
 
-## 🛠️ Tech Stack
+Set the `LARIK_STATE_DIR` environment variable to isolate state into a custom directory (useful for development or testing):
 
-- **Frontend**: React, TypeScript, Vite, TailwindCSS, Zustand
-- **Backend**: Rust, Tauri v2, Rusqlite, Tiberius
+```powershell
+$env:LARIK_STATE_DIR = "C:\temp\larik-dev"
+cargo run --bin larik-sql-studio
+```
 
-## 🤝 Contributing
+## MCP Server Setup
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Build the workspace to produce `larik-mcp.exe` alongside `larik-sql-studio.exe`, then enable **AI Agents (MCP)** inside the app and set per-workspace access levels (`Read` or `Write`).
 
-## 📄 License
+The in-app **MCP** page provides copy-paste setup commands for Claude Code, Cursor, VS Code, and Codex. For example, with Claude Code:
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+```powershell
+claude mcp add larik -- "C:\path\to\larik-mcp.exe"
+```
+
+Optional flags for `larik-mcp`:
+- `--state <dir>`: Override the studio state directory (equivalent to `LARIK_STATE_DIR`).
+- `--pipe <name>`: Override the local approval named pipe path.
+
+## Upgrading from Legacy Tauri Larik SQL Studio
+
+On first launch, Larik SQL Studio automatically detects an existing Tauri-era Larik SQL Studio database—either in the legacy Tauri app data directory (`%APPDATA%\larik\larik-sql-studio\data\larik.db`) or in-place—and performs a one-time, idempotent migration:
+
+1. **Automatic backup first**: A self-contained backup copy (`larik.tauri-backup.db`) is created next to `studio.db` before any changes are written, and the original legacy database and Windows Credential Manager entries are left untouched.
+2. **Full data migration**: Migrates workspaces/connections, saved passwords (decoding legacy `keyring` UTF-16LE Windows credentials and SQLite fallback passwords into the new credential namespace), tab folders, open query tabs, archived tabs, custom snippets and built-in toggle states, sticky notes (anchored to their SQL lines), app preferences, and MCP activity/approval logs.
+3. **Safe & idempotent**: A `tauri_migration_v1` marker is recorded in `studio_meta` so migration runs only once and never overwrites an already-initialized GPUI studio database.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
