@@ -1,10 +1,3 @@
-//! The five Larik MCP tools mirroring WinUI `Larik.Mcp/StudioTools.cs`:
-//! - `list_connections`
-//! - `list_databases`
-//! - `get_schema`
-//! - `run_query`
-//! - `open_in_studio`
-
 use std::time::Instant;
 
 use anyhow::{Result, anyhow};
@@ -22,7 +15,6 @@ use uuid::Uuid;
 use crate::approval_channel;
 use crate::context::StudioContext;
 
-/// Returns the MCP `tools/list` definitions with exact names, JSON schemas, and annotations.
 pub fn tool_definitions() -> Value {
     json!([
         {
@@ -169,7 +161,6 @@ pub fn tool_definitions() -> Value {
     ])
 }
 
-/// Dispatches a `tools/call` invocation and returns the JSON text payload (or an error message).
 pub async fn call_tool(ctx: &StudioContext, name: &str, args: &Value) -> Result<String> {
     match name {
         "list_connections" => list_connections(ctx),
@@ -542,7 +533,6 @@ async fn run_query(ctx: &StudioContext, args: &Value) -> Result<String> {
             return Err(anyhow!(msg));
         }
         McpAccess::Read => {
-            // Layer 1: fail-closed static statement classifier.
             let allowed = provider
                 .read_only_policy()
                 .is_some_and(|policy| policy.is_proven_read(query));
@@ -565,7 +555,6 @@ async fn run_query(ctx: &StudioContext, args: &Value) -> Result<String> {
             }
         }
         McpAccess::Write => {
-            // Require a human-readable description before prompting the user.
             if description.is_none() {
                 let msg = format!(
                     "Refused: '{}' is a Read and write workspace, so 'description' is required (one sentence explaining why this query is being run).",

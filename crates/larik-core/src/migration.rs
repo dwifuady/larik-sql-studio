@@ -1,7 +1,3 @@
-//! Automatic, idempotent backward-compatible migration from the legacy Tauri Larik SQL Studio
-//! SQLite database (`larik.db` / `larik-dev.db`) and Windows Credential Manager (`keyring` v3)
-//! into the GPUI `StudioStore` schema.
-
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -29,7 +25,6 @@ use crate::{
 
 pub const TAURI_MIGRATION_META_KEY: &str = "tauri_migration_v1";
 
-/// Summary returned when a legacy Tauri database is migrated.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TauriMigrationReport {
     pub source_path: PathBuf,
@@ -47,8 +42,6 @@ pub struct TauriMigrationReport {
     pub run_log_migrated: usize,
 }
 
-/// Default legacy Tauri database locations (`%APPDATA%\larik\larik-sql-studio\data\larik.db`
-/// on Windows, plus `larik-dev.db` as a fallback in debug builds).
 pub fn default_legacy_tauri_db_candidates() -> Vec<PathBuf> {
     let Some(dirs) = ProjectDirs::from("com", "larik", "larik-sql-studio") else {
         return Vec::new();
@@ -60,7 +53,6 @@ pub fn default_legacy_tauri_db_candidates() -> Vec<PathBuf> {
     candidates
 }
 
-/// Sibling legacy Tauri database filenames in the same directory as `db_path`.
 pub fn sibling_legacy_tauri_db_candidates(db_path: &Path) -> Vec<PathBuf> {
     let Some(parent) = db_path.parent() else {
         return Vec::new();
@@ -204,10 +196,6 @@ impl LegacyTauriData {
     }
 }
 
-/// Checks if `db_path` itself is an unmigrated legacy Tauri database.
-/// If so, creates a backup, reads all legacy data into memory, renames conflicting legacy
-/// tables (`mcp_log`, `mcp_approvals`), removes old UUID built-in snippets, and returns the
-/// staged migration payload so the caller can run `ensure_schema()` and then commit it.
 pub(crate) struct StagedInPlaceMigration {
     source_path: PathBuf,
     backup_path: PathBuf,
@@ -243,7 +231,6 @@ pub(crate) fn prepare_in_place_migration(
     }))
 }
 
-/// Completes a previously staged in-place migration after `ensure_schema()` has run.
 pub(crate) fn finish_in_place_migration(
     db_path: &Path,
     secrets: &Arc<dyn SecretBackend>,
@@ -260,9 +247,6 @@ pub(crate) fn finish_in_place_migration(
     )
 }
 
-/// Checks whether `db_path` is eligible for migration from an external legacy Tauri DB
-/// (i.e. has no `tauri_migration_v1` marker and no `studio_snapshot` row yet) and migrates
-/// the first matching legacy candidate found in `candidates`.
 pub(crate) fn migrate_from_external_candidates(
     db_path: &Path,
     secrets: &Arc<dyn SecretBackend>,
@@ -428,8 +412,6 @@ fn create_safe_backup(source_path: &Path, backup_dir: &Path) -> anyhow::Result<P
         .with_context(|| format!("Failed to create backup directory {}", backup_dir.display()))?;
     let backup_path = unique_backup_path(source_path, backup_dir);
 
-    // Prefer SQLite `VACUUM INTO` so any uncommitted WAL frames are safely captured into a
-    // self-contained single-file backup without mutating the source DB.
     let vacuum_ok = open_legacy_readonly_or_rw(source_path)
         .and_then(|conn| {
             let escaped = backup_path.to_string_lossy().replace('\'', "''");
@@ -453,8 +435,6 @@ fn create_safe_backup(source_path: &Path, backup_dir: &Path) -> anyhow::Result<P
 }
 
 fn reconcile_in_place_schema(conn: &Connection) -> anyhow::Result<()> {
-    // Rename legacy `mcp_log` / `mcp_approvals` tables whose column definitions differ from
-    // the GPUI schema so `ensure_schema()` can create the new tables cleanly.
     if table_exists(conn, "mcp_log")? {
         let cols = table_columns(conn, "mcp_log")?;
         if !cols.contains("recorded_at") {
@@ -475,8 +455,6 @@ fn reconcile_in_place_schema(conn: &Connection) -> anyhow::Result<()> {
     }
 
     if table_exists(conn, "snippets")? {
-        // Legacy Tauri seeded built-ins with random UUIDs; drop those so we can re-insert
-        // under deterministic `builtin:{scope}:{trigger}` IDs without duplicates.
         conn.execute(
             "DELETE FROM snippets WHERE is_builtin = 1 AND id NOT LIKE 'builtin:%'",
             [],
@@ -832,7 +810,6 @@ fn write_migrated_data(
         run_log_migrated: 0,
     };
 
-    // Index folders and tabs by space_id.
     let mut folders_by_space: HashMap<String, Vec<LegacyFolderRow>> = HashMap::new();
     for folder in data.folders {
         folders_by_space
@@ -852,14 +829,13 @@ fn write_migrated_data(
             .push(tab);
     }
 
-    // Track tab metadata for note anchoring & space lookup.
     struct TabNoteTarget {
         migrated_tab_id: String,
         space_id: String,
         content: String,
     }
     let mut tab_note_targets: HashMap<String, TabNoteTarget> = HashMap::new();
-    let mut space_info_map: HashMap<String, (String, String, String)> = HashMap::new(); // id -> (name, color, provider_id)
+    let mut space_info_map: HashMap<String, (String, String, String)> = HashMap::new();
     let mut space_mcp_access_rows: Vec<(String, McpAccess)> = Vec::new();
     let mut secrets_to_migrate: Vec<(String, String)> = Vec::new();
 
@@ -908,7 +884,6 @@ fn write_migrated_data(
             );
         }
 
-        // Resolve password from legacy Tauri keyring first, falling back to SQLite column.
         let legacy_keyring_pw = secrets
             .get_legacy_keyring(&legacy_tauri_secret_target(&legacy_space.id))
             .ok()
@@ -1034,7 +1009,6 @@ fn write_migrated_data(
     }
     report.spaces_migrated = spaces.len();
 
-    // Migrate archived tabs.
     let mut used_archived_ids: HashSet<String> = active_tab_ids.clone();
     let mut archived_tabs: Vec<ArchivedTabState> = Vec::new();
     for arch in data.archived_tabs {
@@ -1054,7 +1028,6 @@ fn write_migrated_data(
             .or_else(|| space_meta.map(|(name, _, _)| name.clone()));
         let color = space_meta.map(|(_, color, _)| color.clone());
 
-        // Map both `original_tab_id` and `archived_tabs.id` so sticky notes still link cleanly.
         if let Some(oid) = orig_id {
             tab_note_targets.entry(oid).or_insert_with(|| TabNoteTarget {
                 migrated_tab_id: chosen_id.clone(),
@@ -1085,7 +1058,6 @@ fn write_migrated_data(
     }
     report.archived_tabs_migrated = archived_tabs.len();
 
-    // Apply `app_state` preferences.
     let active_space_id = data
         .app_state
         .get("last_space_id")
@@ -1160,7 +1132,6 @@ fn write_migrated_data(
         None
     };
 
-    // Map legacy sticky notes -> GPUI NoteRecord.
     let mut migrated_notes: Vec<NoteRecord> = Vec::new();
     for note in data.sticky_notes {
         let Some(target) = tab_note_targets.get(&note.tab_id) else {
@@ -1194,7 +1165,6 @@ fn write_migrated_data(
     }
     report.notes_migrated = migrated_notes.len();
 
-    // Map snippets (preserve user snippets; map legacy built-ins onto deterministic `builtin:*` IDs).
     let builtins = builtin_catalog();
     let mut migrated_snippets: Vec<(SnippetRecord, String, String)> = Vec::new();
     for snip in data.snippets {
@@ -1262,7 +1232,6 @@ fn write_migrated_data(
     }
     report.snippets_migrated = migrated_snippets.len();
 
-    // Commit everything atomically into the target SQLite database.
     let now_rfc = now_rfc3339();
     let tx = conn.transaction()?;
 
@@ -1479,8 +1448,6 @@ fn write_migrated_data(
         report.mcp_approvals_migrated += 1;
     }
 
-    // Migrate passwords into the new OS secret target namespace without deleting old Tauri
-    // credentials (preserving rollback safety alongside the DB backup).
     for (space_id, pw) in &secrets_to_migrate {
         let target = secret_target(space_id, "password");
         if secrets.set(&target, pw).is_ok() {
@@ -1603,7 +1570,6 @@ fn to_sqlite_utc(raw: Option<&str>) -> String {
         .to_string()
 }
 
-/// Returns `(byte_start, byte_len)` for 1-based `line_number` in `text`, excluding trailing `\r`/`\n`.
 fn line_byte_span(text: &str, line_number: usize) -> Option<(usize, usize)> {
     if line_number == 0 {
         return None;
@@ -1708,8 +1674,6 @@ mod tests {
         catalog
     }
 
-    /// Creates a realistic legacy Tauri SQLite database matching the exact schema from
-    /// `src-tauri/src/storage/*.rs`.
     fn create_legacy_tauri_fixture(path: &Path) {
         let conn = Connection::open(path).expect("open legacy fixture");
         conn.execute_batch(
@@ -1837,7 +1801,6 @@ mod tests {
         )
         .expect("create legacy schema");
 
-        // Spaces: one using keyring password, one using legacy SQLite fallback password.
         conn.execute(
             "INSERT INTO spaces (
                 id, name, color, icon, connection_host, connection_port, connection_database,
@@ -1863,7 +1826,6 @@ mod tests {
         )
         .unwrap();
 
-        // Folder
         conn.execute(
             "INSERT INTO tab_folders (id, space_id, name, is_expanded, sort_order)
              VALUES ('folder-reports', 'space-prod', 'Monthly Reports', 0, 0)",
@@ -1871,7 +1833,6 @@ mod tests {
         )
         .unwrap();
 
-        // Tabs (including a pinned folder member, a loose pinned tab, an unpinned tab, and a non-query settings tab to ignore)
         conn.execute(
             "INSERT INTO pinned_tabs (
                 id, space_id, title, tab_type, content, database, folder_id, is_pinned,
@@ -1920,7 +1881,6 @@ mod tests {
         )
         .unwrap();
 
-        // Archived tab
         conn.execute(
             "INSERT INTO archived_tabs (
                 id, original_tab_id, space_id, space_name, title, tab_type, content,
@@ -1933,7 +1893,6 @@ mod tests {
         )
         .unwrap();
 
-        // Snippets: one user snippet + one disabled legacy UUID built-in ('sel')
         conn.execute(
             "INSERT INTO snippets (
                 id, trigger, name, content, description, is_builtin, enabled, category, drivers
@@ -1955,7 +1914,6 @@ mod tests {
         )
         .unwrap();
 
-        // Sticky notes: line-anchored on active tab-1 line 2, tab-level fallback when line out of bounds, and one on archived tab.
         conn.execute(
             "INSERT INTO sticky_notes (id, tab_id, line_number, content, created_at, updated_at)
              VALUES ('note-1', 'tab-1', 2, 'Check invoice index before running on prod', '2026-01-15 09:00:00', '2026-01-15 09:05:00')",
@@ -1975,7 +1933,6 @@ mod tests {
         )
         .unwrap();
 
-        // app_state settings
         for (k, v) in [
             ("last_space_id", "space-prod"),
             ("last_tab_id", "tab-2"),
@@ -1992,7 +1949,6 @@ mod tests {
             .unwrap();
         }
 
-        // Legacy mcp_log
         conn.execute(
             "INSERT INTO mcp_log (
                 id, ts, tool, connection_id, space_name, statement, access_level,
@@ -2005,7 +1961,6 @@ mod tests {
         )
         .unwrap();
 
-        // Legacy mcp_approvals (one approved, one pending that must be swept to orphaned)
         conn.execute(
             "INSERT INTO mcp_approvals (
                 id, ts, connection_id, space_name, driver, statement, access_level, status, decided_at
@@ -2041,7 +1996,6 @@ mod tests {
         assert_eq!(state.auto_archive_days, 45);
         assert_eq!(state.query_counter, 7);
 
-        // Space 1: Prod MSSQL
         let prod = &state.spaces[0];
         assert_eq!(prod.id, "space-prod");
         assert_eq!(prod.name, "Prod MSSQL");
@@ -2054,17 +2008,14 @@ mod tests {
         assert_eq!(prod.profile.get("user"), Some("sa"));
         assert_eq!(prod.profile.get("encrypt"), Some("true"));
         assert_eq!(prod.profile.get("trustServerCertificate"), Some("false"));
-        // Password hydrated from new secret target (migrated from legacy keyring).
         assert_eq!(prod.profile.get("password"), Some("keyring-prod-pw!"));
         assert_eq!(prod.active_tab_id.as_deref(), Some("tab-2"));
-        // Settings tab filtered out -> only 2 query tabs remain.
         assert_eq!(prod.tabs.len(), 2);
         assert_eq!(prod.groups.len(), 1);
         assert_eq!(prod.groups[0].name, "Monthly Reports");
         assert!(!prod.groups[0].is_expanded);
-        assert!(prod.groups[0].is_pinned); // inherited pin protection from member tab-1
+        assert!(prod.groups[0].is_pinned);
 
-        // Space 2: Analytics PG (password migrated from legacy SQLite column into secret backend)
         let pg = &state.spaces[1];
         assert_eq!(pg.id, "space-pg");
         assert_eq!(pg.profile.provider_id, "postgres");
@@ -2076,7 +2027,6 @@ mod tests {
             Some("sqlite-fallback-pw")
         );
 
-        // Ensure no plaintext passwords leaked into studio_snapshot JSON.
         let conn = Connection::open(store.db_path()).unwrap();
         let raw_json: String = conn
             .query_row("SELECT payload FROM studio_snapshot WHERE id = 1", [], |r| {
@@ -2086,13 +2036,11 @@ mod tests {
         assert!(!raw_json.contains("keyring-prod-pw!"));
         assert!(!raw_json.contains("sqlite-fallback-pw"));
 
-        // Archived tab preserved with original_tab_id so notes remain attached.
         assert_eq!(state.archived_tabs.len(), 1);
         assert_eq!(state.archived_tabs[0].id, "orig-tab-99");
         assert_eq!(state.archived_tabs[0].title, "Old Migration");
         assert!(state.archived_tabs[0].archived_at.contains('T'));
 
-        // Snippets: user snippet preserved + built-in 'sel' kept disabled + NO duplicate built-ins.
         let snippets = store.load_snippets().unwrap();
         let user_snip = snippets.iter().find(|s| s.id == "user-snip-1").unwrap();
         assert_eq!(user_snip.trigger, "mytop");
@@ -2105,7 +2053,6 @@ mod tests {
         assert_eq!(sel_matches[0].id, "builtin:all:sel");
         assert!(!sel_matches[0].is_enabled);
 
-        // Notes: line-anchored note on line 2, tab-level fallback for out-of-range line, archived note linked.
         let tab1_notes = store.get_notes_for_tab("tab-1").unwrap();
         assert_eq!(tab1_notes.len(), 2);
         let anchored = tab1_notes.iter().find(|n| n.id == "note-1").unwrap();
@@ -2119,13 +2066,11 @@ mod tests {
         assert_eq!(arch_notes.len(), 1);
         assert_eq!(arch_notes[0].body, "Archived tab note");
 
-        // Meta & MCP settings
         assert_eq!(store.get_run_log_retention_days(), 90);
         assert!(store.is_mcp_enabled());
         assert_eq!(store.get_space_mcp_access("space-prod"), McpAccess::Read);
         assert_eq!(store.get_space_mcp_access("space-pg"), McpAccess::Write);
 
-        // MCP log + run_log
         let mcp_log = store.get_mcp_log(50);
         assert_eq!(mcp_log.len(), 1);
         assert_eq!(mcp_log[0].tool, "run_query");
@@ -2138,14 +2083,12 @@ mod tests {
         assert_eq!(run_log[0].actor, run_actor::AGENT);
         assert_eq!(run_log[0].status, run_status::OK);
 
-        // MCP approvals (pending swept to orphaned)
         let appr1 = store.get_mcp_approval("appr-1").unwrap();
         assert_eq!(appr1.status, "approved");
         let appr2 = store.get_mcp_approval("appr-2").unwrap();
         assert_eq!(appr2.status, mcp_approval_status::ORPHANED);
         assert!(appr2.decided_at.is_some());
 
-        // Migration marker recorded
         let marker: Option<String> = conn
             .query_row(
                 "SELECT value FROM studio_meta WHERE key = ?1",
@@ -2187,12 +2130,10 @@ mod tests {
         let catalog = test_catalog();
         assert_full_migration_state(&store, &secrets, &catalog);
 
-        // Backup was created alongside studio.db and original legacy DB remains intact.
         let backup_path = new_dir.join("larik.tauri-backup.db");
         assert!(backup_path.is_file());
         assert!(legacy_db.is_file());
 
-        // Re-opening must be idempotent (no duplicate mcp_log/run_log/notes, no second backup).
         let store2 = StudioStore::open_at_with_secrets_and_legacy(
             target_db,
             secrets.clone(),
@@ -2221,7 +2162,6 @@ mod tests {
             .set(&legacy_tauri_secret_target("space-prod"), "keyring-prod-pw!")
             .unwrap();
 
-        // Open directly on the legacy Tauri DB file (in-place upgrade).
         let store = StudioStore::open_at_with_secrets(db_path.clone(), secrets.clone()).unwrap();
         let catalog = test_catalog();
         assert_full_migration_state(&store, &secrets, &catalog);
@@ -2229,7 +2169,6 @@ mod tests {
         let backup_path = dir.join("larik.tauri-backup.db");
         assert!(backup_path.is_file());
 
-        // Re-opening the same DB must be completely idempotent.
         let store2 = StudioStore::open_at_with_secrets(db_path, secrets.clone()).unwrap();
         assert_full_migration_state(&store2, &secrets, &catalog);
         assert!(!dir.join("larik.tauri-backup-1.db").exists());
@@ -2249,13 +2188,11 @@ mod tests {
         let secrets = Arc::new(InMemorySecretBackend::new());
         let target_db = dir.join("studio.db");
 
-        // Initialize a fresh GPUI studio DB with its own saved state.
         let store = StudioStore::open_at_with_secrets(target_db.clone(), secrets.clone()).unwrap();
         let mut initial = StudioState::seed_default(&catalog);
         initial.spaces[0].name = "Existing GPUI Space".to_string();
         store.save(&initial, &catalog).unwrap();
 
-        // Now place a legacy Tauri DB right beside it and re-open.
         let legacy_db = dir.join("larik.db");
         create_legacy_tauri_fixture(&legacy_db);
 
@@ -2281,12 +2218,10 @@ mod tests {
             .collect();
         assert_eq!(decode_legacy_keyring_blob(&utf16_bytes).unwrap(), password);
 
-        // Trailing NUL trimmed cleanly
         let mut with_nul = utf16_bytes.clone();
         with_nul.extend_from_slice(&0u16.to_le_bytes());
         assert_eq!(decode_legacy_keyring_blob(&with_nul).unwrap(), password);
 
-        // Odd-length UTF-8 fallback
         assert_eq!(decode_legacy_keyring_blob(b"abc").unwrap(), "abc");
     }
 }

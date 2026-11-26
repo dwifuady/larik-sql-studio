@@ -1,6 +1,3 @@
-//! Named-pipe client talking to the running `larik-sql-studio` desktop studio for interactive
-//! write approvals and `open_in_studio`.
-
 use std::time::Duration;
 
 use larik_core::mcp::{
@@ -29,7 +26,6 @@ async fn round_trip_line(
                 tokio::time::sleep(Duration::from_millis(35)).await;
             }
             Err(_) => {
-                // Pipe does not exist (studio closed) or permission error.
                 return None;
             }
         }
@@ -68,8 +64,6 @@ async fn round_trip_line(
     None
 }
 
-/// Sends a write-approval request to the running studio. Returns `None` if the studio is closed
-/// or the pipe disconnects before a decision arrives.
 pub async fn request_approval(
     pipe_name: &str,
     request: &McpApprovalRequest,
@@ -79,7 +73,6 @@ pub async fn request_approval(
     serde_json::from_str::<McpApprovalDecision>(reply.trim()).ok()
 }
 
-/// Sends an `open_in_studio` request to the running studio. Returns `None` if the studio is closed.
 pub async fn request_open_in_studio(
     pipe_name: &str,
     request: &McpOpenRequest,

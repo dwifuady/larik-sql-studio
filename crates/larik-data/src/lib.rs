@@ -20,7 +20,6 @@ pub fn normalize_max_rows(max_rows: usize) -> usize {
     }
 }
 
-/// How a provider setting should be rendered in the connection dialog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProviderSettingKind {
     Text,
@@ -30,7 +29,6 @@ pub enum ProviderSettingKind {
     File,
 }
 
-/// One connection field declared by a provider so the shell stays provider-agnostic.
 #[derive(Debug, Clone)]
 pub struct ProviderSetting {
     pub key: &'static str,
@@ -43,7 +41,6 @@ pub struct ProviderSetting {
     pub is_advanced: bool,
 }
 
-/// Saved connection values for one workspace (passwords are excluded from disk persistence).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ConnectionProfile {
     pub provider_id: String,
@@ -109,8 +106,6 @@ pub struct QueryColumn {
 #[derive(Debug, Clone)]
 pub struct QueryExecutionOptions {
     pub max_rows: usize,
-    /// When `Some(true)`, providers enforce read-only execution at the engine/transaction level
-    /// (for example, wrapping execution in a transaction that is unconditionally rolled back).
     pub read_only: Option<bool>,
 }
 
@@ -129,7 +124,6 @@ impl QueryExecutionOptions {
     }
 }
 
-/// One executed result set or command outcome.
 #[derive(Debug, Clone)]
 pub struct QueryResult {
     pub columns: Vec<QueryColumn>,
@@ -184,7 +178,6 @@ impl DatabaseInfo {
         }
     }
 
-    /// Sort databases matching WinUI `DatabaseInfo.InDisplayOrder`: accessible first, then A–Z.
     pub fn sort_display_order(dbs: &mut [Self]) {
         dbs.sort_by(|a, b| {
             b.is_accessible
@@ -261,7 +254,6 @@ pub struct RoutineSchema {
     pub parameters: Vec<RoutineParameter>,
 }
 
-/// A single text span returned by statement or batch splitting.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextSpan {
     pub start: usize,
@@ -269,7 +261,6 @@ pub struct TextSpan {
     pub text: String,
 }
 
-/// Completion item kind for editor suggestions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompletionKind {
     Table,
@@ -283,7 +274,6 @@ pub enum CompletionKind {
     Snippet,
 }
 
-/// Reusable SQL snippet definition passed to completion.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnippetDef {
     pub trigger: String,
@@ -294,7 +284,6 @@ pub struct SnippetDef {
     pub dialects: Option<Vec<String>>,
 }
 
-/// Result of expanding snippet placeholders (`${cursor}`, `${n:default}`, `${paste}`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpandedSnippet {
     pub text: String,
@@ -302,7 +291,6 @@ pub struct ExpandedSnippet {
     pub selection: Option<(usize, usize)>,
 }
 
-/// Returns `true` when `content` contains a `${paste}` token (case-insensitive).
 pub fn snippet_uses_clipboard(content: &str) -> bool {
     content
         .as_bytes()
@@ -310,13 +298,6 @@ pub fn snippet_uses_clipboard(content: &str) -> bool {
         .any(|w| w.eq_ignore_ascii_case(b"${paste}"))
 }
 
-/// Expands snippet markup into insertable SQL text and post-insert caret/selection offsets
-/// (UTF-8 byte offsets relative to the start of `text`):
-/// - `${cursor}` -> records final caret byte offset
-/// - `${paste}` -> appends `clipboard`
-/// - `${n:default}` / `${n}` (non-empty ASCII digits `n`) -> first occurrence records `default`
-///   and sets `selection` if still `None`; repeated `n` appends the remembered `default`
-/// - Unknown `${...}` or unclosed `${` -> emitted verbatim
 pub fn expand_snippet(content: &str, clipboard: &str) -> ExpandedSnippet {
     let mut text = String::with_capacity(content.len());
     let mut markers: BTreeMap<String, String> = BTreeMap::new();
@@ -362,7 +343,6 @@ pub fn expand_snippet(content: &str, clipboard: &str) -> ExpandedSnippet {
                     continue;
                 }
 
-                // Unknown `${...}`: emit verbatim.
                 text.push_str(&content[i..=close]);
                 i = close + 1;
                 continue;
@@ -385,7 +365,6 @@ pub fn expand_snippet(content: &str, clipboard: &str) -> ExpandedSnippet {
     }
 }
 
-/// One completion candidate returned by an [`EditorLanguage`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompletionCandidate {
     pub label: String,
@@ -398,7 +377,6 @@ pub struct CompletionCandidate {
     pub documentation: Option<String>,
 }
 
-/// Provider-agnostic input context passed to [`EditorLanguage::suggest_completions`].
 #[derive(Debug, Clone, Copy)]
 pub struct CompletionRequest<'a> {
     pub text: &'a str,
@@ -410,24 +388,19 @@ pub struct CompletionRequest<'a> {
     pub clipboard: &'a str,
 }
 
-/// Completion candidates and replacement start byte offset returned by [`EditorLanguage::suggest_completions`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CompletionResult {
     pub replace_start: usize,
     pub items: Vec<CompletionCandidate>,
 }
 
-/// Provider-owned editor language seam (splitting, dialect keywords, & completion).
 pub trait EditorLanguage: Send + Sync {
-    /// Language id passed to syntax highlighters (e.g. `"sql"`).
     fn syntax_id(&self) -> &'static str {
         "sql"
     }
 
-    /// Split a document into individual statements (for Ctrl+Enter).
     fn split_statements(&self, text: &str) -> Vec<TextSpan>;
 
-    /// Find the statement containing `byte_offset` (Ctrl+Enter target).
     fn statement_at(&self, text: &str, byte_offset: usize) -> Option<TextSpan> {
         let statements = self.split_statements(text);
         if statements.is_empty() {
@@ -440,7 +413,6 @@ pub trait EditorLanguage: Send + Sync {
         {
             return Some(found.clone());
         }
-        // Fallback: closest preceding statement, or first statement.
         statements
             .iter()
             .rev()
@@ -449,21 +421,16 @@ pub trait EditorLanguage: Send + Sync {
             .cloned()
     }
 
-    /// Split a document into execution batches (e.g. `GO` for T-SQL).
     fn split_batches(&self, text: &str) -> Vec<TextSpan>;
 
-    /// Dialect keywords offered in editor completion.
     fn keywords(&self) -> &'static [&'static str];
 
-    /// Dialect built-in functions offered in editor completion.
     fn functions(&self) -> &'static [&'static str];
 
-    /// Quote a SQL identifier using this dialect's delimiters (default: T-SQL `[name]`).
     fn quote_identifier(&self, identifier: &str) -> String {
         format!("[{}]", identifier.replace(']', "]]"))
     }
 
-    /// Build a dialect-appropriate preview query for a table or collection (e.g. Schema Explorer Play button).
     fn preview_statement(&self, schema: Option<&str>, table: &str, limit: usize) -> String {
         let qualified = match schema.map(str::trim).filter(|s| !s.is_empty()) {
             Some(s) => format!(
@@ -476,7 +443,6 @@ pub trait EditorLanguage: Send + Sync {
         format!("SELECT * FROM {qualified} LIMIT {limit};")
     }
 
-    /// Generate completion suggestions for the given editor context.
     fn suggest_completions(&self, request: &CompletionRequest<'_>) -> CompletionResult {
         let (replace_start, items) = crate::sql_language::suggest_completions_with_snippets(
             request.text,
@@ -494,7 +460,6 @@ pub trait EditorLanguage: Send + Sync {
         }
     }
 
-    /// Return `true` if inserting `new_text` at `_byte_offset` should trigger auto-completion.
     fn is_completion_trigger(&self, _byte_offset: usize, new_text: &str) -> bool {
         matches!(new_text, "." | " " | "[" | "\"" | "`" | "@")
             || new_text
@@ -504,7 +469,6 @@ pub trait EditorLanguage: Send + Sync {
     }
 }
 
-/// One live session to a database engine. Each query tab owns its own connection.
 #[async_trait]
 pub trait DatabaseConnection: Send + Sync {
     fn state(&self) -> ConnectionState;
@@ -521,7 +485,6 @@ pub trait DatabaseConnection: Send + Sync {
 
     async fn get_schema(&mut self, database: Option<&str>) -> anyhow::Result<Vec<TableSchema>>;
 
-    /// Fetch stored procedures and functions with their parameters (used by MCP `get_schema`).
     async fn get_routines(&mut self, _database: Option<&str>) -> anyhow::Result<Vec<RoutineSchema>> {
         Ok(Vec::new())
     }
@@ -533,7 +496,6 @@ pub trait DatabaseConnection: Send + Sync {
         options: &QueryExecutionOptions,
     ) -> anyhow::Result<Vec<QueryResult>>;
 
-    /// Best-effort metadata-only row-count estimate for FK reference lookup mode selection.
     async fn estimate_row_count(
         &mut self,
         _schema: Option<&str>,
@@ -543,7 +505,6 @@ pub trait DatabaseConnection: Send + Sync {
         None
     }
 
-    /// Execute a DML batch (UPDATE / DELETE) and return total rows affected.
     async fn execute_dml(
         &mut self,
         sql: &str,
@@ -565,7 +526,6 @@ pub trait DatabaseConnection: Send + Sync {
     }
 }
 
-/// Pluggable database provider. The shell interacts with all databases solely through this trait.
 pub trait DatabaseProvider: Send + Sync {
     fn id(&self) -> &'static str;
     fn display_name(&self) -> &'static str;
@@ -573,8 +533,6 @@ pub trait DatabaseProvider: Send + Sync {
     fn settings(&self) -> &'static [ProviderSetting];
     fn editor_language(&self) -> Arc<dyn EditorLanguage>;
 
-    /// Static fail-closed read-only policy for MCP `Read` workspaces.
-    /// Defaults to `None` (refuses all read-mode MCP queries unless a provider opts in).
     fn read_only_policy(&self) -> Option<Arc<dyn crate::read_only_sql::ReadOnlyStatementPolicy>> {
         None
     }
@@ -587,8 +545,6 @@ pub trait DatabaseProvider: Send + Sync {
         None
     }
 
-    /// Optional security/transport warning shown live in the workspace settings dialog
-    /// (for example when TLS certificate validation is disabled on a remote host).
     fn transport_warning(&self, _profile: &ConnectionProfile) -> Option<&'static str> {
         None
     }
@@ -614,7 +570,6 @@ pub trait DatabaseProvider: Send + Sync {
     fn create_connection(&self, profile: ConnectionProfile) -> Box<dyn DatabaseConnection>;
 }
 
-/// Registry of available providers discovered by the host.
 #[derive(Default, Clone)]
 pub struct ProviderCatalog {
     providers: Vec<Arc<dyn DatabaseProvider>>,
@@ -781,25 +736,21 @@ mod tests {
 
     #[test]
     fn expand_snippet_handles_cursor_placeholders_paste_and_unknown_tokens() {
-        // ${cursor}
         let sel = expand_snippet("SELECT * FROM ${cursor}", "");
         assert_eq!(sel.text, "SELECT * FROM ");
         assert_eq!(sel.caret_offset, "SELECT * FROM ".len());
         assert_eq!(sel.selection, None);
 
-        // ${1:default} selection sets caret at end of first selection when no ${cursor}
         let selt = expand_snippet("SELECT TOP ${1:100} * FROM dbo.Orders", "");
         assert_eq!(selt.text, "SELECT TOP 100 * FROM dbo.Orders");
         assert_eq!(selt.selection, Some(("SELECT TOP ".len(), 3)));
         assert_eq!(selt.caret_offset, "SELECT TOP 100".len());
 
-        // Repeated ${1} reuses first default without moving selection
         let rep = expand_snippet("SELECT ${1:col} FROM ${2:tbl} GROUP BY ${1}", "");
         assert_eq!(rep.text, "SELECT col FROM tbl GROUP BY col");
         assert_eq!(rep.selection, Some(("SELECT ".len(), 3)));
         assert_eq!(rep.caret_offset, "SELECT col".len());
 
-        // ${paste} clipboard substitution (case-insensitive)
         assert!(snippet_uses_clipboard("${PASTE}${cursor}"));
         assert!(!snippet_uses_clipboard("SELECT * FROM ${cursor}"));
         let pasted = expand_snippet("WHERE id IN (${PaStE})${CURSOR}", "1, 2, 3");
@@ -807,13 +758,11 @@ mod tests {
         assert_eq!(pasted.caret_offset, "WHERE id IN (1, 2, 3)".len());
         assert_eq!(pasted.selection, None);
 
-        // Combined ${1:table} + ${cursor} keeps first selection AND final caret at ${cursor}
         let selw = expand_snippet("SELECT * FROM ${1:table} WHERE ${cursor}", "");
         assert_eq!(selw.text, "SELECT * FROM table WHERE ");
         assert_eq!(selw.selection, Some(("SELECT * FROM ".len(), "table".len())));
         assert_eq!(selw.caret_offset, "SELECT * FROM table WHERE ".len());
 
-        // Unknown ${...} and unclosed ${ preserved verbatim
         let unknown = expand_snippet("SELECT ${foo}, ${bar FROM ${unclosed", "");
         assert_eq!(unknown.text, "SELECT ${foo}, ${bar FROM ${unclosed");
         assert_eq!(unknown.caret_offset, unknown.text.len());

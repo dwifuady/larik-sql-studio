@@ -20,16 +20,12 @@ pub struct ShellSuffix {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellCall {
-    /// `None` for database-level calls like `db.getCollectionNames()`,
-    /// `Some("users")` for collection-level calls like `db.users.find(...)` or `db.getCollection('users').find(...)`.
     pub collection: Option<String>,
     pub method: String,
     pub arguments: String,
     pub suffixes: Vec<ShellSuffix>,
 }
 
-/// Find the closing quote index of a string literal starting at `start` (`'` or `"`).
-/// Returns `None` if unterminated.
 pub fn end_of_string(text: &str, start: usize) -> Option<usize> {
     let bytes = text.as_bytes();
     let quote = *bytes.get(start)?;
@@ -51,8 +47,6 @@ pub fn end_of_string(text: &str, start: usize) -> Option<usize> {
     None
 }
 
-/// Skip whitespace, `// ...`, `-- ...`, and `/* ... */` comments starting at `pos`.
-/// Returns `Err` if a block comment is unterminated.
 fn skip_ws_and_comments(text: &str, mut pos: usize) -> Result<usize> {
     let bytes = text.as_bytes();
     let len = bytes.len();
@@ -91,7 +85,6 @@ fn skip_ws_and_comments(text: &str, mut pos: usize) -> Result<usize> {
     Ok(pos)
 }
 
-/// Find the index of the closing `)` matching the `(` at `open_paren`.
 fn find_matching_paren(text: &str, open_paren: usize) -> Result<usize> {
     let bytes = text.as_bytes();
     let len = bytes.len();
@@ -145,7 +138,6 @@ fn find_matching_paren(text: &str, open_paren: usize) -> Result<usize> {
     bail!("Unterminated '(' in MongoDB shell call.")
 }
 
-/// Split top-level comma-separated argument text into individual argument slices.
 pub fn split_top_level_args(args: &str) -> Result<Vec<String>> {
     let trimmed = args.trim();
     if trimmed.is_empty() {
@@ -211,13 +203,11 @@ pub fn split_top_level_args(args: &str) -> Result<Vec<String>> {
     Ok(out)
 }
 
-/// Parse one or more `db.<...>` mongosh calls from a single statement string.
 pub fn parse_shell_call(stmt: &str) -> Result<ShellCall> {
     let bytes = stmt.as_bytes();
     let len = bytes.len();
     let mut pos = skip_ws_and_comments(stmt, 0)?;
 
-    // Must start with `db` followed by `.` or `[`.
     if pos + 2 > len || !stmt[pos..pos + 2].eq_ignore_ascii_case("db") {
         bail!("MongoDB shell statement must start with 'db.'.");
     }
@@ -226,7 +216,6 @@ pub fn parse_shell_call(stmt: &str) -> Result<ShellCall> {
 
     let mut collection: Option<String> = None;
 
-    // Handle `db['coll'].method(...)` or `db["coll"].method(...)`
     if pos < len && bytes[pos] == b'[' {
         pos += 1;
         pos = skip_ws_and_comments(stmt, pos)?;
@@ -253,7 +242,6 @@ pub fn parse_shell_call(stmt: &str) -> Result<ShellCall> {
         bail!("Expected '.' or '[' after 'db'.");
     }
 
-    // Parse remaining chain before first `(` — e.g. `users.find`, `getCollection('users').find`, or `getCollectionNames`.
     let first_ident_start = skip_ws_and_comments(stmt, pos)?;
     pos = first_ident_start;
     while pos < len && (bytes[pos].is_ascii_alphanumeric() || matches!(bytes[pos], b'_' | b'-' | b'$')) {
@@ -292,10 +280,8 @@ pub fn parse_shell_call(stmt: &str) -> Result<ShellCall> {
         }
         (m, pos)
     } else if bytes.get(pos) == Some(&b'(') {
-        // Either `db.method(...)` (collection == None) or `db['coll'].method(...)` (collection == Some).
         (first_ident, pos)
     } else if collection.is_none() && bytes.get(pos) == Some(&b'.') {
-        // `db.<coll>[.<subcoll>...].<method>(...)`
         let mut segments = vec![first_ident];
         loop {
             pos = skip_ws_and_comments(stmt, pos + 1)?;
@@ -330,7 +316,6 @@ pub fn parse_shell_call(stmt: &str) -> Result<ShellCall> {
     let arguments = stmt[open_paren + 1..close_paren].to_string();
     pos = skip_ws_and_comments(stmt, close_paren + 1)?;
 
-    // Parse optional chained suffixes: `.sort(...)`, `.skip(...)`, `.limit(...)`, `.project(...)`
     let mut suffixes = Vec::new();
     while pos < len && bytes[pos] == b'.' {
         pos = skip_ws_and_comments(stmt, pos + 1)?;
@@ -355,7 +340,6 @@ pub fn parse_shell_call(stmt: &str) -> Result<ShellCall> {
         pos = skip_ws_and_comments(stmt, s_close + 1)?;
     }
 
-    // Allow optional trailing semicolons only.
     while pos < len && bytes[pos] == b';' {
         pos = skip_ws_and_comments(stmt, pos + 1)?;
     }
@@ -374,8 +358,6 @@ pub fn parse_shell_call(stmt: &str) -> Result<ShellCall> {
     })
 }
 
-/// Convert a list of MongoDB documents into a tabular [`QueryResult`] (with `_id` ordered first
-/// when present and no explicit column order is given).
 pub fn documents_to_query_result(
     docs: &[Document],
     explicit_columns: &[String],
@@ -404,7 +386,6 @@ pub fn documents_to_query_result(
         ordered
     };
 
-    // Infer column data types from first non-null value in each column.
     let mut columns = Vec::with_capacity(col_names.len());
     for name in &col_names {
         let inferred = docs
@@ -451,7 +432,6 @@ pub fn documents_to_query_result(
     }
 }
 
-/// Execute a parsed `db.<...>` mongosh statement against a live [`mongodb::Database`].
 pub async fn execute_shell_statement(
     db: &Database,
     raw_stmt: &str,
@@ -500,7 +480,6 @@ async fn run_shell_call(
     let db_name = Some(db.name().to_string());
     let args = split_top_level_args(&call.arguments)?;
 
-    // Database-level methods
     let Some(ref coll_name) = call.collection else {
         if !call.suffixes.is_empty() {
             bail!(

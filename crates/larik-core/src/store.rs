@@ -25,8 +25,6 @@ use crate::{SpaceState, StudioState};
 const RUN_LOG_RETENTION_META_KEY: &str = "run_log_retention_days";
 const MCP_ENABLED_META_KEY: &str = "mcp_enabled";
 
-/// SQLite persistence for Larik SQL Studio.
-/// Stored under `%LOCALAPPDATA%\Larik SQL Studio\studio.db` (or `LARIK_STATE_DIR\studio.db` when set).
 pub struct StudioStore {
     db_path: PathBuf,
     secrets: Arc<dyn SecretBackend>,
@@ -59,8 +57,6 @@ impl StudioStore {
         let db_path = dir.join("studio.db");
         let secrets: Arc<dyn SecretBackend> = Arc::new(WindowsCredentialBackend);
 
-        // When using the default app data directory (not an explicit `LARIK_STATE_DIR`),
-        // also check the legacy Tauri `%APPDATA%\larik\larik-sql-studio\data\larik.db` location.
         let mut legacy_candidates = crate::migration::sibling_legacy_tauri_db_candidates(&db_path);
         if !Self::has_custom_state_dir() {
             legacy_candidates.extend(crate::migration::default_legacy_tauri_db_candidates());
@@ -293,9 +289,6 @@ impl StudioStore {
         self.save_inner(state, catalog, true)
     }
 
-    /// Persist the sanitized studio JSON snapshot without touching the OS secret backend.
-    /// Used for frequent UI state changes (tab switches, editor edits, layout toggles) where
-    /// workspace passwords have not changed, avoiding slow Windows Credential Manager IPC.
     pub fn save_snapshot_only(
         &self,
         state: &StudioState,
@@ -310,8 +303,6 @@ impl StudioStore {
         catalog: &ProviderCatalog,
         sync_secrets: bool,
     ) -> anyhow::Result<()> {
-        // Always strip provider-declared password fields from SQLite JSON; only write them to
-        // the OS secret backend when `sync_secrets` is requested.
         let mut sanitized = state.clone();
         for space in &mut sanitized.spaces {
             if let Some(provider) = catalog.find(&space.profile.provider_id) {
@@ -345,7 +336,6 @@ impl StudioStore {
              ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at",
             params![json, now],
         )?;
-        // Prune notes whose tab is neither open nor archived (matching WinUI StudioStore.Write).
         let mut valid_tabs: std::collections::HashSet<&str> = std::collections::HashSet::new();
         for space in &sanitized.spaces {
             for tab in &space.tabs {
@@ -493,9 +483,6 @@ impl StudioStore {
         Ok(deleted > 0)
     }
 
-    // ---------------------------------------------------------------- run_log
-
-    /// Records a query execution in `run_log`. Best-effort by contract: never fails query execution.
     pub fn log_run(&self, record: &RunLogRecord) -> bool {
         let Ok(conn) = self.connect() else {
             return false;
@@ -532,7 +519,6 @@ impl StudioStore {
         .is_ok()
     }
 
-    /// Reads the most recent run-log rows, optionally scoped to a workspace.
     pub fn get_run_log(&self, space_id: Option<&str>, limit: usize) -> Vec<RunLogRecord> {
         let Ok(conn) = self.connect() else {
             return Vec::new();
@@ -571,7 +557,6 @@ impl StudioStore {
         }
     }
 
-    /// Counts all persisted run-log rows in the given scope (or across all workspaces when `None`).
     pub fn count_run_log(&self, space_id: Option<&str>) -> usize {
         let Ok(conn) = self.connect() else {
             return 0;
@@ -587,7 +572,6 @@ impl StudioStore {
         count.unwrap_or(0).max(0) as usize
     }
 
-    /// Substring search over statement, space_name, database_name, description, and reference.
     pub fn search_run_log(
         &self,
         space_id: Option<&str>,
@@ -679,7 +663,6 @@ impl StudioStore {
         .is_ok()
     }
 
-    /// Removes run-log rows older than the configured retention window.
     pub fn prune_run_log(&self) -> usize {
         let Ok(conn) = self.connect() else {
             return 0;
@@ -693,9 +676,6 @@ impl StudioStore {
         .unwrap_or(0)
     }
 
-    // ------------------------------------------------------------------ MCP
-
-    /// Global AI-agents opt-in flag (`studio_meta['mcp_enabled']`). Fails closed to `false`.
     pub fn is_mcp_enabled(&self) -> bool {
         let Ok(conn) = self.connect() else {
             return false;
@@ -725,7 +705,6 @@ impl StudioStore {
         Ok(())
     }
 
-    /// Reads one workspace's MCP access level. Fails closed to `McpAccess::Off`.
     pub fn get_space_mcp_access(&self, space_id: &str) -> McpAccess {
         let Ok(conn) = self.connect() else {
             return McpAccess::Off;
@@ -752,8 +731,6 @@ impl StudioStore {
         Ok(())
     }
 
-    /// Returns all saved workspaces paired with their MCP access levels (non-secret profiles only).
-    /// Never reads OS Credential Manager secrets and never invents default spaces on an empty DB.
     pub fn get_mcp_spaces(&self) -> Vec<McpSpaceRecord> {
         let Ok(conn) = self.connect() else {
             return Vec::new();
@@ -804,8 +781,6 @@ impl StudioStore {
             .collect()
     }
 
-    /// Hydrates a workspace's connection profile with passwords from the OS secret backend.
-    /// Used only inside `larik-mcp` immediately before opening a live database connection.
     pub fn load_space_profile_with_secrets(
         &self,
         space: &McpSpaceRecord,
@@ -825,7 +800,6 @@ impl StudioStore {
         profile
     }
 
-    /// Appends one entry to `mcp_log`. Best-effort; returns `true` on success.
     pub fn log_mcp_call(&self, entry: &McpLogRecord) -> bool {
         let Ok(conn) = self.connect() else {
             return false;
@@ -856,7 +830,6 @@ impl StudioStore {
         .is_ok()
     }
 
-    /// Reads the newest `limit` entries from `mcp_log`.
     pub fn get_mcp_log(&self, limit: usize) -> Vec<McpLogRecord> {
         let Ok(conn) = self.connect() else {
             return Vec::new();
@@ -933,7 +906,6 @@ impl StudioStore {
         Ok(())
     }
 
-    /// Marks stale `pending` approvals older than 10 minutes as `orphaned` (called on studio startup).
     pub fn sweep_mcp_approvals(&self) -> usize {
         let Ok(conn) = self.connect() else {
             return 0;
@@ -972,10 +944,6 @@ impl StudioStore {
         .ok()
         .flatten()
     }
-
-    // =========================================================================
-    // Notes persistence (ported from WinUI Larik.Core/NoteStore.cs)
-    // =========================================================================
 
     pub fn get_notes_for_tab(&self, tab_id: &str) -> anyhow::Result<Vec<NoteRecord>> {
         if tab_id.trim().is_empty() {
@@ -1078,8 +1046,6 @@ impl StudioStore {
         Ok(())
     }
 
-    /// Updates `space_id` on all notes for `tab_id` (used when restoring an archived tab
-    /// into a different workspace than its original deleted space).
     pub fn reassign_notes_space(&self, tab_id: &str, space_id: &str) -> anyhow::Result<()> {
         if tab_id.trim().is_empty() || space_id.trim().is_empty() {
             return Ok(());
@@ -1288,7 +1254,6 @@ mod tests {
         let store = StudioStore::open_at_with_secrets(db.clone(), secrets.clone()).unwrap();
         store.save(&state, &catalog).unwrap();
 
-        // Password must NOT appear anywhere in SQLite snapshot payload.
         let conn = Connection::open(&db).unwrap();
         let raw_payload: String = conn
             .query_row("SELECT payload FROM studio_snapshot WHERE id = 1", [], |r| {
@@ -1297,7 +1262,6 @@ mod tests {
             .unwrap();
         assert!(!raw_payload.contains("s3cr3t-p@ss-🔑"));
 
-        // Password MUST be saved in the secret backend and rehydrated on load.
         assert_eq!(secrets.len(), 1);
         let loaded = store.load(&catalog);
         assert_eq!(loaded.spaces[0].name, "Custom Space");
@@ -1306,14 +1270,12 @@ mod tests {
             Some("s3cr3t-p@ss-🔑")
         );
 
-        // Clearing password deletes the secret from the backend.
         let mut cleared = loaded.clone();
         cleared.spaces[0].profile.set("password", "");
         store.save(&cleared, &catalog).unwrap();
         assert_eq!(secrets.len(), 0);
         assert_eq!(store.load(&catalog).spaces[0].profile.get("password"), None);
 
-        // Deleting workspace secrets removes stored credentials.
         store.save(&loaded, &catalog).unwrap();
         assert_eq!(secrets.len(), 1);
         store
@@ -1342,10 +1304,8 @@ mod tests {
         let store = StudioStore::open_at_with_secrets(db.clone(), secrets.clone()).unwrap();
         store.save_snapshot_only(&state, &catalog).unwrap();
 
-        // Must NOT touch the secret backend.
         assert_eq!(secrets.len(), 0);
 
-        // Must still strip passwords from SQLite payload while saving snapshot state.
         let conn = Connection::open(&db).unwrap();
         let raw_payload: String = conn
             .query_row("SELECT payload FROM studio_snapshot WHERE id = 1", [], |r| {
@@ -1371,7 +1331,6 @@ mod tests {
 
         backend.delete(&target).unwrap();
         assert_eq!(backend.get(&target).unwrap(), None);
-        // Deleting missing credential is idempotent.
         backend.delete(&target).unwrap();
     }
 
@@ -1383,13 +1342,11 @@ mod tests {
 
         let store = StudioStore::open_at(db).unwrap();
 
-        // Seeding twice produces the exact 25 built-ins without duplicates.
         let first = store.load_snippets().unwrap();
         assert_eq!(first.len(), 25);
         let second = store.load_snippets().unwrap();
         assert_eq!(second.len(), 25);
 
-        // Dialect filtering: mssql gets `selt` not `sell`; postgres gets `sell` not `selt`.
         let mssql_defs = snippets_for_dialect(&first, "mssql");
         assert!(mssql_defs.iter().any(|d| d.trigger == "selt"));
         assert!(!mssql_defs.iter().any(|d| d.trigger == "sell"));
@@ -1398,11 +1355,9 @@ mod tests {
         assert!(pg_defs.iter().any(|d| d.trigger == "sell"));
         assert!(!pg_defs.iter().any(|d| d.trigger == "selt"));
 
-        // Built-ins cannot be deleted.
         let builtin_sel = first.iter().find(|s| s.trigger == "sel").unwrap();
         assert!(!store.delete_snippet(&builtin_sel.id).unwrap());
 
-        // Trigger conflict detection across overlapping scopes.
         assert!(has_trigger_conflict(&first, "SEL", None, None));
         assert!(has_trigger_conflict(
             &first,
@@ -1423,7 +1378,6 @@ mod tests {
             Some(&builtin_sel.id)
         ));
 
-        // Custom snippet CRUD.
         let custom = SnippetRecord {
             id: uuid::Uuid::new_v4().to_string(),
             trigger: "mytop".to_string(),
@@ -1518,12 +1472,10 @@ mod tests {
         assert_eq!(store.get_run_log(Some("space-1"), 50).len(), 1);
         assert_eq!(store.get_run_log(None, 50).len(), 2);
 
-        // Escaped '%' search must match literal "50%" and NOT match the orders query.
         let pct_hits = store.search_run_log(None, "50%", 50);
         assert_eq!(pct_hits.len(), 1);
         assert_eq!(pct_hits[0].space_id.as_deref(), Some("space-1"));
 
-        // Backdate one record older than 90 days and verify pruning removes only that row.
         let conn = Connection::open(&db).unwrap();
         conn.execute(
             "UPDATE run_log SET recorded_at = datetime('now', '-100 days') WHERE space_id = 'space-2'",
@@ -1633,8 +1585,6 @@ mod tests {
         assert_eq!(store.get_notes_for_tab(&live_tab_id).unwrap().len(), 1);
         assert_eq!(store.get_notes_for_space(&space_id).unwrap().len(), 3);
 
-        // Move second tab into archived_tabs and save snapshot:
-        // live_tab + archived_tab notes MUST survive, while deleted-tab-id note MUST be pruned.
         let moved = state.spaces[0].tabs.remove(1);
         state.archived_tabs.push(crate::ArchivedTabState {
             id: moved.id,
@@ -1654,12 +1604,10 @@ mod tests {
         assert_eq!(store.get_notes_for_tab(&archived_tab_id).unwrap().len(), 1);
         assert!(store.get_notes_for_tab("deleted-tab-id").unwrap().is_empty());
 
-        // Reassign archived tab's notes to a new space on restore.
         store.reassign_notes_space(&archived_tab_id, "new-space").unwrap();
         let reassigned = store.get_notes_for_tab(&archived_tab_id).unwrap();
         assert_eq!(reassigned[0].space_id, "new-space");
 
-        // Deleting a single note and deleting all notes for a tab.
         store.delete_note(&n1.id).unwrap();
         assert!(store.get_notes_for_tab(&live_tab_id).unwrap().is_empty());
         store.delete_notes_for_tab(&archived_tab_id).unwrap();

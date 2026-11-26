@@ -1,6 +1,3 @@
-//! WinUI-parity Notes UI: toolbar trigger, sidebar tab badge, right-hand docked Notes pane,
-//! editor margin markers + active-note bar, and anchored light-dismiss popover editor.
-
 use std::collections::{BTreeMap, HashMap};
 
 use chrono::Utc;
@@ -24,7 +21,6 @@ use larik_data::EditorLanguage;
 use crate::studio::StudioView;
 use crate::theme::StudioPalette;
 
-/// Fixed width of the right-hand docked Notes pane matching WinUI (`336` DIP).
 pub const NOTES_PANE_WIDTH: f32 = 336.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -35,8 +31,6 @@ pub enum NoteScope {
     Unanchored,
 }
 
-/// Live in-memory note entry pairing the persisted `NoteRecord` with its current resolved
-/// anchor state against the owning tab's SQL content.
 #[derive(Debug, Clone)]
 pub struct NoteEntry {
     pub record: NoteRecord,
@@ -67,7 +61,6 @@ impl NoteEntry {
     }
 }
 
-/// Active anchored popover editor state.
 pub struct NoteEditorPopupState {
     pub note_id: String,
     pub tab_id: String,
@@ -75,14 +68,12 @@ pub struct NoteEditorPopupState {
     pub _subscription: Subscription,
 }
 
-/// Single-step in-memory undo buffer for note deletion (matching WinUI status-bar Undo).
 #[derive(Debug, Clone)]
 pub struct DeletedNoteUndo {
     pub record: NoteRecord,
     pub tab_id: String,
 }
 
-/// Aggregated right-edge editor marker badge for notes sharing an `(start, length)` span.
 #[derive(Debug, Clone)]
 pub struct EditorNoteMarker {
     pub start: usize,
@@ -110,7 +101,6 @@ pub fn note_kind_color(kind: NoteKind, palette: StudioPalette) -> Hsla {
     }
 }
 
-/// Computes grouped editor markers for active tab notes (excluding Tab and Lost notes).
 pub fn compute_editor_markers(notes: &[NoteEntry], text: &str) -> Vec<EditorNoteMarker> {
     let mut grouped: BTreeMap<(usize, usize), Vec<&NoteEntry>> = BTreeMap::new();
     for entry in notes {
@@ -146,7 +136,6 @@ pub fn compute_editor_markers(notes: &[NoteEntry], text: &str) -> Vec<EditorNote
         .collect()
 }
 
-/// Computes the `(start_line, end_line)` 1-based line range for an active anchored note.
 pub fn anchor_line_range(entry: &NoteEntry, text: &str) -> Option<(usize, usize)> {
     if entry.record.anchor.is_tab
         || entry.state == NoteAnchorState::Lost
@@ -168,7 +157,6 @@ pub fn anchor_line_range(entry: &NoteEntry, text: &str) -> Option<(usize, usize)
     Some((start_line, end_line))
 }
 
-/// Renders the query toolbar Notes toggle button (immediately left of Run All / Run).
 pub fn render_notes_toolbar_button(
     tab_note_count: usize,
     notes_pane_open: bool,
@@ -225,7 +213,6 @@ pub fn render_notes_toolbar_button(
         .into_any_element()
 }
 
-/// Renders the compact note-count pill inside a left sidebar tab row (hidden when count == 0).
 pub fn render_tab_note_badge(count: usize, palette: StudioPalette) -> Option<AnyElement> {
     if count == 0 {
         return None;
@@ -255,7 +242,6 @@ pub fn render_tab_note_badge(count: usize, palette: StudioPalette) -> Option<Any
     )
 }
 
-/// Renders the right-hand docked Notes pane (`336px` fixed width) mirroring WinUI `NotesPane`.
 #[allow(clippy::too_many_arguments)]
 pub fn render_notes_pane(
     active_space: Option<&SpaceState>,
@@ -270,10 +256,6 @@ pub fn render_notes_pane(
     let active_tab_id = active_tab.map(|t| t.id.as_str()).unwrap_or("");
     let now = Utc::now();
 
-    // Compute counts matching WinUI StudioViewModel.Notes:
-    // - TabNoteCount = active tab total
-    // - SpaceNoteCount = all tabs in active space
-    // - LostNoteCount = active tab lost notes only!
     let tab_notes = notes_by_tab
         .get(active_tab_id)
         .map(Vec::as_slice)
@@ -296,11 +278,6 @@ pub fn render_notes_pane(
         (total, lost)
     });
 
-    // Gather and sort visible notes according to WinUI order:
-    // 1. Anchored/Tab before Lost
-    // 2. Active tab before other tabs
-    // 3. Workspace rail tab index
-    // 4. anchor.start ascending
     struct DisplayRow<'a> {
         entry: &'a NoteEntry,
         tab: &'a TabState,
@@ -365,7 +342,6 @@ pub fn render_notes_pane(
 
     let visible_count = rows.len();
 
-    // Footer summary matching WinUI NotesSummary
     let (summary_total, summary_lost) = match scope {
         NoteScope::Space => (space_count, space_lost_count),
         NoteScope::ThisTab | NoteScope::Unanchored => (tab_count, tab_lost_count),
@@ -390,7 +366,6 @@ pub fn render_notes_pane(
         .border_l_1()
         .border_color(palette.hairline)
         .overflow_hidden()
-        // Header (46px)
         .child(
             h_flex()
                 .h(px(46.0))
@@ -452,7 +427,6 @@ pub fn render_notes_pane(
                         ),
                 ),
         )
-        // Filter bar: This tab / All / Unanchored
         .child(
             h_flex()
                 .px_2p5()
@@ -488,7 +462,6 @@ pub fn render_notes_pane(
                     cx,
                 )),
         )
-        // Cards list OR Empty state
         .child(if rows.is_empty() {
             let (empty_title, empty_detail) = match scope {
                 NoteScope::ThisTab => (
@@ -566,7 +539,6 @@ pub fn render_notes_pane(
                 }))
                 .into_any_element()
         })
-        // Footer (38px)
         .child(
             h_flex()
                 .h(px(38.0))
@@ -690,7 +662,6 @@ fn render_note_card(
     let body_trimmed = entry.record.body.trim();
     let has_body = !body_trimmed.is_empty();
     let body_display = if has_body {
-        // Keep up to 4 lines for compact card preview.
         let mut lines: Vec<&str> = body_trimmed.lines().take(4).collect();
         let truncated = body_trimmed.lines().count() > 4;
         let mut s = lines.join("\n");
@@ -733,7 +704,6 @@ fn render_note_card(
         .on_click(cx.listener(move |this, _, window, cx| {
             this.open_note_from_card(tab_id.clone(), note_id.clone(), window, cx);
         }))
-        // Active left 2px accent strip
         .when(is_active, |el| {
             el.child(
                 div()
@@ -746,7 +716,6 @@ fn render_note_card(
                     .bg(palette.accent),
             )
         })
-        // Row 0: Kind badge + optional Re-anchor action on Lost notes
         .child(
             h_flex()
                 .items_center()
@@ -799,7 +768,6 @@ fn render_note_card(
                     )
                 }),
         )
-        // Row 1: Single-line mono quote (hidden for Tab / Lost)
         .when(has_quote, |col| {
             col.child(
                 div()
@@ -817,7 +785,6 @@ fn render_note_card(
                     .child(quote_text),
             )
         })
-        // Row 2: Body preview (or italic "Empty note")
         .child(
             div()
                 .w_full()
@@ -831,7 +798,6 @@ fn render_note_card(
                 .when(!has_body, |d| d.italic())
                 .child(body_display),
         )
-        // Row 3: Footer metadata
         .child(
             h_flex()
                 .w_full()
@@ -880,9 +846,6 @@ fn render_note_card(
         .into_any_element()
 }
 
-/// Renders editor overlays inside the SQL editor card:
-/// - Left-edge 3px `ActiveNoteBar` spanning the active open note's line range
-/// - Right-edge clickable `NoteMarkerLayer` pills for anchored notes on the active tab
 #[allow(clippy::too_many_arguments)]
 pub fn render_editor_note_overlays(
     markers: &[EditorNoteMarker],
@@ -893,11 +856,9 @@ pub fn render_editor_note_overlays(
     cx: &mut Context<StudioView>,
 ) -> Vec<AnyElement> {
     let mut elements = Vec::new();
-    // GPUI Editor has ~8px top padding before line 1; scroll_offset_y is <= 0 as content scrolls down.
     let top_inset = 8.0_f32;
     let lh = line_height_px.max(16.0);
 
-    // 1. Left-edge 3px ActiveNoteBar
     if let Some((start_line, end_line)) = active_line_range {
         let top = top_inset + (start_line.saturating_sub(1) as f32) * lh + scroll_offset_y;
         let line_count = end_line.saturating_sub(start_line) + 1;
@@ -919,12 +880,10 @@ pub fn render_editor_note_overlays(
         }
     }
 
-    // 2. Right-edge clickable note markers
     for marker in markers {
         let line_y = top_inset + (marker.start_line.saturating_sub(1) as f32) * lh + scroll_offset_y;
         let badge_h = 22.0_f32;
         let top = line_y + ((lh - badge_h) * 0.5).max(0.0);
-        // Hide markers scrolled above the editor viewport.
         if top + badge_h < 0.0 {
             continue;
         }
@@ -977,7 +936,6 @@ pub fn render_editor_note_overlays(
     elements
 }
 
-/// Renders the anchored light-dismiss popover editor matching WinUI `NoteEditorView`.
 pub fn render_note_editor_popover(
     entry: &NoteEntry,
     anchor_text: &str,
@@ -1024,14 +982,12 @@ pub fn render_note_editor_popover(
                 .overflow_hidden()
                 .occlude()
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                // Main padded body
                 .child(
                     v_flex()
                         .px_3()
                         .pt_2p5()
                         .pb_2p5()
                         .gap_2()
-                        // Row 0: Kind selector pills + Delete + Close
                         .child(
                             h_flex()
                                 .items_center()
@@ -1124,7 +1080,6 @@ pub fn render_note_editor_popover(
                                         ),
                                 ),
                         )
-                        // Row 1: Quote snippet (hidden for Tab / Lost)
                         .when(has_quote, |col| {
                             col.child(
                                 div()
@@ -1142,7 +1097,6 @@ pub fn render_note_editor_popover(
                                     .child(quote_text),
                             )
                         })
-                        // Row 2: Anchor metadata line
                         .child(
                             h_flex()
                                 .items_center()
@@ -1167,7 +1121,6 @@ pub fn render_note_editor_popover(
                                         .child(anchor_text.to_string()),
                                 ),
                         )
-                        // Row 3: Multiline plain-text note body editor
                         .child(
                             div()
                                 .w_full()
@@ -1184,7 +1137,6 @@ pub fn render_note_editor_popover(
                                 ),
                         ),
                 )
-                // Row 4: Full-bleed autosave footer (32px)
                 .child(
                     h_flex()
                         .h(px(32.0))

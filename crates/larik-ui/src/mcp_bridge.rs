@@ -1,6 +1,3 @@
-//! Background Windows Named Pipe listener in `larik-sql-studio` that receives live write-approval
-//! requests and `open_in_studio` commands from `larik-mcp`.
-
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -12,7 +9,6 @@ use larik_core::store::StudioStore;
 use tokio::runtime::Runtime;
 use tokio::sync::{mpsc, oneshot};
 
-/// Messages delivered from the background named-pipe listener to `StudioView` on the UI thread.
 pub enum McpBridgeCommand {
     Approve {
         request: McpApprovalRequest,
@@ -24,8 +20,6 @@ pub enum McpBridgeCommand {
     },
 }
 
-/// Spawns the named-pipe server on the provided Tokio runtime and returns the receiver for UI
-/// dispatch. Also sweeps stale `pending` rows in `mcp_approvals` on startup.
 pub fn start_mcp_pipe_server(
     runtime: &Arc<Runtime>,
     store: Arc<StudioStore>,
@@ -171,6 +165,5 @@ async fn run_pipe_loop(pipe_name: String, tx: mpsc::UnboundedSender<McpBridgeCom
 
 #[cfg(not(windows))]
 async fn run_pipe_loop(_pipe_name: String, _tx: mpsc::UnboundedSender<McpBridgeCommand>) {
-    // Named-pipe IPC is Windows-only; keep task idle on non-Windows targets.
     std::future::pending::<()>().await;
 }

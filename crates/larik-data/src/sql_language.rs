@@ -6,14 +6,10 @@ use crate::{
     expand_snippet,
 };
 
-/// Identifier quoting style used by a SQL dialect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IdentifierQuoteStyle {
-    /// T-SQL brackets: `[name]`, escaping `]` as `]]`.
     Brackets,
-    /// ANSI SQL / PostgreSQL / SQLite double quotes: `"name"`, escaping `"` as `""`.
     DoubleQuotes,
-    /// MySQL backticks: `` `name` ``, escaping `` ` `` as `` `` ``.
     Backticks,
 }
 
@@ -27,7 +23,6 @@ impl IdentifierQuoteStyle {
     }
 }
 
-/// Multi-dialect SQL implementation for statement/batch splitting and completion metadata.
 #[derive(Debug, Clone)]
 pub struct SqlLanguage {
     pub supports_go_batches: bool,
@@ -264,9 +259,6 @@ fn trim_span(full: &str, start: usize, end: usize) -> Option<TextSpan> {
     })
 }
 
-/// Try to parse a PostgreSQL dollar-quote delimiter starting at `bytes[pos] == b'$'`.
-/// Matches `$$` or `$tag$` where `tag` starts with `[A-Za-z_]` (or non-ASCII) and continues
-/// with `[A-Za-z0-9_]` (or non-ASCII). Rejects positional parameters like `$1`.
 fn parse_dollar_quote_tag(bytes: &[u8], pos: usize) -> Option<&[u8]> {
     if bytes.get(pos) != Some(&b'$') {
         return None;
@@ -298,9 +290,6 @@ fn is_ident_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b >= 0x80
 }
 
-/// Split semicolon-delimited statements while respecting SQL quotes, comments,
-/// PostgreSQL dollar-quoted strings (`$$...$$` / `$tag$...$tag$`), `E'...'` escape strings,
-/// and optionally `//` line comments (used by MongoDB shell/SQL scripts).
 pub fn split_semicolon_statements_with_options(
     text: &str,
     base_offset: usize,
@@ -518,10 +507,6 @@ fn is_go_separator_line(trimmed: &str) -> bool {
     }
 }
 
-// ---------------------------------------------------------------------------
-// WinUI CompletionEngine port (clause-, schema-, alias-, and FK/JOIN-aware)
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ClauseScope {
     Table { alias_context: bool },
@@ -534,7 +519,6 @@ enum ClauseScope {
 struct ScopeInfo {
     scope: ClauseScope,
     keyword: String,
-    /// True when the token directly before the caret is a clause keyword (e.g. `FROM `, `JOIN `, `ON `, `USE `).
     immediately_after_clause: bool,
 }
 
@@ -557,13 +541,8 @@ impl<'a> TableRef<'a> {
 }
 
 struct RankedCandidate {
-    /// 0 = direct/prefix match (trigger prefix, identifier prefix, keyword prefix),
-    /// 1 = weak/substring match (snippet name substring, mid-identifier match).
     match_rank: i32,
-    /// Kind priority bucket matching C# `CompletionItem.Rank`:
-    /// 0 = Snippet/Join, 1 = Table/Database/Variable/Cte, 2 = Column, 3 = Function, 4 = Keyword.
     kind_rank: i32,
-    /// Secondary sort key within the same `(match_rank, kind_rank)`.
     rank_sort: i32,
     candidate: CompletionCandidate,
 }
@@ -581,7 +560,6 @@ fn kind_rank(kind: CompletionKind) -> i32 {
     }
 }
 
-/// Clause-, schema-, alias-, and JOIN-aware SQL completion generator (ported from WinUI CompletionEngine).
 pub fn suggest_completions(
     sql: &str,
     byte_offset: usize,
@@ -591,7 +569,6 @@ pub fn suggest_completions(
     suggest_completions_with_snippets(sql, byte_offset, tables, &[], &[], "", language, true)
 }
 
-/// Full SQL completion generator with database list (for `USE`) and explicit-vs-auto trigger handling.
 pub fn suggest_completions_with_context(
     sql: &str,
     byte_offset: usize,
@@ -612,7 +589,6 @@ pub fn suggest_completions_with_context(
     )
 }
 
-/// Full SQL completion generator including dialect-filtered SQL snippets and clipboard expansion.
 #[allow(clippy::too_many_arguments)]
 pub fn suggest_completions_with_snippets(
     sql: &str,
@@ -635,9 +611,6 @@ pub fn suggest_completions_with_snippets(
 
     let scope = detect_scope(before_word_in_stmt);
 
-    // Avoid popping up an uninvited menu on trailing whitespace after a completed expression
-    // unless we are immediately after a clause trigger (`FROM `, `JOIN `, `ON `, `USE `, `SELECT `, etc.)
-    // or the user typed a qualifier dot or explicitly invoked Ctrl+Space.
     if !is_explicit
         && word.is_empty()
         && qualifier.is_none()
@@ -661,8 +634,6 @@ pub fn suggest_completions_with_snippets(
     if let Some(ref qual) = qualifier {
         match scope.scope {
             ClauseScope::Table { alias_context } => {
-                // Schema-qualified table lookup (`FROM dbo.<caret>` or `FROM [dbo].<caret>`).
-                // Omit schema prefix from insert_text because the user already typed it!
                 add_tables(
                     &mut ranked,
                     tables,
@@ -675,7 +646,6 @@ pub fn suggest_completions_with_snippets(
                 );
             }
             _ => {
-                // Qualified column lookup (`[o].<caret>`, `orders.<caret>`, `cte.<caret>`).
                 if let Some(resolved_ref) = refs
                     .iter()
                     .find(|r| r.effective_qualifier().eq_ignore_ascii_case(qual))
@@ -707,7 +677,6 @@ pub fn suggest_completions_with_snippets(
                 {
                     add_qualified_table_columns(&mut ranked, table, &word_lower, language);
                 } else {
-                    // Fallback: maybe qualifier is a schema name (`dbo.<caret>`).
                     add_tables(
                         &mut ranked,
                         tables,
@@ -758,8 +727,6 @@ pub fn suggest_completions_with_snippets(
                 add_target_columns(&mut ranked, target, &word_lower, is_set, language);
             }
 
-            // Also offer table/alias qualifiers in column scope so typing `o` can complete `[o]`
-            // (ranked below columns so column prefixes win first).
             for r in &refs {
                 let qual = r.effective_qualifier();
                 if let Some(match_rank) = match_tier(qual, &word_lower) {
@@ -876,8 +843,6 @@ fn is_word_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == '@' || c == '$'
 }
 
-/// Extracts `(word_start, typed_word_unquoted, optional_qualifier)` at `caret`.
-/// Handles bracketed qualifiers and prefixes like `[dbo].[Ord` or `[o].`.
 fn extract_context(sql: &str, caret: usize) -> (usize, String, Option<String>) {
     let before = &sql[..caret];
     let bytes = before.as_bytes();
@@ -888,14 +853,12 @@ fn extract_context(sql: &str, caret: usize) -> (usize, String, Option<String>) {
     }
     let raw_word = &before[i..];
 
-    // Include opening quote/bracket in replacement span so `[Ord` replaces cleanly with `[dbo].[Orders] AS [o]`.
     let word_start = if i > 0 && matches!(bytes[i - 1], b'[' | b'"' | b'`') {
         i - 1
     } else {
         i
     };
 
-    // Check for preceding `.` qualifier (allowing optional whitespace isn't standard; check directly before word_start).
     let qualifier = if word_start > 0 && bytes[word_start - 1] == b'.' {
         let before_dot = &before[..word_start - 1];
         let trimmed = before_dot.trim_end();
@@ -929,7 +892,6 @@ fn extract_context(sql: &str, caret: usize) -> (usize, String, Option<String>) {
     (word_start, raw_word.to_string(), qualifier)
 }
 
-/// Finds `(start, end)` byte range of the SQL statement containing `caret` (split on `;` outside quotes/comments).
 fn statement_bounds(sql: &str, caret: usize) -> (usize, usize) {
     let bytes = sql.as_bytes();
     let len = bytes.len();
@@ -1060,8 +1022,6 @@ struct SqlToken {
     quoted: bool,
 }
 
-/// Tokenizes a SQL statement while ignoring comments/string literals and tracking parenthesis depth.
-/// Preserves qualified chains (`[dbo].[Orders]`) as separate tokens with `"."` between them.
 fn tokenize_sql(text: &str) -> Vec<SqlToken> {
     let bytes = text.as_bytes();
     let len = bytes.len();
@@ -1077,7 +1037,6 @@ fn tokenize_sql(text: &str) -> Vec<SqlToken> {
             i += 1;
             continue;
         }
-        // Line comment
         if b == b'-' && next == b'-' {
             i += 2;
             while i < len && bytes[i] != b'\n' {
@@ -1085,7 +1044,6 @@ fn tokenize_sql(text: &str) -> Vec<SqlToken> {
             }
             continue;
         }
-        // Block comment
         if b == b'/' && next == b'*' {
             i += 2;
             let mut comment_depth = 1usize;
@@ -1104,7 +1062,6 @@ fn tokenize_sql(text: &str) -> Vec<SqlToken> {
             }
             continue;
         }
-        // Single-quoted string literal (skip content, emit placeholder)
         if b == b'\'' {
             i += 1;
             while i < len {
@@ -1126,7 +1083,6 @@ fn tokenize_sql(text: &str) -> Vec<SqlToken> {
             });
             continue;
         }
-        // Bracketed identifier `[name]`
         if b == b'[' {
             i += 1;
             let mut val = String::new();
@@ -1153,7 +1109,6 @@ fn tokenize_sql(text: &str) -> Vec<SqlToken> {
             });
             continue;
         }
-        // Double-quoted or backtick identifier
         if b == b'"' || b == b'`' {
             let delim = b;
             i += 1;
@@ -1253,7 +1208,6 @@ fn detect_scope(before_word: &str) -> ScopeInfo {
         None
     };
 
-    // Immediately after operator or comma or opening paren -> Column scope
     if matches!(last.text.as_str(), "=" | "<" | ">" | "!" | "," | "(") {
         let clause = last_clause_keyword(&tokens).unwrap_or_default();
         return ScopeInfo {
@@ -1263,7 +1217,6 @@ fn detect_scope(before_word: &str) -> ScopeInfo {
         };
     }
 
-    // Check immediately-preceding clause keyword first (`FROM `, `JOIN `, `ON `, `USE `, etc.)
     if !last.quoted {
         if last.upper == "USE" {
             return ScopeInfo {
@@ -1329,7 +1282,6 @@ fn detect_scope(before_word: &str) -> ScopeInfo {
         }
     }
 
-    // Trailing-dot qualifier: e.g. `FROM dbo.` or `DELETE FROM [dbo].` or `INNER JOIN dbo.`
     if last.text == "." && tokens.len() >= 3 {
         let before_qual = &tokens[tokens.len() - 3];
         if !before_qual.quoted {
@@ -1455,7 +1407,6 @@ fn is_clause_stop_word(upper: &str) -> bool {
     )
 }
 
-/// Parses `WITH cte1 AS (SELECT ...), cte2 AS (...)` definitions in the current statement.
 fn find_ctes(stmt: &str) -> Vec<(String, Vec<String>)> {
     let tokens = tokenize_sql(stmt);
     let mut ctes = Vec::new();
@@ -1477,7 +1428,6 @@ fn find_ctes(stmt: &str) -> Vec<(String, Vec<String>)> {
                 }
                 i += 1;
                 let mut cols = Vec::new();
-                // Optional explicit column list `cte(a, b)`
                 if i < tokens.len() && tokens[i].text == "(" {
                     i += 1;
                     while i < tokens.len() && tokens[i].text != ")" {
@@ -1516,7 +1466,6 @@ fn find_ctes(stmt: &str) -> Vec<(String, Vec<String>)> {
     ctes
 }
 
-/// Scans the entire current statement at top level for `FROM` / `JOIN` table references and aliases.
 fn find_table_references<'a>(
     stmt: &str,
     tables: &'a [TableSchema],
@@ -1535,7 +1484,6 @@ fn find_table_references<'a>(
                 continue;
             }
 
-            // Parse `[schema].[table]` or `[db].[schema].[table]` or `table`
             let mut parts = vec![tokens[cursor].text.clone()];
             cursor += 1;
             while cursor + 1 < tokens.len() && tokens[cursor].text == "." {
@@ -1557,7 +1505,6 @@ fn find_table_references<'a>(
                 continue;
             }
 
-            // Parse optional `[AS] [alias]`
             let mut alias = None;
             if cursor < tokens.len() && tokens[cursor].depth == 0 {
                 if !tokens[cursor].quoted && tokens[cursor].upper == "AS" {
@@ -1667,10 +1614,6 @@ fn find_table<'a>(
     tables.iter().find(|t| t.name.eq_ignore_ascii_case(name))
 }
 
-// ---------------------------------------------------------------------------
-// Candidate builders (exact WinUI behavior: schema + brackets + alias + JOIN ON)
-// ---------------------------------------------------------------------------
-
 #[allow(clippy::too_many_arguments)]
 fn add_tables(
     out: &mut Vec<RankedCandidate>,
@@ -1682,7 +1625,6 @@ fn add_tables(
     used_aliases: &HashSet<String>,
     language: &(impl EditorLanguage + ?Sized),
 ) {
-    // CTEs first when no schema was typed
     if typed_schema.is_none() {
         for (cte_name, _) in ctes {
             if let Some(match_rank) = match_tier(cte_name, word_lower) {
@@ -1747,7 +1689,6 @@ fn add_tables(
             continue;
         };
 
-        // Always quote schema & table; omit schema only if user already typed `dbo.`
         let quoted_table = if typed_schema.is_some() || table.schema.is_empty() {
             language.quote_identifier(&table.name)
         } else {
@@ -1773,7 +1714,6 @@ fn add_tables(
             let alias = generate_unique_alias(&table.name, used_aliases);
             let quoted_alias = language.quote_identifier(&alias);
 
-            // Primary entry: `[dbo].[Orders] AS [o]`
             out.push(RankedCandidate {
                 match_rank,
                 kind_rank: kind_rank(CompletionKind::Table),
@@ -1790,7 +1730,6 @@ fn add_tables(
                 },
             });
 
-            // Secondary entry: `[dbo].[Orders]` (no alias)
             out.push(RankedCandidate {
                 match_rank,
                 kind_rank: kind_rank(CompletionKind::Table),
@@ -1826,8 +1765,6 @@ fn add_tables(
     }
 }
 
-/// Generates JOIN ... ON condition suggestions using declared FKs (forward & reverse, including
-/// composite FKs) plus name-based heuristics (`customer_id -> customers.id`, shared columns).
 fn add_join_conditions(
     out: &mut Vec<RankedCandidate>,
     refs: &[TableRef<'_>],
@@ -1852,7 +1789,6 @@ fn add_join_conditions(
         };
         let other_qual = language.quote_identifier(other.effective_qualifier());
 
-        // 1. Declared FKs: joined -> other (score 1000, grouped by constraint for composite FKs)
         let mut forward_groups: BTreeMap<String, Vec<&ForeignKeySchema>> = BTreeMap::new();
         for fk in &joined_table.foreign_keys {
             if foreign_key_targets(fk, other_table) {
@@ -1882,7 +1818,6 @@ fn add_join_conditions(
             suggestions.push((1000, expr, detail));
         }
 
-        // 2. Reverse declared FKs: other -> joined (score 980)
         let mut reverse_groups: BTreeMap<String, Vec<&ForeignKeySchema>> = BTreeMap::new();
         for fk in &other_table.foreign_keys {
             if foreign_key_targets(fk, joined_table) {
@@ -1912,7 +1847,6 @@ fn add_join_conditions(
             suggestions.push((980, expr, detail));
         }
 
-        // 3. Name heuristic: joined.xxx_id -> other.pk/id (score 900)
         let other_keys = preferred_key_columns(other_table);
         if other_keys.len() == 1 {
             let other_pk = &other_keys[0];
@@ -1930,7 +1864,6 @@ fn add_join_conditions(
             }
         }
 
-        // 4. Reverse name heuristic: other.xxx_id -> joined.pk/id (score 840)
         let joined_keys = preferred_key_columns(joined_table);
         if joined_keys.len() == 1 {
             let joined_pk = &joined_keys[0];
@@ -1948,7 +1881,6 @@ fn add_join_conditions(
             }
         }
 
-        // 5. Shared column names (score 760 if PK else 720, skipping bare "id")
         for col in &joined_table.columns {
             if col.name.eq_ignore_ascii_case("id") {
                 continue;
@@ -1977,7 +1909,6 @@ fn add_join_conditions(
         }
     }
 
-    // Highest score first -> lowest rank_sort number first
     suggestions.sort_by(|a, b| b.0.cmp(&a.0));
     let mut seen_expr = HashSet::new();
     for (score, expr, detail) in suggestions {
@@ -2230,10 +2161,8 @@ fn add_snippets(
     for snippet in snippets {
         let trigger_lower = snippet.trigger.to_ascii_lowercase();
         let (match_rank, rank_sort) = if trigger_lower.starts_with(word_lower) {
-            // Direct trigger prefix match -> MatchRank 0, KindRank 0 (Snippet): always leads!
             (0, 0)
         } else if !word_lower.is_empty() && snippet.name.to_ascii_lowercase().contains(word_lower) {
-            // Name substring fallback -> MatchRank 1 so direct keyword/table prefixes beat it.
             (1, 1)
         } else {
             continue;
@@ -2314,8 +2243,6 @@ fn add_functions(out: &mut Vec<RankedCandidate>, functions: &[&str], word_lower:
     }
 }
 
-/// Returns `Some(0)` for an empty query or prefix match, `Some(1)` for a substring match,
-/// or `None` when `candidate` does not match `query_lower`.
 fn match_tier(candidate: &str, query_lower: &str) -> Option<i32> {
     if query_lower.is_empty() {
         return Some(0);
@@ -2330,14 +2257,6 @@ fn match_tier(candidate: &str, query_lower: &str) -> Option<i32> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Alias + JOIN heuristics (ported directly from WinUI CompletionEngine.cs)
-// ---------------------------------------------------------------------------
-
-/// Generates an alias for a table name:
-/// - CamelCase initials (`ApplicationUser` -> `au`)
-/// - snake_case initials (`order_items` -> `oi`)
-/// - Otherwise first letter (`Orders` -> `o`, `customers` -> `c`)
 pub fn generate_table_alias(table_name: &str) -> String {
     let capitals: Vec<char> = table_name.chars().filter(|c| c.is_uppercase()).collect();
     if capitals.len() > 1 {
@@ -2644,7 +2563,6 @@ mod tests {
         let lang = SqlLanguage::postgres();
         let schema = postgres_schema();
 
-        // Table completion uses double quotes
         let sql_from = "SELECT * FROM ord";
         let res = lang.suggest_completions(&CompletionRequest {
             text: sql_from,
@@ -2657,7 +2575,6 @@ mod tests {
         });
         assert_eq!(res.items[0].insert_text, "\"public\".\"orders\" AS \"o\"");
 
-        // JOIN ... ON uses double quotes
         let sql_join =
             "SELECT * FROM \"public\".\"customers\" AS \"c\" INNER JOIN \"public\".\"orders\" AS \"o\" ON ";
         let res = lang.suggest_completions(&CompletionRequest {
@@ -2672,7 +2589,6 @@ mod tests {
         assert_eq!(res.items[0].kind, CompletionKind::Join);
         assert_eq!(res.items[0].insert_text, "\"o\".\"customer_id\" = \"c\".\"id\"");
 
-        // Dot-qualified alias completion
         let sql_dot = "SELECT \"o\". FROM \"public\".\"orders\" AS \"o\"";
         let res = lang.suggest_completions(&CompletionRequest {
             text: sql_dot,
@@ -2685,7 +2601,6 @@ mod tests {
         });
         assert!(res.items.iter().any(|i| i.insert_text == "\"customer_id\""));
 
-        // Postgres-specific keywords and functions
         let sql_kw = "SELECT * FROM \"public\".\"orders\" WHERE \"id\" IL";
         let res = lang.suggest_completions(&CompletionRequest {
             text: sql_kw,
@@ -2718,7 +2633,6 @@ mod tests {
                 .any(|i| i.kind == CompletionKind::Function && i.label == "DATE_TRUNC")
         );
 
-        // WITH RECURSIVE CTE column completion
         let sql_cte =
             "WITH RECURSIVE tree(node_id) AS (SELECT 1) SELECT \"t\". FROM \"tree\" AS \"t\"";
         let res = lang.suggest_completions(&CompletionRequest {
@@ -2732,7 +2646,6 @@ mod tests {
         });
         assert!(res.items.iter().any(|i| i.insert_text == "\"node_id\""));
 
-        // INSERT ... RETURNING column completion
         let sql_ret = "INSERT INTO \"public\".\"orders\" VALUES (1, 2) RETURNING ";
         let res = lang.suggest_completions(&CompletionRequest {
             text: sql_ret,
@@ -2835,18 +2748,15 @@ mod tests {
         });
         assert_eq!(res.items[0].insert_text, "`sales`.`orders` AS `o`");
 
-        // Statement splitting respects backticks containing `;` (and escaped ``)
         let stmts = lang.split_statements("SELECT `a;b` FROM orders; SELECT 2;");
         assert_eq!(stmts.len(), 2);
         assert_eq!(stmts[0].text, "SELECT `a;b` FROM orders");
         assert_eq!(stmts[1].text, "SELECT 2");
 
-        // Escaped backticks inside identifier don't prematurely end backtick mode
         let stmts_escaped = lang.split_statements("SELECT `a``;b` FROM orders; SELECT 2;");
         assert_eq!(stmts_escaped.len(), 2);
         assert_eq!(stmts_escaped[0].text, "SELECT `a``;b` FROM orders");
 
-        // statement_bounds inside completion also respects backticks containing `;`
         let multi = "SELECT 1; SELECT `a;b`, ord FROM `sales`.`orders` AS `o`";
         let caret = "SELECT 1; SELECT `a;b`, ord".len();
         let res = lang.suggest_completions(&CompletionRequest {
@@ -2917,7 +2827,6 @@ mod tests {
             },
         ];
 
-        // Typing `sel` returns `sel` snippet ranked first with caret_offset & markdown doc
         let res_sel = lang.suggest_completions(&CompletionRequest {
             text: "sel",
             byte_offset: 3,
@@ -2938,7 +2847,6 @@ mod tests {
                 .is_some_and(|d| d.contains("```sql\nSELECT * FROM \n```"))
         );
 
-        // Typing `selw` returns `SELECT * FROM table WHERE ` with selection on `table` and caret at end
         let res_selw = lang.suggest_completions(&CompletionRequest {
             text: "selw",
             byte_offset: 4,
@@ -2959,7 +2867,6 @@ mod tests {
             Some("SELECT * FROM table WHERE ".len())
         );
 
-        // Typing `wher` ranks keyword WHERE ahead of snippet `selw` (whose name contains "WHERE")
         let res_wher = lang.suggest_completions(&CompletionRequest {
             text: "SELECT * FROM dbo.Orders wher",
             byte_offset: "SELECT * FROM dbo.Orders wher".len(),
@@ -2981,7 +2888,6 @@ mod tests {
             .expect("selw snippet matched via name fallback");
         assert!(where_idx < selw_idx, "WHERE ({where_idx}) must beat selw ({selw_idx})");
 
-        // Typing `jo` ranks keyword JOIN ahead of snippet `selj`
         let res_jo = lang.suggest_completions(&CompletionRequest {
             text: "SELECT * FROM dbo.Orders jo",
             byte_offset: "SELECT * FROM dbo.Orders jo".len(),
@@ -3003,7 +2909,6 @@ mod tests {
             .expect("selj snippet matched via name fallback");
         assert!(join_idx < selj_idx, "JOIN ({join_idx}) must beat selj ({selj_idx})");
 
-        // Explicit Ctrl+Space with empty prefix returns snippets and keywords
         let res_empty = lang.suggest_completions(&CompletionRequest {
             text: "",
             byte_offset: 0,
@@ -3029,7 +2934,6 @@ mod tests {
 
         let lang = SqlLanguage::tsql();
         let mut schema = sample_schema();
-        // Add tables that both prefix-match and substring-match `sel`, plus 80 tables containing `s`.
         schema.push(TableSchema {
             schema: "dbo".into(),
             name: "Sellers".into(),
@@ -3084,8 +2988,6 @@ mod tests {
             },
         ];
 
-        // 1. Typing `sel`: all matching snippets come BEFORE prefix table `Sellers`,
-        // keyword `SELECT`, and substring table `UserSelections`.
         let res_sel = lang.suggest_completions(&CompletionRequest {
             text: "sel",
             byte_offset: 3,
@@ -3120,7 +3022,6 @@ mod tests {
         assert!(sellers_idx < select_idx, "prefix table outranks keyword SELECT (C# parity)");
         assert!(select_idx < user_sel_idx, "prefix keyword outranks substring table UserSelections");
 
-        // 2. Typing `s` with 80+ tables starting with `S`: snippets STILL lead at index 0.
         let res_s = lang.suggest_completions(&CompletionRequest {
             text: "s",
             byte_offset: 1,
@@ -3133,7 +3034,6 @@ mod tests {
         assert_eq!(res_s.items[0].kind, CompletionKind::Snippet);
         assert_eq!(res_s.items[0].label, "sel");
 
-        // 3. Explicit Ctrl+Space on empty editor: snippets lead ahead of tables.
         let res_empty = lang.suggest_completions(&CompletionRequest {
             text: "",
             byte_offset: 0,
@@ -3146,7 +3046,6 @@ mod tests {
         assert_eq!(res_empty.items[0].kind, CompletionKind::Snippet);
         assert_eq!(res_empty.items[0].label, "sel");
 
-        // 4. Typing `sel` on a new line after a WHERE clause (without `;`) still ranks `sel` #1.
         let multi_line = "SELECT * FROM [dbo].[Orders] AS [o] WHERE [o].[id] = 1\nsel";
         let res_multi = lang.suggest_completions(&CompletionRequest {
             text: multi_line,

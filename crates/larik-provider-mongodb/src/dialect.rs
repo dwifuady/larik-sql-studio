@@ -12,7 +12,6 @@ pub enum StatementKind {
     Shell,
 }
 
-/// Classify a single statement as MongoDB shell (`db.<...>`) or T-SQL-on-MongoDB.
 pub fn classify_statement(stmt: &str) -> StatementKind {
     let trimmed = strip_leading_comments(stmt).trim_start();
     let bytes = trimmed.as_bytes();
@@ -157,12 +156,10 @@ impl EditorLanguage for MongoTSqlDialect {
     }
 }
 
-/// Detect `db.<prefix>` (collections + DB methods) and `db.<collection>.<prefix>` (mongosh methods).
 fn try_shell_completions(request: &CompletionRequest<'_>) -> Option<CompletionResult> {
     let caret = request.byte_offset.min(request.text.len());
     let before = &request.text[..caret];
 
-    // Scan back to the start of the current dotted token chain (e.g. `db.orders.fi`).
     let mut chain_start = before.len();
     for (idx, ch) in before.char_indices().rev() {
         if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '-' | '$') {
@@ -183,7 +180,6 @@ fn try_shell_completions(request: &CompletionRequest<'_>) -> Option<CompletionRe
 
     let mut items = Vec::new();
     if parts.len() == 2 {
-        // `db.<prefix>`: suggest collections first, then DB methods.
         for table in request.tables {
             if typed_lower.is_empty()
                 || table.name.to_ascii_lowercase().contains(&typed_lower)
@@ -216,7 +212,6 @@ fn try_shell_completions(request: &CompletionRequest<'_>) -> Option<CompletionRe
             }
         }
     } else {
-        // `db.<collection>.<prefix>`: suggest mongosh collection methods.
         for &(method, desc) in SHELL_COLLECTION_METHODS {
             let name = method.split('(').next().unwrap_or(method);
             if typed_lower.is_empty() || name.to_ascii_lowercase().contains(&typed_lower) {

@@ -1,6 +1,3 @@
-//! Settings -> AI agents configuration page and live write-approval modal,
-//! mirroring WinUI `SettingsPage.xaml` (AgentsSection) and `McpApprovalService`.
-
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -25,7 +22,6 @@ use tokio::sync::oneshot;
 use crate::studio::StudioView;
 use crate::theme::StudioPalette;
 
-/// Supported MCP client setup generators (matching WinUI `SettingsPage.xaml`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentClientKind {
     ClaudeCode,
@@ -61,7 +57,6 @@ impl AgentClientKind {
     }
 }
 
-/// Active interactive approval request queued on `StudioView`.
 pub struct PendingMcpApproval {
     pub seq: u64,
     pub request: McpApprovalRequest,
@@ -77,7 +72,6 @@ impl PendingMcpApproval {
     }
 }
 
-/// UI state for the `Settings -> AI agents` section.
 pub struct McpSettingsState {
     pub enabled: bool,
     pub spaces: Vec<McpSpaceRecord>,
@@ -138,7 +132,6 @@ impl McpSettingsState {
     }
 }
 
-/// Locates `larik-mcp.exe` beside the running `larik-sql-studio` binary (or in `mcp\larik-mcp.exe`).
 pub fn find_mcp_server_path() -> Option<PathBuf> {
     let exe_name = if cfg!(windows) {
         "larik-mcp.exe"
@@ -157,7 +150,6 @@ pub fn find_mcp_server_path() -> Option<PathBuf> {
         }
     }
 
-    // Dev fallback: walk up a few directories looking for target/debug or target/release binary.
     let mut cursor = exe_dir.as_path();
     for _ in 0..5 {
         for profile in ["debug", "release"] {
@@ -172,7 +164,6 @@ pub fn find_mcp_server_path() -> Option<PathBuf> {
     None
 }
 
-/// Generates the copy-paste setup command/JSON for the selected agent client.
 pub fn format_agent_command(
     client: AgentClientKind,
     server_path: Option<&Path>,
@@ -249,7 +240,6 @@ pub fn render_ai_agents_section(
                 .max_w(px(760.0))
                 .gap_3p5()
                 .pb_6()
-                // Header
                 .child(
                     v_flex()
                         .gap_1()
@@ -269,7 +259,6 @@ pub fn render_ai_agents_section(
                                 ),
                         ),
                 )
-                // Card 1: Master toggle (always visible)
                 .child(
                     v_flex()
                         .p_5()
@@ -312,12 +301,9 @@ pub fn render_ai_agents_section(
                                 )),
                         ),
                 )
-                // Progressive disclosure: Cards 2, 3, and 4 only appear when enabled
                 .when(enabled, |col| {
                     col
-                        // Card 2: Workspaces agents may use
                         .child(render_workspaces_card(state, catalog, palette, cx))
-                        // Card 3: Connect an agent
                         .child(render_connect_card(
                             state,
                             &command_text,
@@ -327,11 +313,9 @@ pub fn render_ai_agents_section(
                             palette,
                             cx,
                         ))
-                        // Card 4: Recent agent activity
                         .child(render_activity_card(state, palette, cx))
                 }),
         )
-        // Confirmation modal for clearing activity
         .when(state.confirming_clear_activity, |root| {
             root.child(render_clear_activity_confirm(palette, cx))
         })
@@ -491,7 +475,6 @@ fn render_workspace_access_row(
                         .child(provider_label),
                 ),
         )
-        // Compact 3-way access selector (Off / Read only / Read and write)
         .child(
             h_flex()
                 .flex_shrink_0()
@@ -586,7 +569,6 @@ fn render_connect_card(
                         .child("Run this once in the agent's terminal. There is no port and no token to paste."),
                 ),
         )
-        // Client selector pills
         .child(
             h_flex()
                 .items_center()
@@ -628,7 +610,6 @@ fn render_connect_card(
                         .child(client.label())
                 })),
         )
-        // Command box
         .child(
             div()
                 .w_full()
@@ -642,7 +623,6 @@ fn render_connect_card(
                 .text_color(palette.text_primary)
                 .child(command_text.to_string()),
         )
-        // Copy action row + note
         .child(
             h_flex()
                 .items_center()
@@ -952,7 +932,6 @@ fn render_clear_activity_confirm(
         .into_any_element()
 }
 
-/// Renders the live interactive write-approval modal overlay mirroring WinUI `McpApprovalService`.
 pub fn render_mcp_approval_modal(
     pending: &PendingMcpApproval,
     queued_count: usize,
@@ -992,7 +971,6 @@ pub fn render_mcp_approval_modal(
                 .border_color(palette.card_border)
                 .shadow_2xl()
                 .overflow_hidden()
-                // Header
                 .child(
                     h_flex()
                         .items_center()
@@ -1033,7 +1011,6 @@ pub fn render_mcp_approval_modal(
                             )
                         }),
                 )
-                // Description + Reference
                 .when_some(req.description.clone(), |col, desc| {
                     col.child(
                         div()
@@ -1056,7 +1033,6 @@ pub fn render_mcp_approval_modal(
                         ),
                     )
                 })
-                // Scrollable SQL preview
                 .child(
                     div()
                         .id("mcp-approval-sql-scroll")
@@ -1074,7 +1050,6 @@ pub fn render_mcp_approval_modal(
                         .text_color(palette.text_primary)
                         .child(req.statement.clone()),
                 )
-                // Footer: countdown + Deny (default) / Run it
                 .child(
                     h_flex()
                         .items_center()

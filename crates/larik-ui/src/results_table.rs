@@ -16,18 +16,12 @@ use larik_data::grid_actions::{
 };
 use larik_data::{QueryResult, TableSchema};
 
-/// Maximum characters shaped per cell in the virtualized result grid.
-/// Keeps DirectWrite shaping instant even on wide `NVARCHAR(MAX)` / JSON / XML columns,
-/// while full original cell values remain intact in `source` for clipboard export and preview.
 const MAX_CELL_PREVIEW_CHARS: usize = 160;
 
-/// Upper bound on cached formatted cell previews per table instance.
 const MAX_CELL_CACHE_ENTRIES: usize = 8_192;
 
-/// Upper bound on cached 1-based row number labels per table instance.
 const MAX_ROW_NUMBER_CACHE_ENTRIES: usize = 2_048;
 
-/// Rectangular cell selection in visual data-column coordinates (`0..data_cols`, excluding `#` gutter).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GridSelection {
     pub anchor_row: usize,
@@ -75,43 +69,27 @@ enum PendingEditAction {
     Cell {
         row_ix: usize,
         src_col: usize,
-        /// Previous staged entry before this edit (`None` = was unedited).
         previous: Option<Option<String>>,
     },
     DeleteRows {
-        /// `(row_ix, was_deleted, cleared_cell_edits)`
         entries: Vec<(usize, bool, Vec<(usize, Option<String>)>)>,
     },
 }
 
-/// Virtualized `DataTable` delegate rendering a `QueryResult` with O(columns) attachment,
-/// bounded lazy `SharedString` caching, rectangular selection, staged cell edits / row deletes,
-/// and DB foreign-key reference metadata.
 pub struct ResultTableDelegate {
     source: Option<Arc<QueryResult>>,
     columns: Vec<Column>,
     column_types: Vec<Option<SharedString>>,
-    /// Maps visible data column index (`col_ix - 1`) -> original column index in `source`.
     col_order: Vec<usize>,
-    /// Lazy bounded cache of preview-capped `SharedString` values keyed by `(row_ix, src_col)`.
     cell_cache: HashMap<(usize, usize), SharedString>,
-    /// Lazy bounded cache of formatted 1-based row numbers keyed by `row_ix`.
     row_number_cache: HashMap<usize, SharedString>,
-    /// Rectangular selection in visual data-column coordinates (`0..col_order.len()`).
     selection: Option<GridSelection>,
-    /// Resolved row editability for this result.
     edit_resolution: RowEditResolution,
-    /// Resolved DB foreign-key references keyed by `src_col`.
     col_references: HashMap<usize, ColumnReference>,
-    /// Schema identity key (`Arc::as_ptr` + len) so metadata is resolved at most once per schema.
     metadata_schema_key: Option<(usize, usize)>,
-    /// Staged cell edits keyed by `(row_ix, src_col)`.
     staged_edits: HashMap<(usize, usize), Option<String>>,
-    /// Row indices staged for deletion.
     deleted_rows: HashSet<usize>,
-    /// Undo history for staged cell edits and row deletions.
     undo_stack: Vec<PendingEditAction>,
-    /// Monotonically incremented whenever backing result data or staged edits change.
     data_version: u64,
 }
 
@@ -230,8 +208,6 @@ impl ResultTableDelegate {
             .and_then(|c| c.data_type.as_deref())
     }
 
-    /// Detach owned result data and lazy caches so they can be dropped on a background thread,
-    /// avoiding UI-thread deallocation pauses even if GPUI defers entity cleanup.
     pub fn detach_for_drop(
         &mut self,
     ) -> (
@@ -286,7 +262,6 @@ impl ResultTableDelegate {
             return;
         }
 
-        // Fixed sticky left gutter column (`#`) matching Larik's row-number gutter.
         let mut gutter = Column::new("__row_num__", "#")
             .width(px(52.0))
             .min_width(px(44.0))
@@ -303,7 +278,6 @@ impl ResultTableDelegate {
 
         self.col_order.reserve(res.columns.len());
         for (idx, col) in res.columns.iter().enumerate() {
-            // Estimate comfortable initial column width from header + first 25 rows.
             let sample_max = res
                 .rows
                 .iter()
@@ -337,7 +311,6 @@ impl ResultTableDelegate {
         self.source = Some(res);
     }
 
-    /// Resolve row-editability and DB foreign-key references once per `(result, schema)`.
     pub fn ensure_schema_metadata(
         &mut self,
         fallback_statement: Option<&str>,
@@ -375,8 +348,6 @@ impl ResultTableDelegate {
     pub fn staged_edits(&self) -> &HashMap<(usize, usize), Option<String>> {
         &self.staged_edits
     }
-
-    // ---------------------------------------------------------------- selection
 
     pub fn selection(&self) -> Option<GridSelection> {
         self.selection
@@ -458,8 +429,6 @@ impl ResultTableDelegate {
         });
     }
 
-    /// WinUI right-click rule: preserve existing block if clicked cell is inside it (moving focus);
-    /// otherwise collapse selection to the clicked cell (or full row when gutter is right-clicked).
     pub fn handle_right_click(&mut self, row: usize, vis_col_opt: Option<usize>) {
         let rows = self.row_count();
         let cols = self.data_col_count();
@@ -506,9 +475,6 @@ impl ResultTableDelegate {
         (top..=bottom).collect()
     }
 
-    // ---------------------------------------------------------------- staged edits & deletes
-
-    /// Current display value for `(row_ix, src_col)`, honoring unsaved staged edits.
     pub fn display_value(&self, row_ix: usize, src_col: usize) -> Option<&str> {
         if let Some(staged) = self.staged_edits.get(&(row_ix, src_col)) {
             return staged.as_deref();
@@ -546,7 +512,6 @@ impl ResultTableDelegate {
         (self.staged_edits.len(), self.deleted_rows.len())
     }
 
-    /// Stage a new value for `(row_ix, src_col)`. Editing back to original removes the staged edit.
     pub fn stage_cell_edit(
         &mut self,
         row_ix: usize,
@@ -594,7 +559,6 @@ impl ResultTableDelegate {
         }
     }
 
-    /// Toggle deletion state for `rows`. Marking a row deleted clears any staged edits on that row.
     pub fn toggle_delete_rows(&mut self, rows: Vec<usize>) -> bool {
         let max_rows = self.row_count();
         let mut unique: Vec<usize> = rows.into_iter().filter(|&r| r < max_rows).collect();
@@ -604,7 +568,6 @@ impl ResultTableDelegate {
             return false;
         }
 
-        // If every selected row is already marked deleted, unmark all; otherwise mark all.
         let unmark_all = unique.iter().all(|r| self.deleted_rows.contains(r));
         let mut entries = Vec::with_capacity(unique.len());
 
@@ -708,8 +671,6 @@ impl ResultTableDelegate {
         )
     }
 
-    /// Apply committed staged edits & row deletions into a freshly updated `Arc<QueryResult>`,
-    /// clearing pending state and clamping selection (matches WinUI post-save patching).
     pub fn apply_committed_changes(&mut self) -> Option<Arc<QueryResult>> {
         let existing = self.source.as_ref()?;
         let mut updated = (**existing).clone();
@@ -745,7 +706,6 @@ impl ResultTableDelegate {
         self.row_number_cache.clear();
         self.data_version = self.data_version.wrapping_add(1);
 
-        // Clamp selection to new row count.
         let new_rows = arc.rows.len();
         if new_rows == 0 {
             self.selection = None;
@@ -762,10 +722,6 @@ impl ResultTableDelegate {
         Some(arc)
     }
 
-    // ---------------------------------------------------------------- copy operations
-
-    /// Copy the current selection (or focused cell) as TSV (honoring staged edits).
-    /// For a 1x1 cell without headers, copies the raw cell text directly (no extra CSV quotes).
     pub fn copy_selection(&self, with_headers: bool) -> Option<(String, usize, usize)> {
         let src = self.source.as_ref()?;
         let sel = self.selection?;
@@ -776,7 +732,6 @@ impl ResultTableDelegate {
         let bottom = bottom.min(src.rows.len() - 1);
         let right = right.min(self.col_order.len() - 1);
 
-        // 1x1 single cell copy without headers: copy clean cell text directly.
         if !with_headers && top == bottom && left == right {
             let src_col = self.col_order[left];
             let text = self
@@ -807,7 +762,6 @@ impl ResultTableDelegate {
         Some((text, bottom - top + 1, right - left + 1))
     }
 
-    /// Copy selected cells flattened into `IN (v1, v2, ...)` (WinUI `Copy as IN clause`).
     pub fn copy_selection_as_in(&self, dialect: SqlDialectKind) -> Option<(String, usize)> {
         let src = self.source.as_ref()?;
         let sel = self.selection?;
@@ -831,8 +785,6 @@ impl ResultTableDelegate {
         Some((format_in_clause(dialect, &cells), count))
     }
 
-    /// Copy selected rows as `VALUES (...),\n       (...)` (WinUI `Copy as INSERT` / VALUES).
-    /// Matching WinUI: a 1x1 cell selection expands horizontally to the entire row.
     pub fn copy_selection_as_values(&self, dialect: SqlDialectKind) -> Option<(String, usize)> {
         let src = self.source.as_ref()?;
         let sel = self.selection?;
@@ -863,10 +815,6 @@ impl ResultTableDelegate {
         Some((format_values_clause(dialect, &rows), count))
     }
 
-    // ---------------------------------------------------------------- preview cache & TSV
-
-    /// Return the sanitized, preview-capped cell string for `(row_ix, src_col)`, formatting
-    /// and caching lazily on first access (honoring staged edits).
     pub fn preview_cell(&mut self, row_ix: usize, src_col: usize) -> Option<SharedString> {
         if let Some(staged) = self.staged_edits.get(&(row_ix, src_col)) {
             return staged.as_deref().map(format_cell_preview);
@@ -901,7 +849,6 @@ impl ResultTableDelegate {
         label
     }
 
-    /// Format the active grid as tab-separated values for clipboard export (full un-truncated data).
     pub fn to_tsv(&self) -> String {
         let Some(src) = self.source.as_ref() else {
             return String::new();
@@ -971,7 +918,6 @@ impl TableDelegate for ResultTableDelegate {
         _window: &mut Window,
         _cx: &mut Context<TableState<Self>>,
     ) {
-        // Keep column 0 (`#` row gutter) pinned on the far left; O(columns) indirection.
         if col_ix == 0 || to_ix == 0 || col_ix >= self.columns.len() || to_ix >= self.columns.len()
         {
             return;
@@ -1132,7 +1078,6 @@ impl TableDelegate for ResultTableDelegate {
                 .child(SharedString::new_static("NULL")),
         };
 
-        // 5x5 top-right status dot matching WinUI ResultRowView edited/deleted indicator.
         if is_deleted || is_edited {
             wrapper = wrapper.child(
                 div()
@@ -1194,7 +1139,6 @@ mod tests {
         let mut delegate = ResultTableDelegate::empty();
         delegate.set_result(Some(result));
 
-        // Attachment is lazy: nothing is formatted until rendered/queried.
         assert!(delegate.cell_cache.is_empty());
         assert!(delegate.row_number_cache.is_empty());
 
@@ -1248,13 +1192,11 @@ mod tests {
         assert_eq!(delegate.columns.len(), cols + 1);
         assert!(delegate.cell_cache.is_empty());
         assert!(delegate.row_number_cache.is_empty());
-        // Attaching 2699x64 should be O(columns), well under 50ms even in unoptimized debug builds.
         assert!(
             attach_elapsed < Duration::from_millis(50),
             "expected O(columns) attachment, took {attach_elapsed:?}"
         );
 
-        // Formatting a visible viewport (30 rows x 12 cols) only populates those 360 entries.
         for r in 0..30 {
             let _ = delegate.row_number_label(r);
             for c in 0..12 {
@@ -1264,7 +1206,6 @@ mod tests {
         assert_eq!(delegate.cell_cache.len(), 360);
         assert_eq!(delegate.row_number_cache.len(), 30);
 
-        // Re-attaching the exact same Arc<QueryResult> is a no-op and preserves caches.
         delegate.set_result(Some(Arc::clone(&result)));
         assert_eq!(delegate.cell_cache.len(), 360);
     }
@@ -1302,22 +1243,18 @@ mod tests {
         assert!(delegate.stage_cell_edit(0, 1, Some("Alicia".into())));
         assert_eq!(delegate.pending_counts(), (1, 0));
 
-        // Single cell copy reflects staged edit
         let (cell_copy, r, c) = delegate.copy_selection(false).unwrap();
         assert_eq!((cell_copy.as_str(), r, c), ("Alicia", 1, 1));
 
-        // Copy as VALUES on 1x1 selection expands to entire row
         let (vals, rows) = delegate.copy_selection_as_values(SqlDialectKind::TSql).unwrap();
         assert_eq!(rows, 1);
         assert_eq!(vals, "VALUES (1, N'Alicia')");
 
-        // Multi-row copy as IN
         delegate.select_cell(1, 1, true);
         let (in_sql, count) = delegate.copy_selection_as_in(SqlDialectKind::TSql).unwrap();
         assert_eq!(count, 2);
         assert_eq!(in_sql, "IN (N'Alicia', NULL)");
 
-        // Undo reverts staged edit
         assert!(delegate.undo_last_edit());
         assert_eq!(delegate.pending_counts(), (0, 0));
         assert_eq!(delegate.display_value(0, 1), Some("Alice"));

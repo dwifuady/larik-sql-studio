@@ -146,8 +146,6 @@ impl HistoryPageState {
     }
 }
 
-/// Renders the WinUI-faithful History page (Runs + Archived tabs) inside the right main column,
-/// keeping the left sidebar rail visible just like WinUI `MainPage.xaml`.
 pub fn render_history_page(
     page: &HistoryPageState,
     state: &StudioState,
@@ -198,7 +196,6 @@ pub fn render_history_page(
                 }
             }),
         )
-        // Header: ← History [count pill]
         .child(
             h_flex()
                 .items_center()
@@ -249,7 +246,6 @@ pub fn render_history_page(
                     )
                 }),
         )
-        // Segment bar: Runs | Archived (with coral active underline)
         .child(
             h_flex()
                 .items_center()
@@ -276,7 +272,6 @@ pub fn render_history_page(
                     }),
                 )),
         )
-        // Active segment body
         .child(match page.segment {
             HistorySegment::Runs => render_runs_segment(page, state, active_space, palette, cx)
                 .into_any_element(),
@@ -346,7 +341,6 @@ fn render_runs_segment(
     };
     let retention_label = format!("Keeping {} days", page.retention_days);
 
-    // Filter runs by selected actor/status filter.
     let space_names: HashMap<&str, &str> = state
         .spaces
         .iter()
@@ -364,7 +358,6 @@ fn render_runs_segment(
         })
         .collect();
 
-    // Group runs by local calendar date, preserving newest-first order.
     let today = Local::now().date_naive();
     let mut day_groups: Vec<(NaiveDate, Vec<&RunLogRecord>)> = Vec::new();
     for run in filtered_runs {
@@ -386,12 +379,10 @@ fn render_runs_segment(
         .min_h_0()
         .w_full()
         .gap_2p5()
-        // Toolbar row: [Scope ▾]  [All | You | Agent | Failed]   [Keeping 30 days ▾]  [Search executed SQL]
         .child(
             h_flex()
                 .items_center()
                 .gap_2()
-                // Scope dropdown trigger
                 .child(
                     div()
                         .relative()
@@ -468,7 +459,6 @@ fn render_runs_segment(
                             )
                         }),
                 )
-                // Actor/Status filter pills
                 .child(
                     h_flex()
                         .items_center()
@@ -516,7 +506,6 @@ fn render_runs_segment(
                         })),
                 )
                 .child(div().flex_1())
-                // Retention window dropdown
                 .child(
                     div()
                         .relative()
@@ -583,14 +572,12 @@ fn render_runs_segment(
                             )
                         }),
                 )
-                // Search executed SQL input
                 .child(
                     div()
                         .w(px(210.0))
                         .child(Input::new(&page.runs_search_input).xsmall()),
                 ),
         )
-        // Runs body or Empty state
         .child(if day_groups.is_empty() {
             v_flex()
                 .flex_1()
@@ -749,7 +736,6 @@ fn render_run_row(
         .border_color(palette.card_border)
         .items_center()
         .gap_2p5()
-        // Time column (44px)
         .child(
             div()
                 .w(px(44.0))
@@ -758,7 +744,6 @@ fn render_run_row(
                 .text_color(palette.text_muted)
                 .child(run.time_label()),
         )
-        // Statement + meta line (+ optional agent notes)
         .child(
             v_flex()
                 .flex_1()
@@ -826,7 +811,6 @@ fn render_run_row(
                     },
                 ),
         )
-        // Actor pill + Status + Action button
         .child(
             h_flex()
                 .flex_shrink_0()
@@ -933,7 +917,6 @@ fn render_archived_segment(
         .min_h_0()
         .w_full()
         .gap_2p5()
-        // Right-aligned toolbar: [Search archived tabs] [Clear all]
         .child(
             h_flex()
                 .w_full()
@@ -1016,7 +999,6 @@ fn render_archived_segment(
                     )
                 }),
         )
-        // Auto-archive card matching WinUI screenshot
         .child(
             v_flex()
                 .w_full()
@@ -1031,7 +1013,6 @@ fn render_archived_segment(
                     h_flex()
                         .items_center()
                         .gap_3()
-                        // Toggle switch + "Auto-archive" label
                         .child(
                             h_flex()
                                 .id("auto-archive-toggle")
@@ -1080,7 +1061,6 @@ fn render_archived_segment(
                                         .child("Auto-archive"),
                                 ),
                         )
-                        // Compact numeric days box with up/down spin buttons (matching WinUI NumberBox)
                         .child(
                             h_flex()
                                 .w(px(110.0))
@@ -1163,7 +1143,6 @@ fn render_archived_segment(
                                 .child("days without use"),
                         )
                         .child(div().flex_1())
-                        // Right-aligned "Run now" button
                         .child(
                             div()
                                 .id("auto-archive-run-now")
@@ -1187,7 +1166,6 @@ fn render_archived_segment(
                         .child(subtitle),
                 ),
         )
-        // Archived list OR centered empty state
         .child(if filtered.is_empty() {
             v_flex()
                 .flex_1()
@@ -1259,7 +1237,6 @@ fn render_archived_segment(
                         .border_color(palette.card_border)
                         .items_center()
                         .gap_3()
-                        // 2px accent pill bar on left
                         .child(
                             div()
                                 .w(px(2.5))
@@ -1268,7 +1245,6 @@ fn render_archived_segment(
                                 .flex_shrink_0()
                                 .bg(accent),
                         )
-                        // Title + context + SQL preview
                         .child(
                             v_flex()
                                 .flex_1()
@@ -1311,7 +1287,6 @@ fn render_archived_segment(
                                         .child(preview),
                                 ),
                         )
-                        // Relative age
                         .child(
                             div()
                                 .flex_shrink_0()
@@ -1319,7 +1294,6 @@ fn render_archived_segment(
                                 .text_color(palette.text_muted)
                                 .child(age),
                         )
-                        // Restore + Delete actions
                         .child(
                             h_flex()
                                 .flex_shrink_0()

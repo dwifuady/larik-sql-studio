@@ -24,6 +24,9 @@ jobs:
       - name: Check workspace
         run: cargo check --workspace --all-targets --locked
 
+      - name: Lint comments (ratchet)
+        run: cargo test -p larik-core --test comment_lint --locked
+
       - name: Run tests
         run: cargo test --workspace --locked
 

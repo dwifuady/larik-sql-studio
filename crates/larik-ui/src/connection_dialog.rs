@@ -17,7 +17,6 @@ use larik_data::{ConnectionProfile, DatabaseProvider, ProviderCatalog, ProviderS
 
 use crate::theme::{StudioPalette, parse_hex_color};
 
-/// Curated set of Lucide icons available for workspace identity badges.
 pub const WORKSPACE_ICONS: &[(&str, &str, IconName)] = &[
     ("database", "Database", IconName::Database),
     ("server", "Server", IconName::Server),
@@ -41,7 +40,6 @@ pub const WORKSPACE_ICONS: &[(&str, &str, IconName)] = &[
     ("building", "Enterprise", IconName::Building),
 ];
 
-/// Resolves a stored workspace icon key into its bundled Lucide `IconName`.
 pub fn workspace_icon_name(icon: Option<&str>) -> Option<IconName> {
     let key = icon?.trim();
     if key.is_empty() {
@@ -53,7 +51,6 @@ pub fn workspace_icon_name(icon: Option<&str>) -> Option<IconName> {
         .map(|(_, _, name)| *name)
 }
 
-/// First-letter monogram fallback for workspaces without a custom icon.
 pub fn workspace_monogram(name: &str) -> String {
     name.trim()
         .chars()
@@ -62,7 +59,6 @@ pub fn workspace_monogram(name: &str) -> String {
         .unwrap_or_else(|| "W".to_string())
 }
 
-/// Actions dispatched by the Workspace settings modal to its host view.
 #[derive(Debug, Clone)]
 pub enum ConnectionModalAction {
     Close,
@@ -81,7 +77,6 @@ pub enum ConnectionModalAction {
     ConfirmDelete,
 }
 
-/// State backing the provider-generated Workspace settings modal.
 pub struct ConnectionModal {
     pub space_id: String,
     pub name_input: Entity<InputState>,
@@ -176,7 +171,6 @@ impl ConnectionModal {
     ) {
         self.text_inputs.clear();
         self.bool_values.clear();
-        // Keep index 0 (name_input subscription) and replace field subscriptions.
         self._input_subs.truncate(1);
 
         let Some(provider) = catalog.find(&self.provider_id) else {
@@ -209,7 +203,6 @@ impl ConnectionModal {
                         }
                         state
                     });
-                    // Re-render live transport warnings when server or connection fields change.
                     let sub = cx.subscribe(&input, |_, _, event: &InputEvent, cx| {
                         if matches!(event, InputEvent::Change) {
                             cx.notify();
@@ -257,7 +250,6 @@ impl ConnectionModal {
     }
 }
 
-/// Renders the centered WinUI-styled "Workspace settings" modal over the studio window.
 pub fn render_connection_modal<V: 'static>(
     modal: &ConnectionModal,
     catalog: &ProviderCatalog,
@@ -332,7 +324,6 @@ pub fn render_connection_modal<V: 'static>(
                 .on_mouse_down(MouseButton::Left, |_, _, cx| {
                     cx.stop_propagation();
                 })
-                // Header: clean WinUI ContentDialog title
                 .child(
                     div().px_6().pt_5().pb_3().child(
                         div()
@@ -342,7 +333,6 @@ pub fn render_connection_modal<V: 'static>(
                             .child("Workspace settings"),
                     ),
                 )
-                // Scrollable body
                 .child(
                     div()
                         .id("connection-modal-body")
@@ -354,12 +344,10 @@ pub fn render_connection_modal<V: 'static>(
                         .child(
                             v_flex()
                                 .gap_3p5()
-                                // Identity row: [Icon/Monogram ⌄] [Workspace name ×] [Color dot]
                                 .child(
                                     h_flex()
                                         .items_center()
                                         .gap_2p5()
-                                        // Icon / monogram picker trigger
                                         .child(
                                             div()
                                                 .id("modal-icon-picker-btn")
@@ -403,7 +391,6 @@ pub fn render_connection_modal<V: 'static>(
                                                         ),
                                                 ),
                                         )
-                                        // Workspace name input with inline clear button
                                         .child(
                                             h_flex()
                                                 .flex_1()
@@ -445,7 +432,6 @@ pub fn render_connection_modal<V: 'static>(
                                                     )
                                                 }),
                                         )
-                                        // Color swatch trigger
                                         .child(
                                             div()
                                                 .id("modal-color-picker-btn")
@@ -470,7 +456,6 @@ pub fn render_connection_modal<V: 'static>(
                                                 ),
                                         ),
                                 )
-                                // Expandable Icon Picker panel
                                 .when(modal.show_icon_picker, |el| {
                                     let on_act_grid = on_action.clone();
                                     let on_act_letter = on_action.clone();
@@ -577,7 +562,6 @@ pub fn render_connection_modal<V: 'static>(
                                             ),
                                     )
                                 })
-                                // Expandable Color Picker panel
                                 .when(modal.show_color_picker, |el| {
                                     let on_act_color = on_action.clone();
                                     el.child(
@@ -638,7 +622,6 @@ pub fn render_connection_modal<V: 'static>(
                                             )),
                                     )
                                 })
-                                // Database provider dropdown
                                 .child(
                                     v_flex()
                                         .gap_1p5()
@@ -744,7 +727,6 @@ pub fn render_connection_modal<V: 'static>(
                                             )
                                         }),
                                 )
-                                // Primary ProviderSettings (Server, Initial database, User, Password)
                                 .children({
                                     let mut items: Vec<AnyElement> = Vec::new();
                                     for setting in basic_settings {
@@ -759,7 +741,6 @@ pub fn render_connection_modal<V: 'static>(
                                     }
                                     items
                                 })
-                                // Collapsible "Advanced connection settings >" card button
                                 .when(!advanced_settings.is_empty(), |el| {
                                     let show_adv = modal.show_advanced;
                                     let mut adv_items: Vec<AnyElement> = Vec::new();
@@ -825,7 +806,6 @@ pub fn render_connection_modal<V: 'static>(
                                             }),
                                     )
                                 })
-                                // Live provider transport warning (amber text matching WinUI)
                                 .when_some(transport_warning, |el, warning| {
                                     el.child(
                                         div()
@@ -835,7 +815,6 @@ pub fn render_connection_modal<V: 'static>(
                                             .child(warning),
                                     )
                                 })
-                                // Inline test feedback
                                 .when_some(modal.test_status.clone(), |el, status| {
                                     let (ok, msg) = match status {
                                         Ok(m) => (true, m),
@@ -870,7 +849,6 @@ pub fn render_connection_modal<V: 'static>(
                                             ),
                                     )
                                 })
-                                // Subtle destructive delete section at bottom of scroll body (WinUI layout)
                                 .when(modal.can_delete, |el| {
                                     let confirming = modal.confirming_delete;
                                     el.child(
@@ -971,7 +949,6 @@ pub fn render_connection_modal<V: 'static>(
                                 }),
                         ),
                 )
-                // Footer: 3 equal WinUI ContentDialog buttons — Save (coral) | Test | Cancel
                 .child(
                     h_flex()
                         .px_6()

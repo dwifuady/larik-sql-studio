@@ -141,7 +141,6 @@ const SETTINGS: &[ProviderSetting] = &[
     },
 ];
 
-/// Non-secret summary extracted from a `mongodb://` or `mongodb+srv://` URI.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MongoUriSummary {
     pub is_srv: bool,
@@ -150,7 +149,6 @@ pub struct MongoUriSummary {
     pub database: Option<String>,
 }
 
-/// Safely parse a MongoDB connection URI for UI display (never returns passwords).
 pub fn parse_mongo_uri_summary(uri: &str) -> Option<MongoUriSummary> {
     let trimmed = uri.trim();
     let (is_srv, rest) = if let Some(r) = trimmed.strip_prefix("mongodb+srv://") {
@@ -161,7 +159,6 @@ pub fn parse_mongo_uri_summary(uri: &str) -> Option<MongoUriSummary> {
         return None;
     };
 
-    // Split authority from path/query
     let (authority, path_and_query) = match rest.find('/') {
         Some(idx) => (&rest[..idx], &rest[idx + 1..]),
         None => match rest.find('?') {
@@ -187,7 +184,6 @@ pub fn parse_mongo_uri_summary(uri: &str) -> Option<MongoUriSummary> {
     let host_display = if is_srv {
         first_host.to_string()
     } else if first_host.starts_with('[') {
-        // IPv6 host
         if first_host.contains("]:") {
             first_host.to_string()
         } else {
@@ -237,7 +233,6 @@ fn hex_val(b: u8) -> Option<u8> {
     }
 }
 
-/// Parse discrete `host` (falling back to `server` for migrated profiles) and `port`.
 pub fn parse_host_and_port(profile: &ConnectionProfile) -> Result<(String, u16)> {
     let fallback_port = profile.get_u16("port").unwrap_or(DEFAULT_PORT);
     let raw = profile
@@ -348,7 +343,6 @@ pub struct MongoConnection {
     server_version: Option<String>,
     default_database: String,
     client: Option<Client>,
-    /// Cached sampled field types per `(database_lower, collection_lower)` for automatic UUID/ObjectId coercion.
     field_types_cache: HashMap<(String, String), HashMap<String, String>>,
 }
 
@@ -403,7 +397,6 @@ impl MongoConnection {
                 .await
                 .map_err(|e| anyhow!("Failed to parse MongoDB connection string: {e}"))?;
 
-            // Merge separate user/password fields when the URI omits them.
             let profile_user = self.profile.get_non_empty("user").map(str::to_string);
             let profile_pass = self
                 .profile
@@ -574,7 +567,6 @@ impl DatabaseConnection for MongoConnection {
         let ping_ok = match ping_res {
             Ok(Ok(_)) => Ok(()),
             Ok(Err(e1)) => {
-                // Fallback ping on admin if user's default DB rejected ping.
                 if self.default_database != DEFAULT_AUTH_SOURCE {
                     client
                         .database(DEFAULT_AUTH_SOURCE)
@@ -597,7 +589,6 @@ impl DatabaseConnection for MongoConnection {
             return Err(err);
         }
 
-        // Best-effort server version from buildInfo.
         let version = match ping_db.run_command(doc! { "buildInfo": 1 }).await {
             Ok(info) => info
                 .get_str("version")
@@ -630,8 +621,6 @@ impl DatabaseConnection for MongoConnection {
                 Ok(dbs)
             }
             Ok(_) | Err(_) => {
-                // Atlas shared/restricted roles may lack listDatabases privilege;
-                // fall back to the configured default database so the user can still query it.
                 Ok(vec![DatabaseInfo::accessible(self.default_database.clone())])
             }
         }
@@ -667,7 +656,6 @@ impl DatabaseConnection for MongoConnection {
                 fields.insert("_id".to_string(), "objectId".to_string());
             }
 
-            // Cache sampled field types for automatic UUID/ObjectId coercion during queries.
             let cache_map: HashMap<String, String> = fields
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))
@@ -677,7 +665,6 @@ impl DatabaseConnection for MongoConnection {
                 cache_map,
             );
 
-            // Order `_id` first, then alphabetical.
             let mut columns = Vec::with_capacity(fields.len());
             if let Some(id_ty) = fields.remove("_id") {
                 columns.push(ColumnSchema {
@@ -1062,7 +1049,6 @@ mod tests {
         assert_eq!(provider.display_name(), "MongoDB");
         assert_eq!(provider.dialect(), "mongodb");
         assert!(provider.read_only_policy().is_some());
-        // Both connectionString and password MUST be stored in Credential Manager, never SQLite.
         assert_eq!(provider.password_keys(), vec!["connectionString", "password"]);
 
         let keys: Vec<&str> = provider.settings().iter().map(|s| s.key).collect();

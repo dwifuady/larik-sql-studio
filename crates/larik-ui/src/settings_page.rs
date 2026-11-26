@@ -45,7 +45,6 @@ impl SettingsPageState {
         cx: &mut Context<StudioView>,
     ) -> Self {
         Self {
-            // Match WinUI SettingsPage default section (Snippets)
             active_section: SettingsSection::Snippets,
             nav_collapsed: false,
             agents: McpSettingsState::load(store),
@@ -76,7 +75,6 @@ pub fn render_settings_page(
     v_flex()
         .size_full()
         .overflow_hidden()
-        // Top Windows-safe TitleBar: clickable Back arrow + Larik icon + "Settings"
         .child(render_app_title_bar(
             "settings",
             IconName::ArrowLeft,
@@ -89,14 +87,12 @@ pub fn render_settings_page(
                 this.close_settings_page(cx);
             }),
         ))
-        // Body: WinUI NavigationView left rail + active section content
         .child(
             h_flex()
                 .flex_1()
                 .min_h_0()
                 .w_full()
                 .overflow_hidden()
-                // Left NavigationView pane (Appearance, AI agents, Snippets, About)
                 .child(
                     v_flex()
                         .w(nav_width)
@@ -106,7 +102,6 @@ pub fn render_settings_page(
                         .pt_1()
                         .pb_3()
                         .gap_1()
-                        // Collapse/expand hamburger button
                         .child(
                             div()
                                 .id("settings-nav-toggle")
@@ -171,7 +166,6 @@ pub fn render_settings_page(
                             cx,
                         )),
                 )
-                // Right section host
                 .child(
                     div()
                         .flex_1()
@@ -229,7 +223,6 @@ fn render_nav_item(
         .on_click(cx.listener(move |this, _, _, cx| {
             this.select_settings_section(section, cx);
         }))
-        // WinUI left selection pill indicator
         .when(selected, |d| {
             d.child(
                 div()

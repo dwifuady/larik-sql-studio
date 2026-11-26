@@ -13,15 +13,6 @@ use gpui_kit::{
 
 use crate::theme::StudioPalette;
 
-/// Renders a Windows 11 native-feeling transparent title bar where the leading
-/// action button (sidebar toggle or back arrow) sits **outside** the
-/// `WindowControlArea::Drag` hit-test region.
-///
-/// Keeping interactive buttons outside `WindowControlArea::Drag` ensures Windows
-/// `WM_NCHITTEST` returns `HTCLIENT` for them instead of `HTCAPTION`, so clicks,
-/// hovers, and tooltips fire reliably without Windows swallowing mouse-up into
-/// the caption drag loop, while the remaining title/empty area still drags,
-/// snaps, and double-click-maximizes natively.
 #[allow(clippy::too_many_arguments)]
 pub fn render_app_title_bar(
     id_prefix: &'static str,
@@ -57,7 +48,6 @@ pub fn render_app_title_bar(
         .bg(transparent_black())
         .when(is_macos, |el| el.pl(px(76.0)))
         .when(!is_macos, |el| el.pl(px(6.0)))
-        // Interactive leading button — intentionally OUTSIDE WindowControlArea::Drag
         .child(
             div()
                 .id(SharedString::from(format!("{id_prefix}-leading-btn")))
@@ -81,7 +71,6 @@ pub fn render_app_title_bar(
                         .text_color(palette.text_secondary),
                 ),
         )
-        // Draggable title / empty space — Windows HTCAPTION lives ONLY here
         .child(
             h_flex()
                 .id(SharedString::from(format!("{id_prefix}-drag-region")))
@@ -108,7 +97,6 @@ pub fn render_app_title_bar(
                         .child(title),
                 ),
         )
-        // Native Windows / Linux caption controls (Min / Max / Close)
         .when(!is_macos, |el| {
             el.child(
                 h_flex()

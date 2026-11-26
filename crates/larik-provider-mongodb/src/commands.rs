@@ -1,6 +1,5 @@
 use mongodb::bson::Document;
 
-/// Intermediate MongoDB command produced by [`crate::compiler::TSqlMongoCompiler`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum MongoCommand {
     Select {

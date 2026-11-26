@@ -179,7 +179,6 @@ impl DatabaseProvider for SqlServerProvider {
     }
 }
 
-/// Transport abstraction so a single `tiberius::Client` handles both TCP and Windows LocalDB named pipes.
 enum MssqlStream {
     Tcp(TcpStream),
     #[cfg(windows)]
@@ -287,7 +286,6 @@ impl DatabaseConnection for SqlServerConnection {
         let result = tokio::time::timeout(Duration::from_secs(timeout_secs), connect_fut).await;
         match result {
             Ok(Ok(mut client)) => {
-                // Capture server version & initial database.
                 if let Ok(stream) = client
                     .simple_query("SELECT CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), DB_NAME()")
                     .await
@@ -355,7 +353,6 @@ impl DatabaseConnection for SqlServerConnection {
             .as_mut()
             .ok_or_else(|| anyhow!("Not connected to SQL Server."))?;
 
-        // 1. Tables & Views
         let tables_sql = "SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE \
                           FROM INFORMATION_SCHEMA.TABLES \
                           ORDER BY TABLE_SCHEMA, TABLE_NAME";
@@ -388,7 +385,6 @@ impl DatabaseConnection for SqlServerConnection {
             }
         }
 
-        // 2. Columns (using sys.columns so is_identity / is_computed are available for safe row editing)
         let cols_sql = "SELECT s.name, o.name, c.name, ty.name, \
                                CAST(c.is_nullable AS INT), \
                                CAST(c.is_identity AS INT), \
@@ -422,7 +418,6 @@ impl DatabaseConnection for SqlServerConnection {
             }
         }
 
-        // 3. Primary Keys
         let pk_sql = "SELECT s.name, t.name, c.name \
                       FROM sys.indexes i \
                       INNER JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id \
@@ -444,7 +439,6 @@ impl DatabaseConnection for SqlServerConnection {
             }
         }
 
-        // 4. Foreign Keys
         let fk_sql = "SELECT fk.name, ps.name, pt.name, pc.name, rs.name, rt.name, rc.name \
                       FROM sys.foreign_keys fk \
                       INNER JOIN sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id \
@@ -572,7 +566,6 @@ impl DatabaseConnection for SqlServerConnection {
             match execute_single_batch(client, &batch.text, max_rows, active_db.clone(), started).await
             {
                 Ok(mut batch_results) => {
-                    // Refresh tracked database if the user ran `USE ...`.
                     if !read_only && batch.text.to_ascii_uppercase().contains("USE ") {
                         if let Ok(stream) = client.simple_query("SELECT DB_NAME()").await {
                             if let Ok(Some(row)) = stream.into_row().await {
@@ -820,8 +813,6 @@ fn format_column_data(data: ColumnData<'static>) -> Option<String> {
     }
 }
 
-/// Converts a TDS `datetime` (days since 1900-01-01 + 1/300th-second fragments since midnight)
-/// to an ISO-style timestamp string with SQL Server's standard millisecond rounding (`.000`, `.003`, `.007`).
 fn format_tds_datetime(dt: tiberius::time::DateTime) -> String {
     let base = NaiveDate::from_ymd_opt(1900, 1, 1).expect("1900-01-01 is a valid date");
     let total_fragments = dt.seconds_fragments();
@@ -870,12 +861,10 @@ async fn connect_tiberius(
         config.trust_cert();
     }
 
-    // Handle Windows LocalDB: `(localdb)\MSSQLLocalDB`
     if let Some(instance) = parse_localdb_instance(server_raw) {
         #[cfg(windows)]
         {
             let pipe_name = resolve_localdb_pipe(&instance).await?;
-            // LocalDB uses local IPC over a named pipe; disable strict TLS if not required.
             config.encryption(EncryptionLevel::Off);
             config.trust_cert();
             let pipe = tokio::net::windows::named_pipe::ClientOptions::new()
@@ -894,7 +883,6 @@ async fn connect_tiberius(
         }
     }
 
-    // Standard TCP / Named Instance parsing (`tcp:host,port`, `host:port`, `host\instance`)
     let cleaned = server_raw
         .trim()
         .strip_prefix("tcp:")
@@ -976,7 +964,6 @@ async fn resolve_localdb_pipe(instance: &str) -> anyhow::Result<String> {
     if let Some(pipe) = query_localdb_pipe(instance).await? {
         return Ok(pipe);
     }
-    // Instance might be stopped — try starting it once.
     let _ = tokio::process::Command::new("sqllocaldb")
         .args(["start", instance])
         .output()
@@ -1045,21 +1032,18 @@ mod tests {
     fn transport_warning_only_flags_non_local_unverified_or_unencrypted_targets() {
         let provider = SqlServerProvider;
 
-        // Localhost with trustServerCertificate = true should not warn.
         let mut local = ConnectionProfile::new("mssql");
         local.set("server", "localhost");
         local.set("encrypt", "true");
         local.set("trustServerCertificate", "true");
         assert!(provider.transport_warning(&local).is_none());
 
-        // Remote server with encrypt = true and verified certificate should not warn.
         let mut remote_secure = ConnectionProfile::new("mssql");
         remote_secure.set("server", "192.168.0.251");
         remote_secure.set("encrypt", "true");
         remote_secure.set("trustServerCertificate", "false");
         assert!(provider.transport_warning(&remote_secure).is_none());
 
-        // Remote server trusting any server certificate should warn about impersonation.
         let mut remote_trust = ConnectionProfile::new("mssql");
         remote_trust.set("server", "192.168.0.251");
         remote_trust.set("encrypt", "true");
@@ -1069,7 +1053,6 @@ mod tests {
             .expect("expected warning for remote trustServerCertificate");
         assert!(warning.contains("trusts any server certificate"));
 
-        // Remote server with encrypt = false should warn about unencrypted traffic.
         let mut remote_plain = ConnectionProfile::new("mssql");
         remote_plain.set("server", "db.example.com");
         remote_plain.set("encrypt", "false");
@@ -1087,15 +1070,12 @@ mod tests {
 
         use super::format_column_data;
 
-        // Legacy `datetime`: exact value from user report (45416 days after 1900-01-01 = 2024-05-06,
-        // 15118596 / 300 = 50395.32s = 13:59:55.320).
         let dt = tds_time::DateTime::new(45416, 15118596);
         assert_eq!(
             format_column_data(ColumnData::DateTime(Some(dt))).as_deref(),
             Some("2024-05-06 13:59:55.320")
         );
 
-        // SQL Server `datetime` 1/300s rounding (.000, .003, .007) and pre-1900 negative days.
         assert_eq!(
             format_column_data(ColumnData::DateTime(Some(tds_time::DateTime::new(0, 0)))).as_deref(),
             Some("1900-01-01 00:00:00")
@@ -1113,14 +1093,12 @@ mod tests {
             Some("1899-12-31 00:00:00")
         );
 
-        // `smalldatetime`
         let sdt = tds_time::SmallDateTime::new(45416, 14 * 60 + 30);
         assert_eq!(
             format_column_data(ColumnData::SmallDateTime(Some(sdt))).as_deref(),
             Some("2024-05-06 14:30:00")
         );
 
-        // `datetime2`
         let dt2 = NaiveDateTime::new(
             NaiveDate::from_ymd_opt(2024, 5, 6).unwrap(),
             NaiveTime::from_hms_micro_opt(13, 59, 55, 123_456).unwrap(),
@@ -1130,21 +1108,18 @@ mod tests {
             Some("2024-05-06 13:59:55.123456")
         );
 
-        // `date`
         let d = NaiveDate::from_ymd_opt(2024, 5, 6).unwrap();
         assert_eq!(
             format_column_data(d.into_sql()).as_deref(),
             Some("2024-05-06")
         );
 
-        // `time`
         let t = NaiveTime::from_hms_milli_opt(13, 59, 55, 320).unwrap();
         assert_eq!(
             format_column_data(t.into_sql()).as_deref(),
             Some("13:59:55.320")
         );
 
-        // `datetimeoffset` (preserves server offset in local display)
         let offset = FixedOffset::east_opt(7 * 3600).unwrap();
         let dto: ChronoDateTime<FixedOffset> = ChronoDateTime::from_naive_utc_and_offset(
             NaiveDateTime::new(
@@ -1158,7 +1133,6 @@ mod tests {
             Some("2024-05-06 13:59:55.320 +07:00")
         );
 
-        // NULL values stay None
         assert_eq!(format_column_data(ColumnData::DateTime(None)), None);
         assert_eq!(format_column_data(ColumnData::DateTime2(None)), None);
         assert_eq!(format_column_data(ColumnData::Date(None)), None);

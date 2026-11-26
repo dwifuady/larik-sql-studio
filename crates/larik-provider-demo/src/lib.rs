@@ -26,7 +26,6 @@ static DEMO_SETTINGS: &[ProviderSetting] = &[ProviderSetting {
     is_advanced: false,
 }];
 
-/// Offline in-memory provider matching Larik's DemoProvider.
 pub struct DemoProvider;
 
 impl DatabaseProvider for DemoProvider {
@@ -296,7 +295,6 @@ impl DatabaseConnection for DemoConnection {
         _database: Option<&str>,
     ) -> anyhow::Result<u64> {
         tokio::time::sleep(Duration::from_millis(30)).await;
-        // Count UPDATE / DELETE statements inside the batch as 1 affected row each in Demo mode.
         let upper = sql.to_ascii_uppercase();
         let count = upper
             .lines()
@@ -320,7 +318,6 @@ fn execute_demo_statement(
     let trimmed = sql.trim();
     let db = database.map(str::to_string);
 
-    // Support PRINT '...' for testing the Messages tab.
     if trimmed.to_ascii_uppercase().starts_with("PRINT ") {
         let msg = trimmed[6..].trim().trim_matches('\'').to_string();
         return QueryResult {
@@ -353,7 +350,6 @@ fn execute_demo_statement(
         return QueryResult::error(err, started.elapsed(), db);
     };
 
-    // Allow `SELECT TOP 500 ...` to stress-test the virtualized DataTable easily!
     let requested_count = parse_top_count(trimmed).unwrap_or(120);
     let limit = options.effective_max_rows();
     let generate_count = requested_count.min(limit + 1);
@@ -465,7 +461,6 @@ fn generate_rows(table: &TableSchema, count: usize) -> Vec<Vec<Option<String>>> 
             "customers" => {
                 let person = PEOPLE[i % PEOPLE.len()];
                 let first = person.split_whitespace().next().unwrap_or("user").to_ascii_lowercase();
-                // Sprinkle occasional NULL emails to showcase NULL rendering.
                 let email = if i % 7 == 4 {
                     None
                 } else {

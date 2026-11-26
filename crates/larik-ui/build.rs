@@ -11,10 +11,6 @@ fn main() {
         return;
     }
 
-    // Windows defaults to a 1 MB main-thread stack (vs 8 MB on macOS/Linux).
-    // Unoptimized GPUI debug render frames (deep Div/StyleRefinement chains such as
-    // Results -> Preview Pane or Settings -> Snippets Editor) can exceed 1 MB on
-    // the main thread. Reserve a 16 MB virtual stack (committed lazily on demand).
     const WINDOWS_STACK_RESERVE_BYTES: usize = 16 * 1024 * 1024;
     match env::var("CARGO_CFG_TARGET_ENV").as_deref() {
         Ok("msvc") => {
@@ -53,8 +49,6 @@ fn main() {
 
     let mut rc_contents = String::new();
     if ico_path.exists() {
-        // Resource ID 1 matches gpui-pre-windows `LoadImageW(..., PCWSTR(1), IMAGE_ICON, ...)`
-        // and is also the primary icon Windows Explorer uses for the executable.
         let escaped_ico = ico_path.to_string_lossy().replace('\\', "\\\\");
         rc_contents.push_str(&format!("1 ICON \"{escaped_ico}\"\n\n"));
     }
