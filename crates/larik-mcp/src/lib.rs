@@ -7,12 +7,16 @@ use std::sync::Arc;
 
 use larik_data::ProviderCatalog;
 use larik_provider_demo::DemoProvider;
+use larik_provider_mongodb::MongoProvider;
 use larik_provider_mssql::SqlServerProvider;
+use larik_provider_postgres::PostgresProvider;
 
 pub fn build_default_catalog() -> ProviderCatalog {
     let mut catalog = ProviderCatalog::new();
     catalog.register(Arc::new(DemoProvider));
     catalog.register(Arc::new(SqlServerProvider));
+    catalog.register(Arc::new(PostgresProvider));
+    catalog.register(Arc::new(MongoProvider));
     catalog
 }
 
@@ -300,5 +304,19 @@ mod tests {
         let _ = mcp_approval_status::APPROVED;
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn default_catalog_registers_all_builtin_providers_with_read_only_policies() {
+        let catalog = build_default_catalog();
+        for id in ["demo", "mssql", "postgres", "mongodb"] {
+            let provider = catalog
+                .find(id)
+                .unwrap_or_else(|| panic!("expected built-in provider '{id}' in catalog"));
+            assert!(
+                provider.read_only_policy().is_some(),
+                "expected provider '{id}' to provide a fail-closed read-only policy"
+            );
+        }
     }
 }

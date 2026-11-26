@@ -463,6 +463,19 @@ pub trait EditorLanguage: Send + Sync {
         format!("[{}]", identifier.replace(']', "]]"))
     }
 
+    /// Build a dialect-appropriate preview query for a table or collection (e.g. Schema Explorer Play button).
+    fn preview_statement(&self, schema: Option<&str>, table: &str, limit: usize) -> String {
+        let qualified = match schema.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(s) => format!(
+                "{}.{}",
+                self.quote_identifier(s),
+                self.quote_identifier(table)
+            ),
+            None => self.quote_identifier(table),
+        };
+        format!("SELECT * FROM {qualified} LIMIT {limit};")
+    }
+
     /// Generate completion suggestions for the given editor context.
     fn suggest_completions(&self, request: &CompletionRequest<'_>) -> CompletionResult {
         let (replace_start, items) = crate::sql_language::suggest_completions_with_snippets(

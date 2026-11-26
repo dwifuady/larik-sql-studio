@@ -27,7 +27,9 @@ use larik_core::store::StudioStore;
 use larik_core::{WindowMode, WindowPlacementState};
 use larik_data::ProviderCatalog;
 use larik_provider_demo::DemoProvider;
+use larik_provider_mongodb::MongoProvider;
 use larik_provider_mssql::SqlServerProvider;
+use larik_provider_postgres::PostgresProvider;
 
 use crate::studio::{StudioView, bind_studio_keys};
 
@@ -119,6 +121,8 @@ fn main() {
     let mut catalog = ProviderCatalog::new();
     catalog.register(Arc::new(DemoProvider));
     catalog.register(Arc::new(SqlServerProvider));
+    catalog.register(Arc::new(PostgresProvider));
+    catalog.register(Arc::new(MongoProvider));
 
     let store = StudioStore::open_default().expect("failed to initialize Larik SQL Studio store");
     let saved_placement = store.load_window_placement();

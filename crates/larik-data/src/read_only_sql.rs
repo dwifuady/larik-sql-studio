@@ -69,9 +69,9 @@ pub fn is_proven_read(sql: &str, rules: &ReadOnlyKeywordRules) -> bool {
     units > 0
 }
 
-/// Strips `'...'`, `"..."`, `[...]` (respecting doubled closers), `-- ...`, and `/* ... */`,
+/// Strips `'...'`, `E'...'`, `"..."`, `[...]`, `$tag$...$tag$`, `-- ...`, and nested `/* ... */`,
 /// replacing each stripped span with a single space so adjacent tokens cannot merge.
-/// Returns `None` on any unterminated quote, bracket, or block comment.
+/// Returns `None` on any unterminated quote, bracket, dollar-quote, or block comment.
 fn try_strip(sql: &str) -> Option<String> {
     let chars: Vec<char> = sql.chars().collect();
     let len = chars.len();
@@ -92,13 +92,71 @@ fn try_strip(sql: &str) -> Option<String> {
             continue;
         }
 
-        // Block comment: /* ... */ (non-nested, fail-closed if unterminated)
+        // Block comment: /* ... */ (supports nesting as in PostgreSQL & T-SQL, fail-closed if unterminated)
         if ch == '/' && next == Some('*') {
             i += 2;
-            let mut closed = false;
-            while i + 1 < len {
-                if chars[i] == '*' && chars[i + 1] == '/' {
+            let mut depth = 1usize;
+            while i < len && depth > 0 {
+                if chars[i] == '/' && chars.get(i + 1) == Some(&'*') {
+                    depth += 1;
                     i += 2;
+                } else if chars[i] == '*' && chars.get(i + 1) == Some(&'/') {
+                    depth -= 1;
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            if depth > 0 {
+                return None;
+            }
+            out.push(' ');
+            continue;
+        }
+
+        // PostgreSQL dollar-quoted literal: $$...$$ or $tag$...$tag$
+        if ch == '$' {
+            if let Some(tag_len) = parse_dollar_tag_chars(&chars, i) {
+                let tag = &chars[i..i + tag_len];
+                i += tag_len;
+                let mut closed = false;
+                while i + tag_len <= len {
+                    if &chars[i..i + tag_len] == tag {
+                        i += tag_len;
+                        closed = true;
+                        break;
+                    }
+                    i += 1;
+                }
+                if !closed {
+                    return None;
+                }
+                out.push(' ');
+                continue;
+            }
+        }
+
+        // PostgreSQL escape string literal: E'...' or e'...'
+        if (ch == 'E' || ch == 'e')
+            && next == Some('\'')
+            && (i == 0 || !is_word_part(chars[i - 1]))
+        {
+            i += 2;
+            let mut closed = false;
+            while i < len {
+                if chars[i] == '\\' {
+                    if i + 1 >= len {
+                        return None;
+                    }
+                    i += 2;
+                    continue;
+                }
+                if chars[i] == '\'' {
+                    if chars.get(i + 1) == Some(&'\'') {
+                        i += 2;
+                        continue;
+                    }
+                    i += 1;
                     closed = true;
                     break;
                 }
@@ -140,6 +198,32 @@ fn try_strip(sql: &str) -> Option<String> {
     }
 
     Some(out)
+}
+
+fn parse_dollar_tag_chars(chars: &[char], pos: usize) -> Option<usize> {
+    if chars.get(pos) != Some(&'$') {
+        return None;
+    }
+    if chars.get(pos + 1) == Some(&'$') {
+        return Some(2);
+    }
+    let first = *chars.get(pos + 1)?;
+    if !(first.is_alphabetic() || first == '_') {
+        return None;
+    }
+    let mut j = pos + 2;
+    while j < chars.len() {
+        let c = chars[j];
+        if c == '$' {
+            return Some(j - pos + 1);
+        }
+        if c.is_alphanumeric() || c == '_' {
+            j += 1;
+        } else {
+            return None;
+        }
+    }
+    None
 }
 
 fn is_word_start(ch: char) -> bool {
@@ -375,6 +459,15 @@ mod tests {
         let p = PostgresReadOnlyPolicy;
         assert!(p.is_proven_read("VALUES (1, 2)"));
         assert!(p.is_proven_read("TABLE public.orders"));
+        assert!(p.is_proven_read("SELECT $$DROP TABLE users;$$ AS note"));
+        assert!(p.is_proven_read("SELECT $tag$DELETE FROM users;$tag$ AS note"));
+        assert!(p.is_proven_read("SELECT E'it\\'s a DROP TABLE test'"));
+        assert!(p.is_proven_read("/* outer /* inner DELETE */ still comment */ SELECT 1"));
+        assert!(!p.is_proven_read("SELECT $$unterminated"));
+        assert!(!p.is_proven_read("SELECT $tag$unterminated"));
+        assert!(!p.is_proven_read("SELECT E'unterminated\\'"));
+        assert!(!p.is_proven_read("/* outer /* inner */ unterminated SELECT 1"));
+        assert!(!p.is_proven_read("DO $$ BEGIN DELETE FROM users; END $$"));
         assert!(!p.is_proven_read("SELECT nextval('orders_id_seq')"));
         assert!(!p.is_proven_read("SELECT set_config('search_path', 'public', false)"));
         assert!(!p.is_proven_read("SELECT pg_terminate_backend(123)"));

@@ -230,6 +230,22 @@ impl EditorLanguage for SqlLanguage {
     fn quote_identifier(&self, identifier: &str) -> String {
         self.quote_style.quote(identifier)
     }
+
+    fn preview_statement(&self, schema: Option<&str>, table: &str, limit: usize) -> String {
+        let qualified = match schema.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(s) => format!(
+                "{}.{}",
+                self.quote_identifier(s),
+                self.quote_identifier(table)
+            ),
+            None => self.quote_identifier(table),
+        };
+        if self.supports_go_batches {
+            format!("SELECT TOP {limit} * FROM {qualified};")
+        } else {
+            format!("SELECT * FROM {qualified} LIMIT {limit};")
+        }
+    }
 }
 
 fn trim_span(full: &str, start: usize, end: usize) -> Option<TextSpan> {
@@ -248,17 +264,61 @@ fn trim_span(full: &str, start: usize, end: usize) -> Option<TextSpan> {
     })
 }
 
-fn split_semicolon_statements(text: &str, base_offset: usize, out: &mut Vec<TextSpan>) {
+/// Try to parse a PostgreSQL dollar-quote delimiter starting at `bytes[pos] == b'$'`.
+/// Matches `$$` or `$tag$` where `tag` starts with `[A-Za-z_]` (or non-ASCII) and continues
+/// with `[A-Za-z0-9_]` (or non-ASCII). Rejects positional parameters like `$1`.
+fn parse_dollar_quote_tag(bytes: &[u8], pos: usize) -> Option<&[u8]> {
+    if bytes.get(pos) != Some(&b'$') {
+        return None;
+    }
+    let len = bytes.len();
+    if pos + 1 < len && bytes[pos + 1] == b'$' {
+        return Some(&bytes[pos..pos + 2]);
+    }
+    let first = *bytes.get(pos + 1)?;
+    if !(first.is_ascii_alphabetic() || first == b'_' || first >= 0x80) {
+        return None;
+    }
+    let mut j = pos + 2;
+    while j < len {
+        let b = bytes[j];
+        if b == b'$' {
+            return Some(&bytes[pos..=j]);
+        }
+        if b.is_ascii_alphanumeric() || b == b'_' || b >= 0x80 {
+            j += 1;
+        } else {
+            return None;
+        }
+    }
+    None
+}
+
+fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b >= 0x80
+}
+
+/// Split semicolon-delimited statements while respecting SQL quotes, comments,
+/// PostgreSQL dollar-quoted strings (`$$...$$` / `$tag$...$tag$`), `E'...'` escape strings,
+/// and optionally `//` line comments (used by MongoDB shell/SQL scripts).
+pub fn split_semicolon_statements_with_options(
+    text: &str,
+    base_offset: usize,
+    allow_slash_slash_comments: bool,
+    out: &mut Vec<TextSpan>,
+) {
     let bytes = text.as_bytes();
     let len = bytes.len();
     let mut i = 0;
     let mut seg_start = 0;
     let mut in_single = false;
+    let mut single_allows_backslash = false;
     let mut in_double = false;
     let mut in_bracket = false;
     let mut in_backtick = false;
     let mut in_line_comment = false;
     let mut block_comment_depth: usize = 0;
+    let mut dollar_tag: Option<&[u8]> = None;
 
     while i < len {
         let b = bytes[i];
@@ -287,13 +347,28 @@ fn split_semicolon_statements(text: &str, base_offset: usize, out: &mut Vec<Text
             continue;
         }
 
+        if let Some(tag) = dollar_tag {
+            if b == b'$' && bytes[i..].starts_with(tag) {
+                i += tag.len();
+                dollar_tag = None;
+                continue;
+            }
+            i += 1;
+            continue;
+        }
+
         if in_single {
+            if single_allows_backslash && b == b'\\' && i + 1 < len {
+                i += 2;
+                continue;
+            }
             if b == b'\'' {
                 if next == b'\'' {
                     i += 2;
                     continue;
                 }
                 in_single = false;
+                single_allows_backslash = false;
             }
             i += 1;
             continue;
@@ -340,12 +415,24 @@ fn split_semicolon_statements(text: &str, base_offset: usize, out: &mut Vec<Text
                 in_line_comment = true;
                 i += 2;
             }
+            b'/' if allow_slash_slash_comments && next == b'/' => {
+                in_line_comment = true;
+                i += 2;
+            }
             b'/' if next == b'*' => {
                 block_comment_depth = 1;
                 i += 2;
             }
+            b'E' | b'e'
+                if next == b'\'' && (i == 0 || !is_ident_byte(bytes[i - 1])) =>
+            {
+                in_single = true;
+                single_allows_backslash = true;
+                i += 2;
+            }
             b'\'' => {
                 in_single = true;
+                single_allows_backslash = false;
                 i += 1;
             }
             b'"' => {
@@ -359,6 +446,11 @@ fn split_semicolon_statements(text: &str, base_offset: usize, out: &mut Vec<Text
             b'`' => {
                 in_backtick = true;
                 i += 1;
+            }
+            b'$' if parse_dollar_quote_tag(bytes, i).is_some() => {
+                let tag = parse_dollar_quote_tag(bytes, i).unwrap();
+                dollar_tag = Some(tag);
+                i += tag.len();
             }
             b';' => {
                 if let Some(mut span) = trim_span(text, seg_start, i) {
@@ -380,6 +472,10 @@ fn split_semicolon_statements(text: &str, base_offset: usize, out: &mut Vec<Text
         span.end += base_offset;
         out.push(span);
     }
+}
+
+fn split_semicolon_statements(text: &str, base_offset: usize, out: &mut Vec<TextSpan>) {
+    split_semicolon_statements_with_options(text, base_offset, false, out);
 }
 
 fn split_go_batches(text: &str) -> Vec<TextSpan> {

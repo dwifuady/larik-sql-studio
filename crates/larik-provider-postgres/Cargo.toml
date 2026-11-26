@@ -1,0 +1,15 @@
+[package]
+name = "larik-provider-postgres"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+futures-util.workspace = true
+larik-data.workspace = true
+native-tls.workspace = true
+postgres-native-tls.workspace = true
+tokio.workspace = true
+tokio-postgres.workspace = true

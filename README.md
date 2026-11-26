@@ -19,9 +19,11 @@ Larik organizes database connections into Arc-inspired **Spaces** (workspaces) w
 - **Statement-Anchored & Tab Notes**
   - Attach `Note`, `TODO`, `Decision`, or `Observation` annotations to specific SQL statements or as tab-level scratchpads.
   - Fingerprint anchoring automatically tracks and rebases notes as you edit or reformat queries, and preserves notes when tabs are archived.
-- **SQL Server Provider + Demo Workspace**
+- **Built-in Database Providers (SQL Server, PostgreSQL, MongoDB + Demo)**
   - Native SQL Server (`mssql`) connectivity via `tiberius` (TLS, `trustServerCertificate`, Windows auth / SQL auth).
-  - Passwords are stored exclusively in Windows Credential Manager and never written to SQLite.
+  - Native PostgreSQL (`postgres`) connectivity via `tokio-postgres` + `postgres-native-tls` (per-database sessions, SSL modes `Disable` through `VerifyFull`, notices, catalog schema & routines).
+  - Native MongoDB (`mongodb`) connectivity via the official `mongodb` driver supporting both T-SQL-on-MongoDB (`SELECT`, `JOIN`, `GROUP BY`, `INSERT`, `UPDATE`, `DELETE`, `USE`) and `db.<collection>.<method>(...)` mongosh passthrough, plus schema sampling and UUID/ObjectId coercion.
+  - Passwords and MongoDB connection strings are stored exclusively in Windows Credential Manager and never written to SQLite.
   - Built-in offline Demo provider for instant exploration and testing.
 - **AI Agents via MCP (`larik-mcp`)**
   - Local stdio MCP server exposing schema inspection, read/write query execution, and `open_in_studio`.
@@ -35,6 +37,8 @@ Larik SQL Studio is a pure-Rust Cargo workspace (Rust 2024 edition) rendered dir
 | --- | --- |
 | `crates/larik-data` | Provider traits (`DatabaseProvider`, `DatabaseConnection`), connection profiles, schema types, SQL language definitions, and snippet primitives. |
 | `crates/larik-provider-mssql` | Native Microsoft SQL Server provider built on `tiberius` + `tokio`. |
+| `crates/larik-provider-postgres` | Native PostgreSQL provider built on `tokio-postgres` + `postgres-native-tls`. |
+| `crates/larik-provider-mongodb` | Native MongoDB provider built on `mongodb` with T-SQL compiler, mongosh passthrough, and fail-closed read-only policy. |
 | `crates/larik-provider-demo` | In-memory demo database provider for local development and testing. |
 | `crates/larik-core` | Core studio state (`StudioState`, `SpaceState`, `TabState`), SQLite persistence (`StudioStore`), Windows Credential Manager secret backend, notes anchoring engine, snippets, run log, MCP types, and legacy Tauri DB migration. |
 | `crates/larik-mcp` | Standalone stdio MCP server binary (`larik-mcp.exe`) with named-pipe approval bridge to the desktop app. |
