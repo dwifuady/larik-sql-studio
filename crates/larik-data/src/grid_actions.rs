@@ -15,6 +15,7 @@ pub const PREVIEW_CHAR_LIMIT: usize = 100_000;
 pub enum SqlDialectKind {
     TSql,
     Postgres,
+    MongoDb,
     Sqlite,
     MySql,
     Generic,
@@ -25,6 +26,7 @@ impl SqlDialectKind {
         match id.trim().to_ascii_lowercase().as_str() {
             "mssql" | "tsql" | "sqlserver" => Self::TSql,
             "postgres" | "postgresql" | "pgsql" => Self::Postgres,
+            "mongodb" | "mongo" => Self::MongoDb,
             "sqlite" => Self::Sqlite,
             "mysql" | "mariadb" => Self::MySql,
             _ => Self::Generic,
@@ -33,7 +35,7 @@ impl SqlDialectKind {
 
     pub fn quote_style(self) -> IdentifierQuoteStyle {
         match self {
-            Self::TSql => IdentifierQuoteStyle::Brackets,
+            Self::TSql | Self::MongoDb => IdentifierQuoteStyle::Brackets,
             Self::Postgres | Self::Sqlite | Self::Generic => IdentifierQuoteStyle::DoubleQuotes,
             Self::MySql => IdentifierQuoteStyle::Backticks,
         }
@@ -250,6 +252,31 @@ pub fn format_sql_literal(
                 "E'{}'",
                 raw.replace('\\', "\\\\").replace('\'', "''")
             )
+        }
+        SqlDialectKind::MongoDb => {
+            if matches!(ty.as_str(), "boolean" | "bool") {
+                return if raw.eq_ignore_ascii_case("true") || raw == "1" {
+                    "TRUE".to_string()
+                } else {
+                    "FALSE".to_string()
+                };
+            }
+            if matches!(
+                ty.as_str(),
+                "int"
+                    | "int32"
+                    | "int64"
+                    | "long"
+                    | "double"
+                    | "float"
+                    | "decimal"
+                    | "decimal128"
+                    | "number"
+            ) && is_valid_sql_number(raw)
+            {
+                return raw.trim().to_string();
+            }
+            format!("'{}'", raw.replace('\'', "''"))
         }
         SqlDialectKind::Sqlite | SqlDialectKind::MySql | SqlDialectKind::Generic => {
             if ty.contains("binary") || ty.contains("image") {
@@ -1322,6 +1349,11 @@ pub fn wrap_dml_batch(dialect: SqlDialectKind, statements: &[PlannedStatement]) 
             );
             out
         }
+        SqlDialectKind::MongoDb => statements
+            .iter()
+            .map(|stmt| format!("{};", stmt.sql))
+            .collect::<Vec<_>>()
+            .join("\n"),
         _ => {
             let mut out = String::from("BEGIN;\n");
             for stmt in statements {

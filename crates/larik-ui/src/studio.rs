@@ -431,6 +431,8 @@ impl TabRuntime {
 enum SchemaRow {
     Table {
         key: SharedString,
+        schema: SharedString,
+        table_name: SharedString,
         is_view: bool,
         expanded: bool,
         col_count: SharedString,
@@ -1142,7 +1144,11 @@ impl StudioView {
         self.schema_rows.reserve(rt.schema.len().min(512));
 
         for table in rt.schema.iter() {
-            let qualified = format!("{}.{}", table.schema, table.name);
+            let qualified = if table.schema.trim().is_empty() {
+                table.name.clone()
+            } else {
+                format!("{}.{}", table.schema, table.name)
+            };
             let table_matches = !filtering
                 || table.name.to_ascii_lowercase().contains(query)
                 || table.schema.to_ascii_lowercase().contains(query)
@@ -1172,6 +1178,8 @@ impl StudioView {
 
             self.schema_rows.push(SchemaRow::Table {
                 key: SharedString::from(qualified),
+                schema: SharedString::from(table.schema.clone()),
+                table_name: SharedString::from(table.name.clone()),
                 is_view: table.kind == TableKind::View,
                 expanded,
                 col_count: SharedString::from(table.columns.len().to_string()),
@@ -8588,12 +8596,15 @@ impl StudioView {
         match row {
             SchemaRow::Table {
                 key,
+                schema,
+                table_name,
                 is_view,
                 expanded,
                 col_count,
             } => {
                 let key_toggle = key.clone();
-                let key_select = key.clone();
+                let schema_select = schema.clone();
+                let table_select = table_name.clone();
                 let key_label = key.clone();
                 let col_count_label = col_count.clone();
                 let is_view = *is_view;
@@ -8677,8 +8688,15 @@ impl StudioView {
                                     })
                                     .on_click(cx.listener(move |this, _, window, cx| {
                                         cx.stop_propagation();
-                                        let sql =
-                                            format!("\nSELECT TOP 100 * FROM {key_select};\n");
+                                        let lang = this.active_editor_language();
+                                        let schema_opt = (!schema_select.is_empty())
+                                            .then_some(schema_select.as_ref());
+                                        let stmt = lang.preview_statement(
+                                            schema_opt,
+                                            table_select.as_ref(),
+                                            100,
+                                        );
+                                        let sql = format!("\n{stmt}\n");
                                         this.insert_into_editor(sql, window, cx);
                                     }))
                                     .child(

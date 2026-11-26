@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub const KNOWN_SNIPPET_DIALECTS: &[(&str, &str)] = &[
     ("mssql", "SQL Server"),
     ("postgres", "PostgreSQL"),
+    ("mongodb", "MongoDB"),
     ("mysql", "MySQL"),
     ("sqlite", "SQLite"),
 ];

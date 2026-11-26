@@ -1538,6 +1538,7 @@ fn normalize_provider_id(driver: Option<&str>) -> String {
     {
         None | Some("mssql" | "sqlserver" | "sql_server") => "mssql".to_string(),
         Some("postgres" | "postgresql" | "pg") => "postgres".to_string(),
+        Some("mongo" | "mongodb") => "mongodb".to_string(),
         Some(other) => other.to_string(),
     }
 }

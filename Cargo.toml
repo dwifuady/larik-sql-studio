@@ -4,6 +4,8 @@ members = [
     "crates/larik-data",
     "crates/larik-provider-demo",
     "crates/larik-provider-mssql",
+    "crates/larik-provider-postgres",
+    "crates/larik-provider-mongodb",
     "crates/larik-core",
     "crates/larik-mcp",
     "crates/larik-ui",
@@ -20,18 +22,24 @@ async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 directories = "6"
 futures-util = "0.3"
+native-tls = "0.2"
+postgres-native-tls = "0.5"
 rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-uuid-1", "with-serde_json-1", "array-impls"] }
 tokio-util = { version = "0.7", features = ["compat"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 tiberius = { version = "0.13", default-features = false, features = ["tds73", "tds80", "winauth", "native-tls", "chrono", "rust_decimal", "sql-browser-tokio"] }
+mongodb = "3"
 gpui-kit = { version = "0.10.0", features = ["tree-sitter-sql"] }
 lsp-types = "0.97"
 larik-data = { path = "crates/larik-data" }
 larik-provider-demo = { path = "crates/larik-provider-demo" }
 larik-provider-mssql = { path = "crates/larik-provider-mssql" }
+larik-provider-postgres = { path = "crates/larik-provider-postgres" }
+larik-provider-mongodb = { path = "crates/larik-provider-mongodb" }
 larik-core = { path = "crates/larik-core" }
 
 [profile.release]
