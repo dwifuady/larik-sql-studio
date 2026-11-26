@@ -10,7 +10,6 @@ pub const MAX_INLINE_EDIT_CHARS: usize = 8_000;
 pub const MAX_FORMAT_LENGTH: usize = 1_000_000;
 pub const PREVIEW_CHAR_LIMIT: usize = 100_000;
 
-/// SQL dialect classification used for literal formatting, DML batches, and FK lookup queries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SqlDialectKind {
     TSql,
@@ -53,12 +52,6 @@ impl SqlDialectKind {
     }
 }
 
-// ============================================================================
-// 1. Copy Formatting & SQL Literals
-// ============================================================================
-
-/// Neutralize leading spreadsheet formula characters (`=`, `+`, `-`, `@`, `\t`, `\r`)
-/// by prepending a single quote, matching WinUI's `ResultExport.NeutralizeSpreadsheetFormula`.
 pub fn neutralize_spreadsheet_formula(value: &str) -> Cow<'_, str> {
     if let Some(first) = value.chars().next() {
         if matches!(first, '=' | '+' | '-' | '@' | '\t' | '\r') {
@@ -71,7 +64,6 @@ pub fn neutralize_spreadsheet_formula(value: &str) -> Cow<'_, str> {
     Cow::Borrowed(value)
 }
 
-/// Escape a single TSV field (formula neutralization + RFC quoting if it contains tabs/newlines/quotes).
 pub fn escape_tsv_field(value: &str) -> String {
     let safe = neutralize_spreadsheet_formula(value);
     if safe.contains(['\t', '\n', '\r', '"']) {
@@ -90,7 +82,6 @@ pub fn escape_tsv_field(value: &str) -> String {
     }
 }
 
-/// Format a selected block of cells as TSV (matching WinUI's `ResultsGrid.CopySelection`).
 pub fn format_tsv_selection(
     headers: &[&str],
     rows: &[Vec<Option<&str>>],
@@ -127,7 +118,6 @@ pub fn format_tsv_selection(
     out
 }
 
-/// Normalize a column's declared data type into its lowercase base type name (before `(`).
 pub fn base_data_type(data_type: Option<&str>) -> String {
     let raw = data_type.unwrap_or("").trim();
     let base = raw.split('(').next().unwrap_or(raw).trim();
@@ -142,8 +132,6 @@ fn is_valid_sql_number(value: &str) -> bool {
     trimmed.parse::<f64>().is_ok_and(|n| n.is_finite())
 }
 
-/// Format a cell value as a dialect-appropriate SQL literal, matching WinUI's
-/// `TSqlDialect.FormatLiteral` / `PostgresDialect.FormatLiteral` / fallback.
 pub fn format_sql_literal(
     dialect: SqlDialectKind,
     value: Option<&str>,
@@ -315,7 +303,6 @@ pub fn format_sql_literal(
     }
 }
 
-/// Format selected cells as a SQL `IN (...)` clause (matching WinUI's `CopyAsSql(insert: false)`).
 pub fn format_in_clause(dialect: SqlDialectKind, cells: &[(Option<&str>, Option<&str>)]) -> String {
     let mut out = String::from("IN (");
     for (i, &(val, ty)) in cells.iter().enumerate() {
@@ -328,8 +315,6 @@ pub fn format_in_clause(dialect: SqlDialectKind, cells: &[(Option<&str>, Option<
     out
 }
 
-/// Format selected rows as a SQL `VALUES (...),\n       (...)` clause
-/// (matching WinUI's `CopyAsSql(insert: true)`).
 pub fn format_values_clause(
     dialect: SqlDialectKind,
     rows: &[Vec<(Option<&str>, Option<&str>)>],
@@ -350,10 +335,6 @@ pub fn format_values_clause(
     }
     out
 }
-
-// ============================================================================
-// 2. Lexical SQL Scanner, Column-Origin Resolution, Row Edit & FK Resolution
-// ============================================================================
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColumnOrigin {
@@ -396,7 +377,6 @@ fn tokenize_sql(sql: &str) -> Vec<SqlTok> {
             i += 1;
             continue;
         }
-        // Line comment --
         if b == b'-' && i + 1 < len && bytes[i + 1] == b'-' {
             i += 2;
             while i < len && bytes[i] != b'\n' {
@@ -404,7 +384,6 @@ fn tokenize_sql(sql: &str) -> Vec<SqlTok> {
             }
             continue;
         }
-        // Block comment /* ... */
         if b == b'/' && i + 1 < len && bytes[i + 1] == b'*' {
             i += 2;
             while i + 1 < len && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
@@ -413,7 +392,6 @@ fn tokenize_sql(sql: &str) -> Vec<SqlTok> {
             i = (i + 2).min(len);
             continue;
         }
-        // String literal '...' or N'...'
         if b == b'\'' || ((b == b'N' || b == b'n') && i + 1 < len && bytes[i + 1] == b'\'') {
             if b != b'\'' {
                 i += 1;
@@ -436,7 +414,6 @@ fn tokenize_sql(sql: &str) -> Vec<SqlTok> {
             });
             continue;
         }
-        // Bracketed identifier [...]
         if b == b'[' {
             i += 1;
             let mut ident = String::new();
@@ -460,7 +437,6 @@ fn tokenize_sql(sql: &str) -> Vec<SqlTok> {
             });
             continue;
         }
-        // Double-quoted or backtick identifier
         if b == b'"' || b == b'`' {
             let q = b;
             i += 1;
@@ -614,7 +590,6 @@ fn find_table_references<'a>(tokens: &[SqlTok], tables: &'a [TableSchema]) -> Ve
     while i < tokens.len() {
         if tokens[i].depth == 0 && (tok_is_word(&tokens[i], "FROM") || tok_is_word(&tokens[i], "JOIN")) {
             let mut cur = i + 1;
-            // Parse comma-separated tables after FROM, or single table after JOIN.
             let is_from = tok_is_word(&tokens[i], "FROM");
             loop {
                 if cur >= tokens.len() || tokens[cur].depth != 0 {
@@ -645,7 +620,6 @@ fn find_table_references<'a>(tokens: &[SqlTok], tables: &'a [TableSchema]) -> Ve
                 if let Some(table) = find_schema_table(tables, &parts) {
                     refs.push(TableRef { table, alias });
                 }
-                // Skip optional table hints like WITH (NOLOCK)
                 if next + 1 < tokens.len()
                     && tokens[next].depth == 0
                     && tok_is_word(&tokens[next], "WITH")
@@ -688,14 +662,12 @@ fn find_top_level_select_slice(tokens: &[SqlTok]) -> Option<&[SqlTok]> {
     let mut start = sel_idx + 1;
     let end = sel_idx + 1 + from_rel;
 
-    // Skip DISTINCT / ALL
     while start < end
         && tokens[start].depth == 0
         && (tok_is_word(&tokens[start], "DISTINCT") || tok_is_word(&tokens[start], "ALL"))
     {
         start += 1;
     }
-    // Skip TOP [(N) | N] [PERCENT] [WITH TIES]
     if start < end && tokens[start].depth == 0 && tok_is_word(&tokens[start], "TOP") {
         start += 1;
         if start < end && matches!(tokens[start].kind, SqlTokKind::LParen) {
@@ -741,8 +713,6 @@ fn split_top_level_commas(slice: &[SqlTok]) -> Vec<&[SqlTok]> {
     items
 }
 
-/// Parses SELECT projections. Returns `None` if `*` or `t.*` is present (star projection).
-/// Otherwise returns one `Option<SelectProjection>` per item (`None` for computed expressions).
 fn parse_select_projections(tokens: &[SqlTok]) -> Option<Vec<Option<SelectProjection>>> {
     let slice = find_top_level_select_slice(tokens)?;
     let raw_items = split_top_level_commas(slice);
@@ -752,11 +722,9 @@ fn parse_select_projections(tokens: &[SqlTok]) -> Option<Vec<Option<SelectProjec
         if item.is_empty() {
             return None;
         }
-        // Star projection `*` or `t.*` or `s.t.*`
         if item.iter().any(|t| t.depth == 0 && matches!(t.kind, SqlTokKind::Star)) {
             return None;
         }
-        // Simple projection: `<ident_path> [AS <alias> | <alias>]`
         let Some((parts, next)) = parse_ident_path(item, 0) else {
             result.push(None);
             continue;
@@ -792,7 +760,6 @@ fn parse_select_projections(tokens: &[SqlTok]) -> Option<Vec<Option<SelectProjec
 }
 
 fn has_multiple_statements(tokens: &[SqlTok]) -> bool {
-    // Strip trailing semicolons; any remaining top-level semicolon means multi-statement batch.
     let mut end = tokens.len();
     while end > 0 && matches!(tokens[end - 1].kind, SqlTokKind::Semicolon) {
         end -= 1;
@@ -817,7 +784,6 @@ fn resolve_projection_table<'a>(
             .iter()
             .find(|t| t.schema.eq_ignore_ascii_case(sch) && t.name.eq_ignore_ascii_case(tbl));
     }
-    // Match alias first, then table name in refs, then table name in full schema.
     refs.iter()
         .find(|r| r.alias.as_deref().is_some_and(|a| a.eq_ignore_ascii_case(qualifier)))
         .or_else(|| refs.iter().find(|r| r.table.name.eq_ignore_ascii_case(qualifier)))
@@ -848,8 +814,6 @@ fn find_unique_owner<'a>(refs: &[TableRef<'a>], col_name: &str) -> Option<&'a Ta
     }
 }
 
-/// Map each result column index (`0..result.columns.len()`) to its source table & column
-/// using the SQL statement and active database schema (matching WinUI's `CellReferenceResolver`).
 pub fn resolve_column_origins(
     statement: Option<&str>,
     result: &QueryResult,
@@ -889,7 +853,7 @@ pub fn resolve_column_origins(
                         .or_else(|| find_unique_owner(&refs, &proj.column));
                     (tbl, proj.column.clone())
                 }
-                None => continue, // Computed/expression column
+                None => continue,
             }
         } else {
             let tbl = find_unique_owner(&refs, &col.name);
@@ -916,10 +880,6 @@ pub fn resolve_column_origins(
 
     origins
 }
-
-// ============================================================================
-// 3. Row Editability Validation & DML Planner (WinUI RowEditResolver parity)
-// ============================================================================
 
 const FORBIDDEN_SHAPE_WORDS: &[&str] = &[
     "GROUP", "HAVING", "DISTINCT", "UNION", "INTERSECT", "EXCEPT", "PIVOT", "UNPIVOT", "APPLY",
@@ -952,18 +912,14 @@ pub struct RowEditTarget {
     pub schema: String,
     pub table: String,
     pub key: Vec<RowKeyColumn>,
-    /// Map of result column index -> table column name (writable columns only).
     pub writable_columns: HashMap<usize, String>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct RowEditResolution {
     pub targets: Vec<RowEditTarget>,
-    /// Result column index -> index into `targets`.
     pub column_to_target: HashMap<usize, usize>,
-    /// Per-column refusal reason (for non-writable columns).
     pub column_reasons: HashMap<usize, String>,
-    /// Global refusal reason when `targets` is empty.
     pub global_reason: Option<String>,
 }
 
@@ -994,7 +950,6 @@ impl RowEditResolution {
 }
 
 fn has_non_editable_shape(tokens: &[SqlTok]) -> bool {
-    // 1. Forbidden top-level keywords
     for tok in tokens {
         if tok.depth == 0 {
             if let SqlTokKind::Word(w) = &tok.kind {
@@ -1004,7 +959,6 @@ fn has_non_editable_shape(tokens: &[SqlTok]) -> bool {
             }
         }
     }
-    // 2. Derived tables: top-level FROM ( or JOIN (
     for i in 0..tokens.len().saturating_sub(1) {
         if tokens[i].depth == 0
             && (tok_is_word(&tokens[i], "FROM") || tok_is_word(&tokens[i], "JOIN"))
@@ -1013,7 +967,6 @@ fn has_non_editable_shape(tokens: &[SqlTok]) -> bool {
             return true;
         }
     }
-    // 3. Aggregate functions anywhere at depth 0: AGG(...)
     for i in 0..tokens.len().saturating_sub(1) {
         if tokens[i].depth == 0 {
             if let SqlTokKind::Word(w) = &tokens[i].kind {
@@ -1025,7 +978,6 @@ fn has_non_editable_shape(tokens: &[SqlTok]) -> bool {
             }
         }
     }
-    // 4. SELECT list: every item must be `*`, `t.*`, or simple column reference (no expressions)
     let Some(select_slice) = find_top_level_select_slice(tokens) else {
         return true;
     };
@@ -1036,7 +988,6 @@ fn has_non_editable_shape(tokens: &[SqlTok]) -> bool {
         if item.len() == 1 && matches!(item[0].kind, SqlTokKind::Star) {
             continue;
         }
-        // Check `a.*` or `a.b.*`
         if matches!(item.last().map(|t| &t.kind), Some(SqlTokKind::Star)) {
             if item.len() >= 3
                 && matches!(item[item.len() - 2].kind, SqlTokKind::Dot)
@@ -1062,7 +1013,6 @@ fn has_non_editable_shape(tokens: &[SqlTok]) -> bool {
     false
 }
 
-/// Resolve editability for a `QueryResult` using WinUI's strict `RowEditResolver` rules.
 pub fn resolve_row_edit(
     statement: Option<&str>,
     result: &QueryResult,
@@ -1107,7 +1057,6 @@ pub fn resolve_row_edit(
         };
     }
 
-    // Group mapped columns by `(schema_lower, table_lower)` in deterministic order.
     let mut groups: BTreeMap<(String, String), Vec<(usize, &ColumnOrigin)>> = BTreeMap::new();
     for (&col_idx, origin) in origins {
         groups
@@ -1158,7 +1107,6 @@ pub fn resolve_row_edit(
             continue;
         }
 
-        // Verify every PK column appears exactly once and isn't a lossy date/time type.
         let mut keys: Vec<RowKeyColumn> = Vec::with_capacity(schema_info.primary_key.len());
         let mut missing_keys: Vec<String> = Vec::new();
         let mut key_error: Option<String> = None;
@@ -1366,8 +1314,6 @@ pub fn wrap_dml_batch(dialect: SqlDialectKind, statements: &[PlannedStatement]) 
     }
 }
 
-/// Build an executable DML plan (UPDATEs first, DELETEs second, wrapped in a transaction)
-/// from staged cell edits and deleted row indices, matching WinUI's `RowEditController.Plan`.
 pub fn build_dml_plan(
     dialect: SqlDialectKind,
     resolution: &RowEditResolution,
@@ -1388,7 +1334,6 @@ pub fn build_dml_plan(
     let mut update_count = 0usize;
     let mut delete_count = 0usize;
 
-    // 1. Group staged edits by ascending row_ix, skipping rows marked for deletion.
     let mut edits_by_row: BTreeMap<usize, Vec<(usize, &Option<String>)>> = BTreeMap::new();
     for (&(row_ix, src_col), new_val) in staged_edits {
         if deleted_rows.contains(&row_ix) {
@@ -1403,7 +1348,6 @@ pub fn build_dml_plan(
             return Err(format!("Row {} is no longer available.", row_ix + 1));
         };
 
-        // Group edits by target table index so multi-table JOIN edits produce one UPDATE per table.
         let mut by_target: BTreeMap<usize, Vec<(usize, &Option<String>)>> = BTreeMap::new();
         for (src_col, new_val) in row_edits {
             let orig = original_row.get(src_col).and_then(|v| v.as_deref());
@@ -1454,7 +1398,6 @@ pub fn build_dml_plan(
         }
     }
 
-    // 2. Emit DELETE statements in ascending row order.
     let mut del_rows: Vec<usize> = deleted_rows.iter().copied().collect();
     del_rows.sort_unstable();
 
@@ -1487,10 +1430,6 @@ pub fn build_dml_plan(
         delete_count,
     })
 }
-
-// ============================================================================
-// 4. Foreign Key Reference Resolution & Query Builder
-// ============================================================================
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyColumnPair {
@@ -1526,8 +1465,6 @@ pub struct ReferenceFilter {
     pub data_type: Option<String>,
 }
 
-/// Resolve DB foreign-key references for every mapped result column
-/// (matching WinUI's `CellReferenceResolver.FindReference`).
 pub fn resolve_column_references(
     origins: &HashMap<usize, ColumnOrigin>,
     tables: &[TableSchema],
@@ -1541,7 +1478,6 @@ pub fn resolve_column_references(
             continue;
         };
 
-        // Group foreign keys by constraint name.
         let mut by_constraint: BTreeMap<String, Vec<&crate::ForeignKeySchema>> = BTreeMap::new();
         for fk in &table.foreign_keys {
             by_constraint
@@ -1550,7 +1486,6 @@ pub fn resolve_column_references(
                 .push(fk);
         }
 
-        // Filter to constraints containing `origin.column` and prefer fewest columns (single before composite).
         let mut matching: Vec<(String, Vec<&crate::ForeignKeySchema>)> = by_constraint
             .into_iter()
             .filter(|(_, fks)| {
@@ -1594,8 +1529,6 @@ pub fn resolve_column_references(
     out
 }
 
-/// Build target key filters from a row (using `display_value` callback so staged edits are honored).
-/// Returns `(filters, optional_warning)`.
 pub fn build_reference_filters(
     reference: &ColumnReference,
     result: &QueryResult,
@@ -1656,8 +1589,6 @@ pub struct ReferenceQueryPlan {
     pub limit: usize,
 }
 
-/// Generate the SQL query for FK reference preview (`list` mode for <=200 estimated rows,
-/// filtered `lookup` mode otherwise), matching WinUI's `ISqlDialect.RowsStatement`.
 pub fn build_reference_query(
     dialect: SqlDialectKind,
     reference: &ColumnReference,
@@ -1732,7 +1663,6 @@ pub fn values_match(a: Option<&str>, b: Option<&str>) -> bool {
     }
 }
 
-/// Find row indices in the FK lookup result matching all `filters`.
 pub fn find_matched_rows(result: &QueryResult, filters: &[ReferenceFilter]) -> Vec<usize> {
     if filters.is_empty() || result.rows.is_empty() {
         return Vec::new();
@@ -1764,10 +1694,6 @@ pub fn find_matched_rows(result: &QueryResult, filters: &[ReferenceFilter]) -> V
     matched
 }
 
-// ============================================================================
-// 5. Cell Preview Formatting (Auto / JSON / XML / Plain)
-// ============================================================================
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CellFormat {
     #[default]
@@ -1790,9 +1716,7 @@ impl CellFormat {
 
 #[derive(Debug, Clone)]
 pub struct FormattedCell {
-    /// Full formatted (or raw) text for copying.
     pub full_text: String,
-    /// Display-capped text (at `PREVIEW_CHAR_LIMIT` chars).
     pub display_text: String,
     pub detected: CellFormat,
     pub error_note: Option<String>,
@@ -1804,7 +1728,6 @@ fn looks_like_xml(trimmed: &str) -> bool {
     if !trimmed.starts_with('<') || !trimmed.ends_with('>') {
         return false;
     }
-    // Find first opening tag name `<tagName ...>`
     let bytes = trimmed.as_bytes();
     let mut i = 0usize;
     while i < bytes.len() {
@@ -1837,7 +1760,6 @@ fn looks_like_xml(trimmed: &str) -> bool {
             if trimmed.contains(&closing) {
                 return true;
             }
-            // Also allow self-closing single root tag `<tag .../>`
             if trimmed.ends_with("/>") {
                 return true;
             }
@@ -1849,7 +1771,6 @@ fn looks_like_xml(trimmed: &str) -> bool {
 }
 
 fn pretty_print_xml(raw: &str) -> String {
-    // Insert newline between adjacent tags `>   <` -> `>\n<`
     let mut normalized = String::with_capacity(raw.len());
     let mut chars = raw.chars().peekable();
     while let Some(ch) = chars.next() {
@@ -1923,7 +1844,6 @@ fn cap_display(full: &str) -> (String, usize, bool) {
     }
 }
 
-/// Format a cell value for the preview pane, matching WinUI's `CellContentFormatter`.
 pub fn format_cell_content(raw: &str, requested: CellFormat) -> FormattedCell {
     if raw.len() > MAX_FORMAT_LENGTH {
         let (display_text, total_chars, is_truncated) = cap_display(raw);
@@ -2041,16 +1961,9 @@ pub fn format_cell_content(raw: &str, requested: CellFormat) -> FormattedCell {
     }
 }
 
-// ============================================================================
-// 6. Cell Preview Syntax Tokenizer (JSON & XML)
-// ============================================================================
-
-/// Maximum byte span syntax-highlighted in the value preview pane.
 pub const PREVIEW_SYNTAX_BYTE_LIMIT: usize = 50_000;
-/// Maximum number of highlight tokens emitted for a single preview value.
 pub const PREVIEW_SYNTAX_TOKEN_LIMIT: usize = 5_000;
 
-/// Lexical token kinds colored in the JSON / XML value preview pane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CellSyntaxTokenKind {
     Property,
@@ -2064,7 +1977,6 @@ pub enum CellSyntaxTokenKind {
     Declaration,
 }
 
-/// A classified UTF-8 byte range `[start, end)` in the preview text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CellSyntaxToken {
     pub start: usize,
@@ -2083,9 +1995,6 @@ fn floor_char_boundary(text: &str, max_bytes: usize) -> usize {
     i
 }
 
-/// Classify `text` up to `byte_limit` bytes for JSON or XML syntax highlighting.
-/// Returned ranges are guaranteed to be valid UTF-8 char boundaries, non-overlapping,
-/// and in strictly ascending order (ready for `gpui::StyledText::with_highlights`).
 pub fn tokenize_cell_syntax(
     text: &str,
     format: CellFormat,
@@ -2105,8 +2014,6 @@ pub fn tokenize_cell_syntax(
     }
 }
 
-/// Tokenize with default preview caps, trimming back to the last complete line before the cap
-/// so a long value never looks half-highlighted mid-line (matching WinUI's `SyntaxLimit`).
 pub fn tokenize_cell_syntax_capped(text: &str, format: CellFormat) -> Vec<CellSyntaxToken> {
     if text.is_empty() || !matches!(format, CellFormat::Json | CellFormat::Xml) {
         return Vec::new();
@@ -2480,7 +2387,6 @@ mod tests {
             ),
             "VALUES (1, N'Alice'),\n       (2, NULL)"
         );
-        // ISO date literal in T-SQL replaces space with T
         assert_eq!(
             format_sql_literal(
                 SqlDialectKind::TSql,
@@ -2505,7 +2411,7 @@ mod tests {
 
         let edit = resolve_row_edit(Some(stmt), &res, &tables, &origins);
         assert!(edit.has_editable_targets());
-        assert!(!edit.can_edit(0)); // identity PK column is not writable
+        assert!(!edit.can_edit(0));
         assert!(edit.can_edit(1));
         assert!(edit.can_edit(2));
 
@@ -2531,7 +2437,6 @@ mod tests {
         assert!(plan.batch_sql.contains("BEGIN TRANSACTION;"));
         assert!(plan.batch_sql.contains("COMMIT TRANSACTION;"));
 
-        // GROUP BY is rejected
         let grouped = "SELECT status, COUNT(*) AS cnt FROM dbo.orders GROUP BY status";
         let grouped_res = make_result(
             &[("status", "varchar"), ("cnt", "int")],
@@ -2562,7 +2467,6 @@ mod tests {
         assert!(warn.is_none());
         assert_eq!(filters.len(), 1);
 
-        // Small table (<=200) -> list mode
         let list_plan = build_reference_query(SqlDialectKind::TSql, fk, &filters, Some(40));
         assert!(list_plan.is_list);
         assert_eq!(
@@ -2570,7 +2474,6 @@ mod tests {
             "SELECT TOP (200) * FROM [dbo].[customers] ORDER BY [id]"
         );
 
-        // Large/unknown table -> filtered lookup mode
         let filtered_plan = build_reference_query(SqlDialectKind::TSql, fk, &filters, Some(5000));
         assert!(!filtered_plan.is_list);
         assert_eq!(
@@ -2639,10 +2542,8 @@ mod tests {
         assert!(x_pairs.contains(&("'7'", CellSyntaxTokenKind::String)));
         assert!(x_pairs.contains(&("\"日本語\"", CellSyntaxTokenKind::String)));
         assert!(x_pairs.contains(&("<![CDATA[raw <text>]]>", CellSyntaxTokenKind::String)));
-        // Plain text nodes remain unhighlighted.
         assert!(!x_pairs.iter().any(|(s, _)| s.contains("hello")));
 
-        // Mid-UTF-8 byte limit must never panic or split a multi-byte character.
         let cut = tokenize_cell_syntax(json, CellFormat::Json, 30);
         for t in &cut {
             assert!(json.is_char_boundary(t.start) && json.is_char_boundary(t.end));

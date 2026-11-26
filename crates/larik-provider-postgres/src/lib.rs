@@ -114,7 +114,6 @@ const SETTINGS: &[ProviderSetting] = &[
     },
 ];
 
-/// PostgreSQL SSL modes matching libpq / Npgsql semantics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PostgresSslMode {
     Disable,
@@ -157,7 +156,6 @@ impl PostgresSslMode {
     }
 }
 
-/// Loopback hosts (or a Unix-socket path) never cross a network.
 pub fn is_local_host(host: Option<&str>) -> bool {
     let Some(raw) = host.map(str::trim).filter(|s| !s.is_empty()) else {
         return false;
@@ -174,7 +172,6 @@ pub fn is_local_host(host: Option<&str>) -> bool {
         || name.contains('\\')
 }
 
-/// Parse `host` (with fallback to `server` for migrated profiles) and optional embedded port.
 pub fn parse_host_and_port(profile: &ConnectionProfile) -> (String, u16) {
     let fallback_port = profile.get_u16("port").unwrap_or(DEFAULT_PORT);
     let raw = profile
@@ -187,7 +184,6 @@ pub fn parse_host_and_port(profile: &ConnectionProfile) -> (String, u16) {
         return ("localhost".to_string(), fallback_port);
     }
 
-    // Bracketed IPv6: [::1]:5432 or [::1]
     if let Some(rest) = raw.strip_prefix('[') {
         if let Some(close) = rest.find(']') {
             let host = &rest[..close];
@@ -201,7 +197,6 @@ pub fn parse_host_and_port(profile: &ConnectionProfile) -> (String, u16) {
         }
     }
 
-    // Single colon `host:port` (avoid splitting bare IPv6 like `::1`).
     if let Some((h, p)) = raw.rsplit_once(':') {
         if !h.contains(':') {
             if let Ok(port) = p.trim().parse::<u16>() {
@@ -262,7 +257,6 @@ impl DatabaseProvider for PostgresProvider {
         }
         let raw_mode = profile.get("sslMode");
         if raw_mode.map(str::trim).unwrap_or("").is_empty() {
-            // Empty defaults to VerifyFull for remote hosts.
             return None;
         }
         match PostgresSslMode::parse(raw_mode, false) {
@@ -453,14 +447,11 @@ fn build_tls_connector(mode: PostgresSslMode) -> Result<MakeTlsConnector> {
     let mut builder = TlsConnector::builder();
     match mode {
         PostgresSslMode::VerifyFull => {
-            // Full certificate chain + hostname verification (default).
         }
         PostgresSslMode::VerifyCa => {
-            // Verify certificate chain, skip hostname match.
             builder.danger_accept_invalid_hostnames(true);
         }
         PostgresSslMode::Require | PostgresSslMode::Prefer | PostgresSslMode::Allow => {
-            // Encrypt transport without verifying certificate or hostname.
             builder.danger_accept_invalid_certs(true);
             builder.danger_accept_invalid_hostnames(true);
         }
@@ -579,7 +570,6 @@ fn is_permission_denied(err: &PgError) -> bool {
         .is_some_and(|code| code.code() == "42501")
 }
 
-/// Convert `simple_query` messages for a single statement into one or more [`QueryResult`]s.
 fn simple_messages_to_results(
     messages: Vec<SimpleQueryMessage>,
     max_rows: usize,
@@ -597,7 +587,6 @@ fn simple_messages_to_results(
     for msg in messages {
         match msg {
             SimpleQueryMessage::RowDescription(cols) => {
-                // Flush previous result set if one was open without CommandComplete.
                 if let Some(prev_cols) = cur_columns.take() {
                     let row_count = cur_rows.len();
                     results.push(QueryResult {
@@ -748,7 +737,6 @@ impl DatabaseConnection for PostgresConnection {
         let control_db = self.control_database.clone();
         match self.connect_physical(&control_db).await {
             Ok(session) => {
-                // Fetch server_version on open (matches WinUI PostgresProvider).
                 let ver = match session.client.simple_query("SHOW server_version").await {
                     Ok(msgs) => msgs.into_iter().find_map(|m| match m {
                         SimpleQueryMessage::Row(r) => r
@@ -885,7 +873,6 @@ ORDER BY n.nspname, c.relname, a.attnum;
             return Ok(Vec::new());
         }
 
-        // Primary keys
         let pk_sql = r#"
 SELECT
     n.nspname AS table_schema,
@@ -912,7 +899,6 @@ ORDER BY n.nspname, c.relname, k.ord;
             }
         }
 
-        // Foreign keys
         let fk_sql = r#"
 SELECT
     con.conname AS constraint_name,
@@ -988,7 +974,6 @@ ORDER BY r.routine_schema, r.routine_name, r.specific_name, p.ordinal_position;
             Err(err) => return Err(format_pg_error_anyhow(err)),
         };
 
-        // Keep first overload per (schema, name), matching WinUI PostgresProvider.
         let mut by_name: BTreeMap<(String, String), (String, RoutineSchema)> = BTreeMap::new();
         for row in rows {
             let schema: String = row.get(0);
@@ -1019,7 +1004,6 @@ ORDER BY r.routine_schema, r.routine_name, r.specific_name, p.ordinal_position;
             });
 
             if entry.0 != specific {
-                // Skip secondary overloads with the same (schema, name).
                 continue;
             }
 
@@ -1307,7 +1291,6 @@ mod tests {
         let mut remote = provider.default_profile();
         remote.set("host", "db.prod.example.com");
 
-        // Empty defaults to VerifyFull -> no warning.
         assert_eq!(provider.transport_warning(&remote), None);
 
         for weak in ["Disable", "Allow", "Prefer"] {
@@ -1327,11 +1310,9 @@ mod tests {
             );
         }
 
-        // Unknown value returns None (rejected at connect time).
         remote.set("sslMode", "Bogus");
         assert_eq!(provider.transport_warning(&remote), None);
 
-        // Localhost never warns even with Disable.
         let mut local = provider.default_profile();
         local.set("host", "127.0.0.1");
         local.set("sslMode", "Disable");

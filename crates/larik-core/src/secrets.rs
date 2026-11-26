@@ -1,20 +1,14 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-/// Stable target key used to store one workspace's provider password in the secret store.
 pub fn secret_target(space_id: &str, key: &str) -> String {
     format!("Larik.SqlStudio/space/{space_id}/{key}")
 }
 
-/// Legacy target key written by the Tauri app via `keyring` v3 (`windows-native`).
-/// `keyring::Entry::new("larik-sql-studio", &format!("space-password/{space_id}"))`
-/// maps to Windows Credential Manager target `"{user}.{service}"`.
 pub fn legacy_tauri_secret_target(space_id: &str) -> String {
     format!("space-password/{space_id}.larik-sql-studio")
 }
 
-/// Decodes a credential blob written by `keyring` v3 on Windows (`set_password` encodes UTF-16LE),
-/// falling back to UTF-8 if the blob is not valid UTF-16LE.
 pub fn decode_legacy_keyring_blob(bytes: &[u8]) -> anyhow::Result<String> {
     if bytes.is_empty() {
         return Ok(String::new());
@@ -37,14 +31,11 @@ pub trait SecretBackend: Send + Sync {
     fn set(&self, target: &str, value: &str) -> anyhow::Result<()>;
     fn delete(&self, target: &str) -> anyhow::Result<()>;
 
-    /// Reads a legacy `keyring` v3 Windows Credential Manager entry (stored as UTF-16LE).
-    /// Non-Windows / in-memory backends default to `self.get(target)`.
     fn get_legacy_keyring(&self, target: &str) -> anyhow::Result<Option<String>> {
         self.get(target)
     }
 }
 
-/// Windows Credential Manager backend (`CRED_TYPE_GENERIC`, `CRED_PERSIST_LOCAL_MACHINE`).
 #[derive(Debug, Default, Clone, Copy)]
 pub struct WindowsCredentialBackend;
 
@@ -71,8 +62,6 @@ mod win_impl {
         let target_w = to_wide_null(target);
         let mut cred_ptr: *mut CREDENTIALW = ptr::null_mut();
 
-        // SAFETY: `target_w` is null-terminated UTF-16 and `cred_ptr` receives a Windows-allocated
-        // `CREDENTIALW` pointer that we immediately copy from and free with `CredFree`.
         let ok = unsafe { CredReadW(target_w.as_ptr(), CRED_TYPE_GENERIC, 0, &mut cred_ptr) };
         if ok == 0 {
             let err = unsafe { GetLastError() };
@@ -87,7 +76,6 @@ mod win_impl {
             return Ok(None);
         }
 
-        // SAFETY: `cred_ptr` is valid until `CredFree`.
         let blob = unsafe {
             let cred = &*cred_ptr;
             let bytes = if cred.CredentialBlobSize == 0 || cred.CredentialBlob.is_null() {
@@ -153,7 +141,6 @@ mod win_impl {
             UserName: user_w.as_mut_ptr(),
         };
 
-        // SAFETY: All pointers in `cred` remain alive across `CredWriteW`.
         let ok = unsafe { CredWriteW(&cred, 0) };
         if ok == 0 {
             let err = unsafe { GetLastError() };
@@ -166,7 +153,6 @@ mod win_impl {
 
     pub fn delete_secret(target: &str) -> anyhow::Result<()> {
         let target_w = to_wide_null(target);
-        // SAFETY: `target_w` is null-terminated UTF-16.
         let ok = unsafe { CredDeleteW(target_w.as_ptr(), CRED_TYPE_GENERIC, 0) };
         if ok == 0 {
             let err = unsafe { GetLastError() };
@@ -230,7 +216,6 @@ impl SecretBackend for WindowsCredentialBackend {
     }
 }
 
-/// Deterministic in-memory secret backend for unit tests.
 #[derive(Debug, Default)]
 pub struct InMemorySecretBackend {
     entries: Mutex<HashMap<String, String>>,

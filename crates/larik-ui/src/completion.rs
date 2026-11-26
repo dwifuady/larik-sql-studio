@@ -41,7 +41,6 @@ impl Default for CompletionSnapshot {
     }
 }
 
-/// Bridges `larik-data`'s schema + dialect + snippet completion engine into GPUI Kit's LSP completion menu.
 pub struct SqlCompletionProvider {
     snapshot: Arc<RwLock<CompletionSnapshot>>,
     pending_post_insert: Arc<RwLock<HashMap<String, PostInsertAction>>>,

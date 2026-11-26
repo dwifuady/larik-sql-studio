@@ -20,7 +20,6 @@ const COLLECTION_READ_METHODS: &[&str] = &[
 const READ_SUFFIXES: &[&str] = &["limit", "skip", "sort", "project"];
 const WRITE_STAGES: &[&str] = &["$out", "$merge"];
 
-/// Fail-closed static read-only classifier for MongoDB (matching `Larik.Data.MongoDB.MongoReadOnlyPolicy`).
 #[derive(Debug, Default, Clone, Copy)]
 pub struct MongoReadOnlyPolicy;
 
@@ -94,7 +93,6 @@ pub(crate) fn is_proven_read_shell_call(call: &ShellCall) -> bool {
         return true;
     }
 
-    // Cursor modifiers are only valid on collection-level `find()`.
     if call.collection.is_none() || !call.method.eq_ignore_ascii_case("find") {
         return false;
     }
@@ -124,8 +122,6 @@ pub(crate) fn is_proven_read_shell_call(call: &ShellCall) -> bool {
     true
 }
 
-/// Fail-closed check for `$out` / `$merge` keys (quoted or bare) in shell arguments.
-/// Returns `true` if a write stage key is found OR if any string literal is unterminated.
 fn contains_write_stage(arguments: &str) -> bool {
     let bytes = arguments.as_bytes();
     let len = bytes.len();
@@ -135,7 +131,6 @@ fn contains_write_stage(arguments: &str) -> bool {
         let b = bytes[i];
         if b == b'"' || b == b'\'' {
             let Some(close) = end_of_string(arguments, i) else {
-                // Fail closed on unterminated string literal.
                 return true;
             };
             let key = &arguments[i + 1..close];
@@ -252,11 +247,9 @@ mod tests {
             "db.users.deleteMany({})",
             "db.runCommand({ dropDatabase: 1 })",
             "db.getSiblingDB('admin').adminCommand({ shutdown: 1 })",
-            // Level mismatches
             "db.getIndexes()",
             "db.users.getCollectionNames()",
             "db.find({})",
-            // aggregate is refused outright in read-only mode
             "db.orders.aggregate([{ $match: { status: 'open' } }, { $limit: 10 }])",
             "db.users.aggregate([{ $match: {} }, { $out: 'users' }])",
             "db.users.aggregate([{ $merge: { into: 'archive' } }])",
@@ -264,15 +257,12 @@ mod tests {
             "db.users.aggregate([{ \"\\u0024out\": \"users\" }])",
             "db.users.aggregate([{ $facet: { a: [{ $out: 'x' }] } }])",
             "db.users.find({}, { $out: 1 })",
-            // Invalid cursor modifiers
             "db.users.find({}).forEach(function (u) { db.users.deleteOne({ _id: u._id }); })",
             "db.users.find({}).deleteMany({})",
             "db.users.count({}).limit(5)",
             "db.users.find({}).limit(-1)",
-            // Poisoned batches
             "SELECT * FROM [users]; db.users.deleteMany({})",
             "db.users.find({}); db.users.insertOne({ a: 1 })",
-            // Malformed / empty
             "select * from",
             "",
             "   ",

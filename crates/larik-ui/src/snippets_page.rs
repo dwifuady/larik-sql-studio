@@ -270,7 +270,6 @@ impl SnippetsPageState {
     }
 }
 
-/// Renders the SQL snippets section inside the Settings page, matching the WinUI layout.
 pub fn render_snippets_section(
     page: &SnippetsPageState,
     palette: StudioPalette,
@@ -308,7 +307,6 @@ pub fn render_snippets_section(
         .size_full()
         .min_h_0()
         .gap_3p5()
-        // Header row: "SQL snippets" + count summary | coral "+ New snippet" CTA
         .child(
             h_flex()
                 .items_center()
@@ -362,20 +360,17 @@ pub fn render_snippets_section(
                         ),
                 ),
         )
-        // 2-column body: List (left) + Editor Card (right)
         .child(
             h_flex()
                 .flex_1()
                 .min_h_0()
                 .gap_4()
-                // Left Column: Search, Category dropdown, Scrollable snippet list
                 .child(
                     v_flex()
                         .w(px(325.0))
                         .h_full()
                         .flex_shrink_0()
                         .gap_2()
-                        // Search input
                         .child(
                             h_flex()
                                 .h(px(34.0))
@@ -410,7 +405,6 @@ pub fn render_snippets_section(
                                     )
                                 }),
                         )
-                        // Category filter dropdown ("All categories ⌄")
                         .child(
                             v_flex()
                                 .gap_1()
@@ -482,7 +476,6 @@ pub fn render_snippets_section(
                                     )
                                 }),
                         )
-                        // Scrollable snippet list
                         .child(
                             div()
                                 .id("snippets-list-card")
@@ -516,7 +509,6 @@ pub fn render_snippets_section(
                                 }),
                         ),
                 )
-                // Right Column: Snippet Editor Card
                 .child(
                     div()
                         .flex_1()
@@ -747,7 +739,6 @@ fn render_snippet_editor(
     v_flex()
         .size_full()
         .gap_3()
-        // Header + Enabled switch
         .child(
             h_flex()
                 .items_start()
@@ -793,7 +784,6 @@ fn render_snippet_editor(
                         ),
                 ),
         )
-        // Row 1: Trigger + Name
         .child(
             h_flex()
                 .gap_3()
@@ -812,7 +802,6 @@ fn render_snippet_editor(
                         .child(Input::new(&page.name_input).small()),
                 ),
         )
-        // Row 2: Category + Description
         .child(
             h_flex()
                 .gap_3()
@@ -831,7 +820,6 @@ fn render_snippet_editor(
                         .child(Input::new(&page.description_input).small()),
                 ),
         )
-        // Row 3: Dialects
         .child(
             v_flex()
                 .gap_1()
@@ -919,7 +907,6 @@ fn render_snippet_editor(
                         .child("Leave all unchecked (All dialects) to suggest in every SQL dialect."),
                 ),
         )
-        // Row 4: SQL Content + token chips
         .child(
             v_flex()
                 .flex_1()
@@ -967,7 +954,6 @@ fn render_snippet_editor(
                         ),
                 ),
         )
-        // Error banner
         .when_some(page.error_message.as_ref(), |el, msg| {
             el.child(
                 h_flex()
@@ -992,7 +978,6 @@ fn render_snippet_editor(
                     ),
             )
         })
-        // Footer buttons
         .child(
             h_flex()
                 .pt_1()

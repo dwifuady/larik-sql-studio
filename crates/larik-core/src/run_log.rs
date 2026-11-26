@@ -1,12 +1,9 @@
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, Utc};
 
-/// Upper bound on stored statement size, matching WinUI `RunLogStore.MaxRecordedStatementChars`.
 pub const MAX_RECORDED_STATEMENT_CHARS: usize = 32_768;
 
-/// Default run-log retention window in days.
 pub const DEFAULT_RUN_LOG_RETENTION_DAYS: i32 = 30;
 
-/// Supported retention choices in days, matching WinUI `RunLogStore.RetentionChoices`.
 pub const RUN_LOG_RETENTION_CHOICES: [i32; 3] = [30, 90, 120];
 
 pub mod run_actor {
@@ -21,11 +18,9 @@ pub mod run_status {
     pub const CANCELLED: &str = "cancelled";
 }
 
-/// One persisted execution entry in the `run_log` table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunLogRecord {
     pub id: i64,
-    /// SQLite UTC timestamp (`YYYY-MM-DD HH:MM:SS`).
     pub recorded_at: String,
     pub actor: String,
     pub space_id: Option<String>,
@@ -124,7 +119,6 @@ impl RunLogRecord {
         }
     }
 
-    /// Parses SQLite UTC `YYYY-MM-DD HH:MM:SS` (or RFC3339 fallback) into a UTC `DateTime`.
     pub fn recorded_at_utc(&self) -> DateTime<Utc> {
         if let Ok(naive) = NaiveDateTime::parse_from_str(&self.recorded_at, "%Y-%m-%d %H:%M:%S") {
             return DateTime::from_naive_utc_and_offset(naive, Utc);
@@ -147,7 +141,6 @@ impl RunLogRecord {
         self.recorded_at_local().format("%H:%M").to_string()
     }
 
-    /// Single-line preview of the SQL statement for compact history rows.
     pub fn statement_preview(&self) -> String {
         let collapsed: String = self
             .statement

@@ -1,30 +1,14 @@
-//! Fail-closed static read-only SQL classifier mirroring WinUI's `Larik.Data.ReadOnlySql`.
-//!
-//! Used as Layer 1 of Larik's two-layer read-only guard for MCP `Read` workspaces
-//! (Layer 2 is engine-level transaction rollback / `BEGIN TRANSACTION READ ONLY`).
-
-/// Keyword lists used by [`is_proven_read`] to classify statements for a specific SQL dialect.
 #[derive(Debug, Clone, Copy)]
 pub struct ReadOnlyKeywordRules {
-    /// Allowed leading keywords for every statement unit (case-insensitive).
     pub leading_keywords: &'static [&'static str],
-    /// Keywords forbidden anywhere outside quoted literals/identifiers/comments (case-insensitive).
     pub denied_keywords: &'static [&'static str],
-    /// Token prefixes forbidden anywhere outside quoted literals/identifiers/comments (case-insensitive).
     pub denied_prefixes: &'static [&'static str],
 }
 
-/// Provider-owned static read-only statement policy.
-/// Providers without an explicit policy fail closed (`DatabaseProvider::read_only_policy` returns `None`).
 pub trait ReadOnlyStatementPolicy: Send + Sync {
     fn is_proven_read(&self, sql: &str) -> bool;
 }
 
-/// Returns `true` only when `sql` contains at least one non-empty statement unit and every unit
-/// starts with an allowed leading keyword and contains no denied keyword or denied prefix.
-///
-/// Any unterminated string literal, quoted identifier, bracketed identifier, or block comment
-/// fails closed (`false`).
 pub fn is_proven_read(sql: &str, rules: &ReadOnlyKeywordRules) -> bool {
     if sql.trim().is_empty() {
         return false;
@@ -69,9 +53,6 @@ pub fn is_proven_read(sql: &str, rules: &ReadOnlyKeywordRules) -> bool {
     units > 0
 }
 
-/// Strips `'...'`, `E'...'`, `"..."`, `[...]`, `$tag$...$tag$`, `-- ...`, and nested `/* ... */`,
-/// replacing each stripped span with a single space so adjacent tokens cannot merge.
-/// Returns `None` on any unterminated quote, bracket, dollar-quote, or block comment.
 fn try_strip(sql: &str) -> Option<String> {
     let chars: Vec<char> = sql.chars().collect();
     let len = chars.len();
@@ -82,7 +63,6 @@ fn try_strip(sql: &str) -> Option<String> {
         let ch = chars[i];
         let next = chars.get(i + 1).copied();
 
-        // Line comment: -- ... \n
         if ch == '-' && next == Some('-') {
             i += 2;
             while i < len && chars[i] != '\n' {
@@ -92,7 +72,6 @@ fn try_strip(sql: &str) -> Option<String> {
             continue;
         }
 
-        // Block comment: /* ... */ (supports nesting as in PostgreSQL & T-SQL, fail-closed if unterminated)
         if ch == '/' && next == Some('*') {
             i += 2;
             let mut depth = 1usize;
@@ -114,7 +93,6 @@ fn try_strip(sql: &str) -> Option<String> {
             continue;
         }
 
-        // PostgreSQL dollar-quoted literal: $$...$$ or $tag$...$tag$
         if ch == '$' {
             if let Some(tag_len) = parse_dollar_tag_chars(&chars, i) {
                 let tag = &chars[i..i + tag_len];
@@ -136,7 +114,6 @@ fn try_strip(sql: &str) -> Option<String> {
             }
         }
 
-        // PostgreSQL escape string literal: E'...' or e'...'
         if (ch == 'E' || ch == 'e')
             && next == Some('\'')
             && (i == 0 || !is_word_part(chars[i - 1]))
@@ -169,7 +146,6 @@ fn try_strip(sql: &str) -> Option<String> {
             continue;
         }
 
-        // Single-quoted literal, double-quoted identifier, or T-SQL bracketed identifier.
         if ch == '\'' || ch == '"' || ch == '[' {
             let closer = if ch == '[' { ']' } else { ch };
             i += 1;

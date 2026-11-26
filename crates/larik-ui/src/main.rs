@@ -83,8 +83,6 @@ fn resolve_initial_window_bounds(
     let center = restored_bounds.center();
 
     let displays = cx.displays();
-    // Prefer the exact saved display if its bounds still contain the window center;
-    // otherwise fall back to any connected display containing the center.
     let matched_display = placement
         .display_uuid
         .as_deref()
@@ -100,8 +98,6 @@ fn resolve_initial_window_bounds(
         return (wrap_mode(restored_bounds), Some(display.id()));
     }
 
-    // Monitor was unplugged or coordinates are off-screen: preserve preferred size
-    // (clamped to primary display if available) and center on the primary monitor.
     let clamped_size = if let Some(primary) = cx.primary_display() {
         let vis = primary.visible_bounds().size;
         let max_w = f32::from(vis.width).max(MIN_WINDOW_WIDTH);

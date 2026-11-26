@@ -8,18 +8,13 @@ use crate::formatter::{
     eval_bson_constructor, parse_date_string, parse_object_id_bson, parse_uuid_bson,
 };
 
-/// Compiles Larik T-SQL statements (`SELECT`, `INSERT`, `UPDATE`, `DELETE`, `USE`)
-/// into native MongoDB aggregation pipelines and CRUD operations.
 pub struct TSqlMongoCompiler;
 
 impl TSqlMongoCompiler {
-    /// Compile a single SQL statement without schema type hints.
     pub fn compile(sql: &str) -> Result<MongoCommand> {
         Self::compile_with_field_types(sql, &HashMap::new())
     }
 
-    /// Compile a single SQL statement with sampled collection field types for automatic
-    /// `uuid` and `objectId` literal coercion.
     pub fn compile_with_field_types(
         sql: &str,
         field_types: &HashMap<String, String>,
@@ -40,8 +35,6 @@ impl TSqlMongoCompiler {
         Ok(cmd)
     }
 
-    /// Best-effort extraction of the primary collection name referenced by a SQL statement,
-    /// used to look up cached sampled field types before full compilation.
     pub fn find_primary_collection(sql: &str) -> Option<String> {
         let tokens = tokenize(sql).ok()?;
         let mut i = 0;
@@ -61,10 +54,6 @@ impl TSqlMongoCompiler {
         None
     }
 }
-
-// ============================================================================
-// Lexer
-// ============================================================================
 
 #[derive(Debug, Clone, PartialEq)]
 enum Token {
@@ -137,7 +126,6 @@ fn tokenize(sql: &str) -> Result<Vec<Token>> {
             i += 1;
             continue;
         }
-        // Line comments: -- or //
         if (b == b'-' && i + 1 < len && bytes[i + 1] == b'-')
             || (b == b'/' && i + 1 < len && bytes[i + 1] == b'/')
         {
@@ -147,7 +135,6 @@ fn tokenize(sql: &str) -> Result<Vec<Token>> {
             }
             continue;
         }
-        // Block comment /* ... */
         if b == b'/' && i + 1 < len && bytes[i + 1] == b'*' {
             i += 2;
             let mut closed = false;
@@ -164,7 +151,6 @@ fn tokenize(sql: &str) -> Result<Vec<Token>> {
             }
             continue;
         }
-        // N'...' or '...'
         if b == b'\'' || ((b == b'N' || b == b'n') && i + 1 < len && bytes[i + 1] == b'\'') {
             if b != b'\'' {
                 i += 1;
@@ -193,7 +179,6 @@ fn tokenize(sql: &str) -> Result<Vec<Token>> {
             out.push(Token::StringLit(s));
             continue;
         }
-        // Bracketed identifier [...]
         if b == b'[' {
             i += 1;
             let mut ident = String::new();
@@ -219,7 +204,6 @@ fn tokenize(sql: &str) -> Result<Vec<Token>> {
             out.push(Token::QuotedIdent(ident));
             continue;
         }
-        // Double-quoted or backtick identifier
         if b == b'"' || b == b'`' {
             let q = b;
             i += 1;
@@ -247,7 +231,6 @@ fn tokenize(sql: &str) -> Result<Vec<Token>> {
             continue;
         }
 
-        // Two-character operators
         if i + 1 < len {
             let pair = (b, bytes[i + 1]);
             match pair {
@@ -383,10 +366,6 @@ fn tokenize(sql: &str) -> Result<Vec<Token>> {
     Ok(out)
 }
 
-// ============================================================================
-// AST
-// ============================================================================
-
 #[derive(Debug, Clone)]
 enum Expr {
     Literal(Bson),
@@ -467,10 +446,6 @@ struct OrderItem {
     expr: Expr,
     descending: bool,
 }
-
-// ============================================================================
-// Parser
-// ============================================================================
 
 const CLAUSE_KEYWORDS: &[&str] = &[
     "SELECT", "FROM", "WHERE", "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "OUTER", "CROSS", "ON",
@@ -638,7 +613,6 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // Select list
         let mut items = Vec::new();
         loop {
             if matches!(self.peek(), Some(Token::Star)) {
@@ -649,7 +623,7 @@ impl<'a> Parser<'a> {
                 && matches!(self.peek_at(2), Some(Token::Star))
             {
                 let _qual = self.parse_ident()?;
-                self.pos += 2; // '.' '*'
+                self.pos += 2;
                 items.push(SelectItem::Star);
             } else {
                 let expr = self.parse_expr()?;
@@ -664,14 +638,12 @@ impl<'a> Parser<'a> {
             break;
         }
 
-        // FROM <collection> [alias]
         self.expect_kw("FROM")?;
         let from_path = self.parse_ident_path()?;
         let collection = from_path.last().cloned().unwrap_or_default();
         let table_alias = self.parse_optional_alias()?;
         let primary_alias = table_alias.unwrap_or_else(|| collection.clone());
 
-        // Optional JOINs
         let mut joins = Vec::new();
         loop {
             let is_left = if self.eat_kw("LEFT") {
@@ -705,14 +677,12 @@ impl<'a> Parser<'a> {
             });
         }
 
-        // Optional WHERE
         let where_expr = if self.eat_kw("WHERE") {
             Some(self.parse_expr()?)
         } else {
             None
         };
 
-        // Optional GROUP BY
         let mut group_by = Vec::new();
         if self.eat_kw("GROUP") {
             self.expect_kw("BY")?;
@@ -726,14 +696,12 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // Optional HAVING
         let having_expr = if self.eat_kw("HAVING") {
             Some(self.parse_expr()?)
         } else {
             None
         };
 
-        // Optional ORDER BY
         let mut order_by = Vec::new();
         if self.eat_kw("ORDER") {
             self.expect_kw("BY")?;
@@ -754,7 +722,6 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // Optional LIMIT / OFFSET / FETCH
         let mut limit = top_limit;
         let mut offset: Option<i64> = None;
 
@@ -776,7 +743,6 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // Compile SELECT into MongoDB aggregation pipeline.
         let ctx = CompileCtx {
             primary_collection: &collection,
             primary_alias: &primary_alias,
@@ -786,7 +752,6 @@ impl<'a> Parser<'a> {
 
         let mut pipeline: Vec<Document> = Vec::new();
 
-        // 1. JOINs ($lookup + $unwind)
         for join in &joins {
             let (local_field, foreign_field) =
                 resolve_join_fields(&ctx, join, &join.left_path, &join.right_path);
@@ -806,7 +771,6 @@ impl<'a> Parser<'a> {
             });
         }
 
-        // 2. WHERE ($match)
         if let Some(ref expr) = where_expr {
             let filter = compile_filter(&ctx, expr)?;
             if !filter.is_empty() {
@@ -814,7 +778,6 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // Determine if this is an aggregate query
         let has_aggregates = !group_by.is_empty()
             || items.iter().any(|it| match it {
                 SelectItem::Expr { expr, .. } => expr_contains_aggregate(expr),
@@ -880,7 +843,6 @@ impl<'a> Parser<'a> {
                             }
                             alias_map.insert(out_name.to_ascii_lowercase(), out_name.clone());
                         } else {
-                            // Expression over group keys or scalar expression
                             let compiled = compile_agg_expr_with_group(&ctx, expr, &group_key_exprs)?;
                             project_stage.insert(out_name.clone(), compiled);
                             alias_map.insert(out_name.to_ascii_lowercase(), out_name.clone());
@@ -892,7 +854,6 @@ impl<'a> Parser<'a> {
             pipeline.push(doc! { "$group": group_stage });
             pipeline.push(doc! { "$project": project_stage });
 
-            // HAVING runs after projection so aliases and aggregates are directly addressable!
             if let Some(ref h_expr) = having_expr {
                 let having_ctx = CompileCtx {
                     primary_collection: &collection,
@@ -907,7 +868,6 @@ impl<'a> Parser<'a> {
                 }
             }
         } else {
-            // Non-aggregate SELECT
             let has_star = items.iter().any(|i| matches!(i, SelectItem::Star));
             if !has_star {
                 let mut project_stage = Document::new();
@@ -947,7 +907,6 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // ORDER BY ($sort)
         if !order_by.is_empty() {
             let mut sort_doc = Document::new();
             for item in &order_by {
@@ -970,12 +929,10 @@ impl<'a> Parser<'a> {
             pipeline.push(doc! { "$sort": sort_doc });
         }
 
-        // OFFSET ($skip)
         if let Some(skip) = offset.filter(|&n| n > 0) {
             pipeline.push(doc! { "$skip": skip });
         }
 
-        // LIMIT ($limit)
         if let Some(lim) = limit {
             pipeline.push(doc! { "$limit": lim });
         }
@@ -1135,8 +1092,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-    // ---- Expression precedence climbing ----
-
     fn parse_expr(&mut self) -> Result<Expr> {
         self.parse_or()
     }
@@ -1178,7 +1133,6 @@ impl<'a> Parser<'a> {
     fn parse_comparison(&mut self) -> Result<Expr> {
         let left = self.parse_additive()?;
 
-        // IS [NOT] NULL
         if self.eat_kw("IS") {
             let negated = self.eat_kw("NOT");
             self.expect_kw("NULL")?;
@@ -1188,7 +1142,6 @@ impl<'a> Parser<'a> {
             });
         }
 
-        // [NOT] IN / BETWEEN / LIKE
         let negated = self.eat_kw("NOT");
         if self.eat_kw("IN") {
             self.expect_token(&Token::LParen)?;
@@ -1392,7 +1345,7 @@ impl<'a> Parser<'a> {
             }
             Token::Word(ref w) if matches!(self.peek_at(1), Some(Token::LParen)) => {
                 let name = w.clone();
-                self.pos += 2; // name + '('
+                self.pos += 2;
                 let mut distinct = false;
                 let mut star = false;
                 let mut args = Vec::new();
@@ -1414,7 +1367,6 @@ impl<'a> Parser<'a> {
                 }
                 self.expect_token(&Token::RParen)?;
 
-                // Evaluate BSON constructor helpers eagerly if all arguments are constant.
                 if is_bson_constructor(&name) && !star && !distinct {
                     let mut const_args = Vec::with_capacity(args.len());
                     for arg in &args {
@@ -1452,10 +1404,6 @@ fn is_bson_constructor(name: &str) -> bool {
         || name.eq_ignore_ascii_case("NumberDecimal")
         || name.eq_ignore_ascii_case("Timestamp")
 }
-
-// ============================================================================
-// Compilation helpers
-// ============================================================================
 
 struct CompileCtx<'a> {
     primary_collection: &'a str,
@@ -1616,7 +1564,6 @@ fn compile_filter(ctx: &CompileCtx<'_>, expr: &Expr) -> Result<Document> {
             Ok(doc! { "$or": list })
         }
         Expr::Not(inner) => {
-            // Compile `$nor: [inner]` which works cleanly for any sub-filter in MongoDB.
             let sub = compile_filter(ctx, inner)?;
             Ok(doc! { "$nor": [sub] })
         }
@@ -1746,7 +1693,6 @@ fn compile_filter(ctx: &CompileCtx<'_>, expr: &Expr) -> Result<Document> {
                 BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte
             ) =>
         {
-            // Fast path: `field <op> constant` or `constant <op> field` -> direct index-friendly MongoDB filter!
             if let (Expr::Column(parts), Ok(val)) = (left.as_ref(), eval_constant_expr(right)) {
                 let field = ctx.resolve_field(parts);
                 let coerced = coerce_value_for_field(ctx.field_types, &field, val);
@@ -1757,7 +1703,6 @@ fn compile_filter(ctx: &CompileCtx<'_>, expr: &Expr) -> Result<Document> {
                 let coerced = coerce_value_for_field(ctx.field_types, &field, val);
                 return Ok(build_field_cmp(&field, flip_cmp(*op), coerced));
             }
-            // General expression comparison using `$expr`.
             let l_agg = compile_agg_expr(ctx, left)?;
             let r_agg = compile_agg_expr(ctx, right)?;
             let op_name = cmp_op_name(*op);
@@ -1811,7 +1756,6 @@ fn merge_and_filters(mut a: Document, b: Document) -> Document {
     if b.is_empty() {
         return a;
     }
-    // Check for overlapping keys; if none overlap, merge directly into one clean document.
     let has_overlap = b.keys().any(|k| a.contains_key(k));
     if !has_overlap {
         for (k, v) in b {
@@ -2052,7 +1996,6 @@ fn compile_scalar_function(ctx: &CompileCtx<'_>, name: &str, args: &[Expr]) -> R
             let s = compiled.remove(0);
             let start = compiled.remove(0);
             let len = compiled.remove(0);
-            // SQL SUBSTRING is 1-based; MongoDB $substrCP is 0-based.
             let zero_based = Bson::Document(doc! { "$subtract": [start, 1] });
             Ok(Bson::Document(doc! { "$substrCP": [s, zero_based, len] }))
         }
@@ -2112,7 +2055,6 @@ fn expr_contains_aggregate(expr: &Expr) -> bool {
     }
 }
 
-/// Returns `(accumulator_doc, is_distinct_count)` if `expr` is an aggregate call.
 fn try_compile_accumulator(ctx: &CompileCtx<'_>, expr: &Expr) -> Result<Option<(Document, bool)>> {
     let Expr::Call {
         name,
@@ -2193,7 +2135,6 @@ fn compile_agg_expr_with_group(
 }
 
 fn rewrite_having_expr(expr: &Expr, select_items: &[SelectItem]) -> Expr {
-    // If HAVING references an aggregate expression that appeared in the SELECT list, rewrite it to its output column name.
     for (idx, item) in select_items.iter().enumerate() {
         if let SelectItem::Expr {
             expr: sel_expr,
@@ -2271,7 +2212,6 @@ fn exprs_structurally_equal(a: &Expr, b: &Expr) -> bool {
     }
 }
 
-/// Returns true if any pipeline stage uses a write stage (`$out` or `$merge`).
 pub fn pipeline_has_write_stage(pipeline: &[Document]) -> bool {
     let mut stack: Vec<&Document> = pipeline.iter().collect();
     let mut seen: BTreeSet<usize> = BTreeSet::new();
@@ -2330,7 +2270,6 @@ mod tests {
         assert_eq!(collection, "users");
         assert_eq!(explicit_columns, vec!["name", "email"]);
         assert_eq!(limit, Some(10));
-        // $match should coerce _id to ObjectId
         let match_stage = pipeline[0].get_document("$match").unwrap();
         assert!(matches!(match_stage.get("_id"), Some(Bson::ObjectId(_))));
     }

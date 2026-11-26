@@ -1,29 +1,19 @@
-//! Shared MCP policy records, response size-budget trimmer, and named-pipe wire protocol
-//! shared between the `larik-sql-studio` desktop studio and the `larik-mcp` stdio server binary.
-
 use std::time::Duration;
 
 use larik_data::ConnectionProfile;
 use serde::{Deserialize, Serialize};
 
-/// Hard ceiling on statement length accepted by `run_query` and stored in `mcp_log` / `mcp_approvals`.
 pub const MCP_MAX_STATEMENT_CHARS: usize = 10_000;
-/// Maximum length of the agent-provided `description` field.
 pub const MCP_MAX_DESCRIPTION_CHARS: usize = 280;
-/// Maximum length of the agent-provided `reference` (ticket/incident) field.
 pub const MCP_MAX_REFERENCE_CHARS: usize = 64;
 
-/// Default and maximum rows returned per result set by `run_query`.
 pub const MCP_DEFAULT_ROW_LIMIT: usize = 200;
 pub const MCP_MAX_ROW_LIMIT: usize = 1_000;
 
-/// Maximum concurrent DB tool calls allowed per workspace inside one `larik-mcp` process.
 pub const MCP_MAX_CONCURRENT_PER_SPACE: usize = 2;
 
-/// Hard per-query timeout enforced by `larik-mcp` regardless of workspace connection timeout.
 pub const MCP_MAX_STATEMENT_DURATION: Duration = Duration::from_secs(120);
 
-/// Maximum UTF-8 byte size for a single `run_query` JSON payload (1 MiB).
 pub const MCP_RESPONSE_MAX_BYTES: usize = 1_048_576;
 
 pub mod mcp_log_status {
@@ -43,19 +33,14 @@ pub mod mcp_approval_status {
 pub mod mcp_pipe {
     use std::time::Duration;
 
-    /// Named pipe used by `larik-mcp` to talk to the running `larik-sql-studio` desktop app.
     pub const DEFAULT_PIPE_NAME: &str = r"\\.\pipe\larik.sqlstudio.mcp.v1";
 
-    /// How long `larik-mcp` waits to connect to the running studio's pipe before assuming it is closed.
     pub const CONNECT_TIMEOUT: Duration = Duration::from_millis(900);
 
-    /// How long the studio's interactive approval dialog stays open before auto-denying.
     pub const APPROVAL_TIMEOUT: Duration = Duration::from_secs(120);
 
-    /// Client-side read backstop (`APPROVAL_TIMEOUT + 20s`) in case the desktop app exits mid-prompt.
     pub const CLIENT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(140);
 
-    /// How long `open_in_studio` waits for the studio to acknowledge opening a tab.
     pub const OPEN_REPLY_TIMEOUT: Duration = Duration::from_secs(15);
 
     pub const MSG_TYPE_APPROVAL: &str = "approval";
@@ -65,7 +50,6 @@ pub mod mcp_pipe {
 
     pub const SURFACE_APP: &str = "app";
 
-    /// Returns the active pipe path, honoring `LARIK_MCP_PIPE` override when set (e.g. in tests).
     pub fn pipe_name() -> String {
         if let Ok(custom) = std::env::var("LARIK_MCP_PIPE") {
             let trimmed = custom.trim();
@@ -77,7 +61,6 @@ pub mod mcp_pipe {
     }
 }
 
-/// Per-workspace access mode exposed to AI agents. Always fails closed to `Off`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum McpAccess {
@@ -90,7 +73,6 @@ pub enum McpAccess {
 impl McpAccess {
     pub const ALL: [McpAccess; 3] = [McpAccess::Off, McpAccess::Read, McpAccess::Write];
 
-    /// Fail-closed parser: any unknown, empty, or missing string maps to `McpAccess::Off`.
     pub fn parse_fail_closed(raw: Option<&str>) -> Self {
         match raw.map(str::trim) {
             Some(s) if s.eq_ignore_ascii_case("read") => Self::Read,
@@ -116,7 +98,6 @@ impl McpAccess {
     }
 }
 
-/// Summary of one workspace's MCP exposure (non-secret profile only).
 #[derive(Debug, Clone)]
 pub struct McpSpaceRecord {
     pub id: String,
@@ -127,11 +108,9 @@ pub struct McpSpaceRecord {
     pub visible_profile: ConnectionProfile,
 }
 
-/// One persisted row in `mcp_log`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct McpLogRecord {
     pub id: i64,
-    /// SQLite UTC timestamp (`YYYY-MM-DD HH:MM:SS`).
     pub recorded_at: String,
     pub tool: String,
     pub space_id: Option<String>,
@@ -146,7 +125,6 @@ pub struct McpLogRecord {
     pub decision_surface: Option<String>,
 }
 
-/// One persisted row in `mcp_approvals`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct McpApprovalRecord {
     pub id: String,
@@ -159,7 +137,6 @@ pub struct McpApprovalRecord {
     pub surface: Option<String>,
 }
 
-/// Wire message sent by `larik-mcp` to `larik-sql-studio` asking the user to approve a write query.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpApprovalRequest {
@@ -205,7 +182,6 @@ impl McpApprovalRequest {
     }
 }
 
-/// Wire reply sent by `larik-sql-studio` back to `larik-mcp` for an approval prompt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpApprovalDecision {
@@ -247,7 +223,6 @@ impl McpApprovalDecision {
     }
 }
 
-/// Wire message sent by `larik-mcp` to `larik-sql-studio` for `open_in_studio`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpOpenRequest {
@@ -283,7 +258,6 @@ impl McpOpenRequest {
     }
 }
 
-/// Wire reply sent by `larik-sql-studio` back to `larik-mcp` for `open_in_studio`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpOpenResponse {
@@ -315,7 +289,6 @@ impl McpOpenResponse {
     }
 }
 
-/// Discriminated union parsed by the studio pipe server from an incoming JSON line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum McpPipeIncoming {
     Approval(McpApprovalRequest),
@@ -337,7 +310,6 @@ impl McpPipeIncoming {
     }
 }
 
-/// One column in a `run_query` result set payload.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpColumnPayload {
@@ -346,7 +318,6 @@ pub struct McpColumnPayload {
     pub r#type: Option<String>,
 }
 
-/// One result set in a `run_query` payload.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpResultSetPayload {
@@ -359,7 +330,6 @@ pub struct McpResultSetPayload {
     pub elapsed_ms: u64,
 }
 
-/// Complete JSON response returned by `run_query`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpQueryPayload {
@@ -374,8 +344,6 @@ pub struct McpQueryPayload {
     pub truncated_for_size: bool,
 }
 
-/// Serializes `payload` under `max_bytes`, iteratively dropping rows from the largest result set
-/// in 10% chunks (up to 60 attempts) — matching WinUI `McpResponseBudget.Trim`.
 pub fn trim_response_budget(payload: &mut McpQueryPayload, max_bytes: usize) -> String {
     let mut json = serde_json::to_string(payload).unwrap_or_default();
     if json.len() <= max_bytes {
@@ -383,7 +351,6 @@ pub fn trim_response_budget(payload: &mut McpQueryPayload, max_bytes: usize) -> 
     }
 
     for _ in 0..60 {
-        // Pick the result set with the most remaining rows.
         let largest_ix = payload
             .result_sets
             .iter()

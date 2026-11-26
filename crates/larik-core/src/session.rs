@@ -13,7 +13,6 @@ use tokio::runtime::Runtime;
 use tokio::sync::Mutex;
 use tokio::task::AbortHandle;
 
-/// Outcome of connecting a workspace's control session.
 #[derive(Debug, Clone)]
 pub struct ConnectOutcome {
     pub server_version: Option<String>,
@@ -22,7 +21,6 @@ pub struct ConnectOutcome {
     pub initial_database: Option<String>,
 }
 
-/// Outcome of an asynchronous FK reference lookup.
 #[derive(Debug, Clone)]
 pub struct ReferenceLookupOutcome {
     pub result: QueryResult,
@@ -33,9 +31,6 @@ pub struct ReferenceLookupOutcome {
     pub sql: String,
 }
 
-/// Manages a dedicated Tokio runtime plus:
-/// - one control connection per workspace (connect state, database list, schema), and
-/// - one dedicated `DatabaseConnection` per query tab (session isolation for temp tables / SET / TXN).
 pub struct SessionManager {
     runtime: Arc<Runtime>,
     catalog: ProviderCatalog,
@@ -70,7 +65,6 @@ impl SessionManager {
         &self.catalog
     }
 
-    /// Test a profile on a short-lived connection without altering any workspace state.
     pub fn test_connection(
         &self,
         profile: ConnectionProfile,
@@ -96,7 +90,6 @@ impl SessionManager {
         rx
     }
 
-    /// Open a workspace's control connection, list databases, and fetch initial schema.
     pub fn connect_space(
         &self,
         space_id: String,
@@ -158,7 +151,6 @@ impl SessionManager {
         rx
     }
 
-    /// Disconnect a workspace's control connection and any tab sessions belonging to `tab_ids`.
     pub fn disconnect_space(&self, space_id: String, tab_ids: Vec<String>) {
         let controls = self.space_controls.clone();
         let tabs = self.tab_sessions.clone();
@@ -178,7 +170,6 @@ impl SessionManager {
         });
     }
 
-    /// Close a single tab's dedicated session when the tab is archived/closed.
     pub fn close_tab_session(&self, tab_id: String) {
         let tabs = self.tab_sessions.clone();
         let in_flight = self.in_flight.clone();
@@ -192,7 +183,6 @@ impl SessionManager {
         });
     }
 
-    /// Load schema for a selected database using the workspace's control session.
     pub fn load_schema(
         &self,
         space_id: String,
@@ -217,7 +207,6 @@ impl SessionManager {
         rx
     }
 
-    /// Execute SQL on a tab's dedicated persistent session. Returns a oneshot receiver for results.
     pub fn execute_tab_query(
         &self,
         tab_id: String,
@@ -270,7 +259,6 @@ impl SessionManager {
         rx
     }
 
-    /// Cancel an in-flight execution on `tab_id` and drop the interrupted connection so the next run opens cleanly.
     pub fn cancel_tab_query(&self, tab_id: String) {
         let tabs = self.tab_sessions.clone();
         let in_flight = self.in_flight.clone();
@@ -286,7 +274,6 @@ impl SessionManager {
         });
     }
 
-    /// Execute a DML batch (UPDATE / DELETE) on a tab's dedicated persistent session.
     pub fn execute_tab_dml(
         &self,
         tab_id: String,
@@ -324,7 +311,6 @@ impl SessionManager {
         rx
     }
 
-    /// Cancel any in-flight FK reference preview query for `tab_id`.
     pub fn cancel_reference_lookup(&self, tab_id: String) {
         let in_flight_refs = self.in_flight_refs.clone();
         self.runtime.spawn(async move {
@@ -334,8 +320,6 @@ impl SessionManager {
         });
     }
 
-    /// Estimate referenced table size and execute the FK lookup query on `tab_id`'s session.
-    /// Automatically aborts any prior in-flight reference lookup for the same tab.
     pub fn lookup_reference_rows(
         &self,
         tab_id: String,

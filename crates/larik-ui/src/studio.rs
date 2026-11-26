@@ -30,8 +30,6 @@ use gpui_kit::{
 const APP_ICON_PNG: &[u8] = include_bytes!("../assets/app_icon.png");
 const FOOTER_MAX_WORKSPACES: usize = 3;
 
-/// Computes the clamped `[start, end)` window slice for the sidebar footer workspace strip
-/// (at most `FOOTER_MAX_WORKSPACES` icons visible at a time).
 fn footer_space_window(total: usize, offset: usize) -> (usize, usize) {
     if total <= FOOTER_MAX_WORKSPACES {
         return (0, total);
@@ -139,7 +137,6 @@ pub fn bind_studio_keys(cx: &mut App) {
         KeyBinding::new("escape", DismissModal, Some("StudioModal")),
         KeyBinding::new("tab", AcceptCompletionOrIndent, Some("Input && mode == editor")),
         KeyBinding::new("ctrl-space", ShowCompletions, Some("Input && mode == editor")),
-        // Result grid shortcuts (scoped strictly to DataTable focus context)
         KeyBinding::new("ctrl-c", GridCopy, Some("DataTable")),
         KeyBinding::new("ctrl-shift-c", GridCopyWithHeaders, Some("DataTable")),
         KeyBinding::new("ctrl-a", GridSelectAll, Some("DataTable")),
@@ -312,11 +309,6 @@ impl TabRuntime {
         format!("Result {number}")
     }
 
-    /// Mirrors WinUI `TabViewModel.ApplyResults(results, append)`:
-    /// - `append == false`: replaces the active result tab at its current index (carrying its
-    ///   title when `i == 0` and same kind — grid vs messages — so custom names survive re-runs).
-    /// - `append == true` (`Ctrl+\`): appends new result tab(s) at the end without removing
-    ///   existing result tabs.
     fn apply_results(&mut self, incoming: Vec<QueryResult>, append: bool) -> Option<ResultTabItem> {
         if incoming.is_empty() {
             return None;
@@ -369,8 +361,6 @@ impl TabRuntime {
             );
         }
 
-        // Prefer the first grid in the newly inserted slice when multiple results come back,
-        // otherwise select the first newly inserted item.
         let slice_end = (insert_index + incoming_len).min(self.results.len());
         let preferred_idx = (insert_index..slice_end)
             .find(|&idx| !self.results[idx].result.columns.is_empty())
@@ -461,8 +451,6 @@ pub struct StudioView {
 
     pub(crate) space_runtime: HashMap<String, SpaceRuntime>,
     pub(crate) tab_runtime: HashMap<String, TabRuntime>,
-    /// Per-result cached `TableState` entities keyed by `ResultTabItem::id` so switching tabs
-    /// or result tabs is O(1) and preserves scroll position, selection, column order, and widths.
     pub(crate) result_tables: HashMap<String, Entity<TableState<ResultTableDelegate>>>,
     pub(crate) result_table_subs: HashMap<String, Subscription>,
 
@@ -474,7 +462,6 @@ pub struct StudioView {
     suppress_editor_sync: bool,
     snippets: Vec<SnippetRecord>,
 
-    // Virtualized schema drawer state
     schema_filter_input: Entity<InputState>,
     _schema_filter_sub: Subscription,
     schema_filter_query: String,
@@ -483,7 +470,6 @@ pub struct StudioView {
     schema_scroll_handle: UniformListScrollHandle,
     synced_schema_key: Option<(String, usize, usize)>,
 
-    // UI transient controls
     app_icon: Arc<Image>,
     managing_workspaces: bool,
     managing_settings: bool,
@@ -511,7 +497,6 @@ pub struct StudioView {
     modal: Option<ConnectionModal>,
     copied_toast: bool,
 
-    // Result grid interactive state (copy, staged edits/deletes, preview & FK lookup)
     pub(crate) grid_context_menu: Option<GridContextMenu>,
     pub(crate) grid_status_toast: Option<GridStatusToast>,
     pub(crate) cell_editor: Option<ActiveCellEditor>,
@@ -519,13 +504,11 @@ pub struct StudioView {
     pub(crate) preview_pane: Option<GridPreviewState>,
     pub(crate) preview_pane_width: f32,
 
-    // MCP write-approval queue & Settings -> AI agents live polling state
     pub(crate) active_mcp_approval: Option<PendingMcpApproval>,
     pub(crate) mcp_approval_queue: VecDeque<PendingMcpApproval>,
     pub(crate) mcp_approval_seq: u64,
     pub(crate) mcp_activity_poll_gen: u64,
 
-    // Notes state (WinUI-parity statement-anchored + tab-level notes)
     notes_by_tab: HashMap<String, Vec<NoteEntry>>,
     notes_scope: NoteScope,
     active_note_id: Option<String>,
@@ -535,7 +518,6 @@ pub struct StudioView {
     deleted_note_undo: Option<DeletedNoteUndo>,
     status_notice: Option<String>,
 
-    // Window bounds persistence (size, position, display, maximized/fullscreen state)
     _window_bounds_sub: Subscription,
     window_bounds_save_gen: u64,
 }
@@ -553,7 +535,6 @@ impl StudioView {
         for space in &mut state.spaces {
             space.rebuild_tab_order();
         }
-        // Launch maintenance matching WinUI StudioViewModel: prune expired run logs and run auto-archive sweep.
         let _ = store.prune_run_log();
         let auto_archived = state.run_auto_archive(chrono::Utc::now());
         if !auto_archived.is_empty() {
@@ -771,7 +752,6 @@ impl StudioView {
         view.refresh_completion_snapshot();
         view.rebuild_schema_rows();
 
-        // Start the local Windows named-pipe bridge for live MCP write approvals and open_in_studio.
         let mut mcp_rx = start_mcp_pipe_server(view.sessions.runtime(), view.store.clone());
         cx.spawn_in(window, async move |this, cx| {
             while let Some(cmd) = mcp_rx.recv().await {
@@ -785,8 +765,6 @@ impl StudioView {
         })
         .detach();
 
-        // Auto-connect the offline Demo workspace on first open for an instant "try it" experience,
-        // while real SQL Server workspaces stay disconnected until the user clicks Connect.
         if let Some(space) = view.state.active_space() {
             if space.profile.provider_id.eq_ignore_ascii_case("demo") {
                 let id = space.id.clone();
@@ -807,7 +785,6 @@ impl StudioView {
         let y = f32::from(bounds.origin.y);
         let width = f32::from(bounds.size.width);
         let height = f32::from(bounds.size.height);
-        // Ignore degenerate or minimized zero-sized bounds.
         if !x.is_finite()
             || !y.is_finite()
             || !width.is_finite()
@@ -1007,9 +984,6 @@ impl StudioView {
             .and_then(SpaceState::active_tab_database)
     }
 
-    /// Synchronizes workspace schema, Schema Inspector, and autocomplete tables with the
-    /// currently active tab's bound database. Uses the per-database `schema_cache` when
-    /// available and guards async fetches against stale tab/database switches.
     fn sync_database_for_active_tab(&mut self, cx: &mut Context<Self>) {
         let Some((space_id, target_db)) = self
             .state
@@ -1120,8 +1094,6 @@ impl StudioView {
         }
     }
 
-    /// Rebuilds the flat virtualized list backing the Schema Peek drawer.
-    /// Called only when the active schema, expanded set, filter query, or drawer visibility changes.
     fn rebuild_schema_rows(&mut self) {
         self.schema_rows.clear();
         self.schema_matched_tables = 0;
@@ -1440,7 +1412,6 @@ impl StudioView {
         self.cancel_group_rename(cx);
         self.cancel_result_rename(cx);
         self.managing_workspaces = false;
-        // Flush current workspace list so Settings -> AI agents sees newly added workspaces immediately.
         let _ = self.store.save_snapshot_only(&self.state, &self.catalog);
         if let Ok(loaded) = self.store.load_snippets() {
             self.snippets = loaded;
@@ -1657,7 +1628,6 @@ impl StudioView {
         window.activate_window();
         cx.notify();
 
-        // Tick once per second to keep countdown fresh and auto-deny cleanly at 2 minutes.
         cx.spawn_in(window, async move |this, cx| {
             loop {
                 cx.background_executor()
@@ -1779,8 +1749,6 @@ impl StudioView {
         cx.notify();
     }
 
-    /// Opens an agent's SQL statement in a new unpinned query tab on `space_id` without executing
-    /// it — used by both `open_in_studio` (pipe) and Settings -> AI agents "Open as tab".
     pub(crate) fn open_external_query(
         &mut self,
         space_id: String,
@@ -2009,7 +1977,6 @@ impl StudioView {
         self.sessions.disconnect_space(removed.id.clone(), tab_ids);
         self.space_runtime.remove(&removed.id);
         let _ = self.store.delete_space_secrets(&removed, &self.catalog);
-        // Archived tabs from this workspace survive deletion intentionally.
 
         if self.state.active_space_id.as_deref() == Some(removed.id.as_str()) {
             let next_id = self
@@ -2145,7 +2112,6 @@ impl StudioView {
         cx.notify();
     }
 
-    /// Switches the database ONLY for the currently active tab (other tabs keep their own bound DB).
     fn select_database(&mut self, database: String, window: &mut Window, cx: &mut Context<Self>) {
         let Some(space_id) = self.active_space_id() else {
             return;
@@ -2165,8 +2131,6 @@ impl StudioView {
         cx.notify();
     }
 
-    /// Trigger the Arc-style "+ New query" flow: when connected with multiple accessible databases,
-    /// open a searchable New-Tab Database Palette; otherwise create a tab immediately.
     fn prompt_new_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.rail_context_menu = None;
         let accessible_count = self
@@ -2283,7 +2247,6 @@ impl StudioView {
         let was_history = self.history_page.take().is_some();
         self.rail_context_menu = None;
         if self.active_tab_id().as_deref() == Some(tab_id.as_str()) {
-            // Ensure collapsed group expands if user re-selects active tab.
             if let Some(space) = self.state.active_space_mut() {
                 if let Some(gid) = space
                     .tabs
@@ -2560,7 +2523,6 @@ impl StudioView {
         self.remove_tab_runtime(&removed.id, cx);
         self.cancel_result_rename(cx);
 
-        // Non-destructive close: file into archive if it has content.
         if !removed.content.trim().is_empty() {
             self.state.archived_tabs.insert(
                 0,
@@ -2580,7 +2542,6 @@ impl StudioView {
             self.state.archived_tabs.truncate(200);
         }
 
-        // Keep at least one open tab in the workspace.
         let needs_tab = self
             .state
             .spaces
@@ -2626,7 +2587,6 @@ impl StudioView {
             .iter_mut()
             .find(|s| s.id == archived.space_id)
         {
-            // Restore back into its original group if a group with that name still exists.
             let matched_group_id = archived.group_name.as_deref().and_then(|gname| {
                 space
                     .groups
@@ -2721,8 +2681,6 @@ impl StudioView {
         cx.notify();
     }
 
-    // ---------------------------------------------------------------- notes
-
     fn load_notes_from_store(&mut self) {
         self.notes_by_tab.clear();
         let mut content_by_tab: HashMap<String, String> = HashMap::new();
@@ -2776,10 +2734,6 @@ impl StudioView {
         }
     }
 
-    /// Resolves the target SQL span for creating or re-anchoring a note:
-    /// 1. Non-empty editor selection
-    /// 2. Statement under caret (dialect-aware)
-    /// 3. Non-blank line under caret
     fn resolve_target_span_for_note(&self, cx: &App) -> (String, Option<(usize, usize)>) {
         let (full_sql, cursor_offset, selected_range) = {
             let ed = self.editor_state.read(cx);
@@ -2880,7 +2834,6 @@ impl StudioView {
         self.flush_pending_notes();
         self.active_note_id = Some(note_id.clone());
 
-        // Reveal the anchored statement in the SQL editor without leaving a selection highlight.
         if !entry.record.anchor.is_tab
             && entry.state != NoteAnchorState::Lost
             && entry.record.anchor.length > 0
@@ -3072,7 +3025,6 @@ impl StudioView {
         let switched_tab = self.active_tab_id().as_deref() != Some(tab_id.as_str());
         if switched_tab {
             self.switch_tab(tab_id.clone(), window, cx);
-            // When switching tabs to re-anchor, position caret at the note's previous start offset.
             if let Some(old_start) = self
                 .notes_by_tab
                 .get(&tab_id)
@@ -3194,8 +3146,6 @@ impl StudioView {
             let _ = self.store.save_notes_batch(&batch);
         }
     }
-
-    // ---------------------------------------------------------------- history page
 
     pub(crate) fn open_history_page(
         &mut self,
@@ -3433,8 +3383,6 @@ impl StudioView {
         cx.notify();
     }
 
-    // ---------------------------------------------------------------- inline renames
-
     fn start_rename_tab(&mut self, tab_id: String, window: &mut Window, cx: &mut Context<Self>) {
         self.rail_context_menu = None;
         self.cancel_group_rename(cx);
@@ -3669,8 +3617,6 @@ impl StudioView {
             }
         }
     }
-
-    // ---------------------------------------------------------------- query execution
 
     fn run_query(
         &mut self,
@@ -4470,7 +4416,6 @@ impl Render for StudioView {
             .flex()
             .flex_row()
             .overflow_hidden()
-            // Full-page Manage Workspaces view OR Settings view OR main Studio workspace
             .when(self.managing_workspaces, |el| {
                 el.child(self.render_manage_workspaces_page(active_space, palette, window, cx))
             })
@@ -4490,7 +4435,6 @@ impl Render for StudioView {
             })
             .when(!self.managing_workspaces && !self.managing_settings, |el| {
                 el
-                    // Column 0: Full-height left sidebar over pure Windows 11 Mica (WinUI NavigationView rail)
                     .when(self.state.rail_open, |el| {
                         el.child(self.render_left_rail(
                             active_space,
@@ -4500,7 +4444,6 @@ impl Render for StudioView {
                             cx,
                         ))
                     })
-                    // Column 1 (optional): Docked Schema Inspector beside sidebar (matching MainPage.xaml)
                     .when(self.state.schema_pane_open, |el| {
                         el.child(self.render_schema_drawer(
                             active_space,
@@ -4510,7 +4453,6 @@ impl Render for StudioView {
                             cx,
                         ))
                     })
-                    // Column 2: Main right workspace column (TitleBar + History Page OR Query Workspace + StatusBar)
                     .child(
                         v_flex()
                             .flex_1()
@@ -4570,7 +4512,6 @@ impl Render for StudioView {
                                 ))
                             }),
                     )
-                    // Floating Workspace Switcher Flyout (overlays UI, never pushes sidebar elements)
                     .when(self.workspace_dropdown_open, |el| {
                         el.child(self.render_workspace_flyout(
                             active_space,
@@ -4580,7 +4521,6 @@ impl Render for StudioView {
                             cx,
                         ))
                     })
-                    // Floating Database Selector Flyout
                     .when(self.db_dropdown_open, |el| {
                         el.child(self.render_db_flyout(
                             active_space,
@@ -4590,7 +4530,6 @@ impl Render for StudioView {
                             cx,
                         ))
                     })
-                    // Floating Right-Click Context Menu for Tabs & Tab Folders/Groups
                     .when_some(self.rail_context_menu.clone(), |el, menu| {
                         el.child(self.render_rail_context_menu(
                             menu,
@@ -4600,11 +4539,9 @@ impl Render for StudioView {
                             cx,
                         ))
                     })
-                    // Floating Right-Click Context Menu for Result Grid cells/rows
                     .when_some(self.grid_context_menu.clone(), |el, menu| {
                         el.child(self.render_grid_context_menu(menu, palette, window, cx))
                     })
-                    // Searchable New-Tab Database Palette Overlay
                     .when(self.db_palette_open, |el| {
                         el.child(self.render_db_palette(
                             active_space,
@@ -4615,14 +4552,12 @@ impl Render for StudioView {
                         ))
                     })
             })
-            // Save Changes SQL Review Modal (for staged grid cell edits & row deletions)
             .when_some(self.save_review_modal.as_ref(), |el, modal| {
                 let space_color = active_space
                     .map(|s| parse_hex_color(&s.color))
                     .unwrap_or(palette.accent);
                 el.child(self.render_save_review_modal(modal, space_color, palette, cx))
             })
-            // Provider-Generated Workspace Settings Modal (works from both Studio and Manage Workspaces)
             .when_some(self.modal.as_ref(), |el, modal| {
                 el.child(render_connection_modal(
                     modal,
@@ -4634,7 +4569,6 @@ impl Render for StudioView {
                     },
                 ))
             })
-            // MCP Write Approval Modal (topmost overlay across all pages)
             .when_some(self.active_mcp_approval.as_ref(), |el, pending| {
                 el.child(render_mcp_approval_modal(
                     pending,
@@ -4647,8 +4581,6 @@ impl Render for StudioView {
 }
 
 impl StudioView {
-    /// Transparent Windows 11 TitleBar placed at the top of the right main column so the
-    /// left sidebar spans top-to-bottom cleanly over Mica just like the WinUI version.
     fn render_title_bar(
         &self,
         palette: StudioPalette,
@@ -4718,7 +4650,6 @@ impl StudioView {
         let ws_open = self.workspace_dropdown_open;
         let schema_open = self.state.schema_pane_open;
 
-        // Collect visible workspaces for the sidebar footer (max 3 shown at once with left/right arrows)
         let rail_spaces: Vec<&SpaceState> = self
             .state
             .spaces
@@ -4740,7 +4671,6 @@ impl StudioView {
             .bg(transparent_black())
             .border_r_1()
             .border_color(palette.hairline)
-            // Row 0: Workspace Switcher Button (P Proxmox ⌄) — opens floating flyout overlay
             .child(
                 v_flex()
                     .px_1p5()
@@ -4804,7 +4734,6 @@ impl StudioView {
                             ),
                     ),
             )
-            // Row 1: Quiet connection status + inline Connect / Disconnect text action
             .child(
                 h_flex()
                     .px_3()
@@ -4882,7 +4811,6 @@ impl StudioView {
                             .into_any_element(),
                     }),
             )
-            // Inline error banner if connection failed
             .when_some(space_rt.last_error.clone(), |el, err| {
                 el.child(
                     div()
@@ -4899,7 +4827,6 @@ impl StudioView {
                         .child(err),
                 )
             })
-            // Row 2: [DB] Database Selector (per-tab binding) + Schema Icon Button on one row
             .when(
                 conn_state == ConnectionState::Connected && !space_rt.databases.is_empty(),
                 |el| {
@@ -4968,7 +4895,6 @@ impl StudioView {
                                             .text_color(palette.text_muted),
                                     ),
                             )
-                            // Schema Inspector toggle button right beside the DB selector
                             .child(
                                 div()
                                     .id("rail-schema-toggle")
@@ -4997,7 +4923,6 @@ impl StudioView {
                     )
                 },
             )
-            // Row 2.5: WinUI Pinned Band (pinned folders + loose pinned tabs)
             .when_some(
                 active_space.filter(|space| {
                     space.groups.iter().any(|g| g.is_pinned)
@@ -5078,7 +5003,6 @@ impl StudioView {
                                         v_flex()
                                             .gap_0p5()
                                             .children(pinned_rows)
-                                            // Compact drop strip at bottom of pinned band to pull tabs out of pinned folders into loose pinned
                                             .child(
                                                 div()
                                                     .id("rail-pinned-loose-drop")
@@ -5124,7 +5048,6 @@ impl StudioView {
                     )
                 },
             )
-            // Row 3: TABS Section Header + Group by DB / Undo / History Toggle Buttons
             .child({
                 let can_undo_grouping = active_space.is_some_and(|space| {
                     self.last_grouping_space_id.as_deref() == Some(space.id.as_str())
@@ -5248,7 +5171,6 @@ impl StudioView {
                             ),
                     )
             })
-            // Row 4: Full-width "+ New tab    Ctrl+T" row (also drops dragged tabs to top of unpinned loose list)
             .child({
                 let space_id_new_over = active_space.map(|s| s.id.clone()).unwrap_or_default();
                 let space_id_new_drop = space_id_new_over.clone();
@@ -5304,7 +5226,6 @@ impl StudioView {
                             .child("Ctrl+T"),
                     )
             })
-            // Row 5: Unpinned Vertical Tabs List (unpinned groups + loose unpinned tabs + drag-out drop zone)
             .child({
                 let space_id_drop_over = active_space.map(|s| s.id.clone()).unwrap_or_default();
                 let space_id_drop_end = space_id_drop_over.clone();
@@ -5381,7 +5302,6 @@ impl StudioView {
                             .min_h_full()
                             .gap_1()
                             .children(rows)
-                            // Bottom empty-space drop target: always allows dragging a tab out of a folder or pinned band
                             .child(
                                 div()
                                     .id("rail-unpinned-drop-zone")
@@ -5418,7 +5338,6 @@ impl StudioView {
                             ),
                     )
             })
-            // Row 6: WinUI Sidebar Footer (Settings gear | < max 3 workspace chips > | balancing spacer)
             .child(
                 h_flex()
                     .h(px(40.0))
@@ -5546,13 +5465,10 @@ impl StudioView {
                                 )
                             }),
                     )
-                    // Right balancing spacer matching WinUI MainPage.xaml (28px opposite Settings gear)
                     .child(div().w(px(28.0)).flex_shrink_0()),
             )
     }
 
-    /// Floating Workspace Switcher Flyout matching WinUI Larik reference:
-    /// overlays the UI without expanding or shifting sidebar elements below.
     fn render_workspace_flyout(
         &self,
         active_space: Option<&SpaceState>,
@@ -5622,7 +5538,6 @@ impl StudioView {
                     .on_mouse_down(MouseButton::Left, |_, _, cx| {
                         cx.stop_propagation();
                     })
-                    // Status caption (`SQL Server · 192.168.0.251 · Connected`)
                     .child(
                         div()
                             .px_1p5()
@@ -5633,7 +5548,6 @@ impl StudioView {
                             .truncate()
                             .child(header_caption),
                     )
-                    // Connect / Disconnect action row
                     .child({
                         let id_for_action = active_id.clone();
                         let (label, enabled) = match conn_state {
@@ -5682,7 +5596,6 @@ impl StudioView {
                                     .child(label),
                             )
                     })
-                    // Divider
                     .child(
                         div()
                             .my_1()
@@ -5690,7 +5603,6 @@ impl StudioView {
                             .w_full()
                             .bg(palette.hairline_subtle),
                     )
-                    // WORKSPACES section header
                     .child(
                         div()
                             .px_1p5()
@@ -5700,7 +5612,6 @@ impl StudioView {
                             .text_color(palette.text_muted)
                             .child("WORKSPACES"),
                     )
-                    // Visible workspaces list
                     .child(
                         v_flex()
                             .max_h(px(260.0))
@@ -5814,7 +5725,6 @@ impl StudioView {
                                 )
                             })),
                     )
-                    // Divider
                     .child(
                         div()
                             .my_1()
@@ -5822,7 +5732,6 @@ impl StudioView {
                             .w_full()
                             .bg(palette.hairline_subtle),
                     )
-                    // + New workspace
                     .child(
                         h_flex()
                             .id("ws-flyout-new")
@@ -5849,7 +5758,6 @@ impl StudioView {
                                     .child("New workspace"),
                             ),
                     )
-                    // Connection settings…
                     .when_some(active_id.clone(), |el, sid| {
                         el.child(
                             h_flex()
@@ -5877,7 +5785,6 @@ impl StudioView {
                                 ),
                         )
                     })
-                    // Manage workspaces...
                     .child(
                         h_flex()
                             .id("ws-flyout-manage")
@@ -5906,7 +5813,6 @@ impl StudioView {
             )
     }
 
-    /// Floating Database Selector Flyout positioned directly below the DB picker row.
     fn render_db_flyout(
         &self,
         active_space: Option<&SpaceState>,
@@ -5993,7 +5899,6 @@ impl StudioView {
             )
     }
 
-    /// Floating right-click context menu for query tabs and tab folders/groups in the left rail.
     fn render_rail_context_menu(
         &self,
         menu: RailContextMenu,
@@ -6063,7 +5968,6 @@ impl StudioView {
                 let is_grouped = parent_group.is_some();
                 let parent_pinned = parent_group.is_some_and(|g| g.is_pinned);
 
-                // Rename
                 let tid_rename = tab.id.clone();
                 items.push(
                     make_row(
@@ -6079,7 +5983,6 @@ impl StudioView {
                     .into_any_element(),
                 );
 
-                // New folder/group from tab
                 let tid_new_group = tab.id.clone();
                 let new_group_label = if tab.is_pinned || parent_pinned {
                     "New folder from tab"
@@ -6100,7 +6003,6 @@ impl StudioView {
                     .into_any_element(),
                 );
 
-                // Pin / Unpin (targets folder when grouped, or tab when loose)
                 if let Some(group) = parent_group {
                     let gid_pin = group.id.clone();
                     let pin_label = if group.is_pinned {
@@ -6150,7 +6052,6 @@ impl StudioView {
                     );
                 }
 
-                // Move to group / Remove from group
                 let other_groups: Vec<&TabGroupState> = space
                     .groups
                     .iter()
@@ -6225,7 +6126,6 @@ impl StudioView {
                     }
                 }
 
-                // Close tab
                 items.push(make_divider(palette));
                 let tid_close = tab.id.clone();
                 items.push(
@@ -6247,7 +6147,6 @@ impl StudioView {
                     return div().id("rail-ctx-missing-group").into_any_element();
                 };
 
-                // Rename group/folder
                 let gid_rename = group.id.clone();
                 items.push(
                     make_row(
@@ -6263,7 +6162,6 @@ impl StudioView {
                     .into_any_element(),
                 );
 
-                // Collapse / Expand
                 let gid_toggle = group.id.clone();
                 items.push(
                     make_row(
@@ -6287,7 +6185,6 @@ impl StudioView {
                     .into_any_element(),
                 );
 
-                // Pin / Unpin folder
                 let gid_pin = group.id.clone();
                 items.push(
                     make_row(
@@ -6311,7 +6208,6 @@ impl StudioView {
                     .into_any_element(),
                 );
 
-                // Ungroup
                 items.push(make_divider(palette));
                 let gid_ungroup = group.id.clone();
                 items.push(
@@ -6387,7 +6283,6 @@ impl StudioView {
             .into_any_element()
     }
 
-    /// Full-page Manage Workspaces view matching the WinUI Larik reference screenshot.
     fn render_manage_workspaces_page(
         &self,
         active_space: Option<&SpaceState>,
@@ -6426,7 +6321,6 @@ impl StudioView {
         v_flex()
             .size_full()
             .overflow_hidden()
-            // Top Windows-safe transparent TitleBar: clickable Back arrow + Larik icon + "Workspaces"
             .child(render_app_title_bar(
                 "manage-ws",
                 IconName::ArrowLeft,
@@ -6439,7 +6333,6 @@ impl StudioView {
                     this.close_manage_workspaces(cx);
                 }),
             ))
-            // Centered workspace management canvas
             .child(
                 div()
                     .flex_1()
@@ -6456,7 +6349,6 @@ impl StudioView {
                             .max_w(px(940.0))
                             .h_full()
                             .gap_3()
-                            // Header row: count summary + coral "+ New workspace" CTA
                             .child(
                                 h_flex()
                                     .items_center()
@@ -6495,7 +6387,6 @@ impl StudioView {
                                             ),
                                     ),
                             )
-                            // Main translucent WinUI workspace list card
                             .child(
                                 div()
                                     .id("manage-ws-card")
@@ -6585,7 +6476,6 @@ impl StudioView {
                                                         this.close_manage_workspaces(cx);
                                                     },
                                                 ))
-                                                // Left group: reorder controls + 30x30 icon/monogram + title/subtitle
                                                 .child(
                                                     h_flex()
                                                         .flex_1()
@@ -6725,7 +6615,6 @@ impl StudioView {
                                                                 ),
                                                         ),
                                                 )
-                                                // Right group: status badges + Hide/Show + Edit
                                                 .child(
                                                     h_flex()
                                                         .flex_shrink_0()
@@ -6855,7 +6744,6 @@ impl StudioView {
                                         }),
                                     )),
                             )
-                            // Bottom helper notes (matching WinUI screenshot)
                             .child(
                                 v_flex()
                                     .pt_1()
@@ -6918,7 +6806,6 @@ impl StudioView {
             .gap_1p5()
             .cursor_pointer()
             .hover(|s| s.bg(palette.subtle_hover))
-            // Drag a tab onto a folder/group header to move it into this group
             .drag_over::<DraggedQueryTab>(move |style, dragged, _, _| {
                 if dragged.space_id == space_id_over {
                     style
@@ -6934,7 +6821,6 @@ impl StudioView {
                     this.drop_tab_on_group(&dragged.tab_id, &group_id_drop, cx);
                 }
             }))
-            // Right-click opens group/folder context menu
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |this, event: &MouseDownEvent, _, cx| {
@@ -6942,7 +6828,6 @@ impl StudioView {
                     this.open_group_context_menu(group_id_ctx.clone(), event.position, cx);
                 }),
             )
-            // Single click toggles expand/collapse; double-click enters inline rename
             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                 if event.click_count() >= 2 {
                     this.start_rename_group(group_id_click.clone(), window, cx);
@@ -6950,7 +6835,6 @@ impl StudioView {
                     this.toggle_group_expanded(group_id_click.clone(), cx);
                 }
             }))
-            // Expand/collapse chevron
             .child(
                 Icon::new(if is_expanded {
                     IconName::ChevronDown
@@ -6960,13 +6844,11 @@ impl StudioView {
                 .size(px(11.0))
                 .text_color(palette.text_muted),
             )
-            // Folder (pinned) or group (unpinned) icon
             .child(
                 Icon::new(folder_icon)
                     .size(px(12.5))
                     .text_color(folder_color),
             )
-            // Name or inline rename input
             .child(if is_renaming {
                 if let Some(input) = self.rename_group_input.as_ref() {
                     div()
@@ -6989,7 +6871,6 @@ impl StudioView {
                     .child(group.name.clone())
                     .into_any_element()
             })
-            // Member count badge
             .when(!is_renaming, |el| {
                 el.child(
                     div()
@@ -7000,7 +6881,6 @@ impl StudioView {
                         .child(member_count.to_string()),
                 )
             })
-            // Pin indicator on pinned folders (pinning/unpinning is also in the right-click menu)
             .when(!is_renaming && is_pinned, |el| {
                 el.child(
                     div()
@@ -7073,7 +6953,6 @@ impl StudioView {
                     .border_color(palette.card_border)
             })
             .when(!is_active, |el| el.hover(|s| s.bg(palette.subtle_hover)))
-            // Drag-and-drop reorder / move into or out of folders & pinned band
             .when(!is_renaming, |el| {
                 let drag_payload = DraggedQueryTab {
                     space_id: space_id_owned,
@@ -7105,7 +6984,6 @@ impl StudioView {
                     }
                 }))
             })
-            // Right-click opens tab context menu (Rename, New folder/group, Move to, Pin, Close)
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |this, event: &MouseDownEvent, _, cx| {
@@ -7113,7 +6991,6 @@ impl StudioView {
                     this.open_tab_context_menu(tab_id_ctx.clone(), event.position, cx);
                 }),
             )
-            // Middle-click archives tab immediately
             .on_mouse_down(
                 MouseButton::Middle,
                 cx.listener(move |this, _, window, cx| {
@@ -7121,7 +6998,6 @@ impl StudioView {
                     this.archive_tab(tab_id_mid.clone(), window, cx);
                 }),
             )
-            // Single click switches tab; double-click enters inline rename
             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                 if event.click_count() >= 2 {
                     this.start_rename_tab(tab_id_click.clone(), window, cx);
@@ -7129,7 +7005,6 @@ impl StudioView {
                     this.switch_tab(tab_id_click.clone(), window, cx);
                 }
             }))
-            // Subtle WinUI 2.5px left accent pill on active tab
             .when(is_active, |el| {
                 el.child(
                     div()
@@ -7142,9 +7017,7 @@ impl StudioView {
                         .bg(space_color),
                 )
             })
-            // Running indicator (only when actively executing)
             .when(is_running, |el| el.child(Spinner::new().xsmall()))
-            // Clean Title + DB subtitle (no left file icon clutter, matching WinUI screenshot)
             .child(if is_renaming {
                 if let Some(input) = self.rename_input.as_ref() {
                     div()
@@ -7190,14 +7063,12 @@ impl StudioView {
                     })
                     .into_any_element()
             })
-            // Compact note-count pill when this tab has notes
             .when(!is_renaming, |el| {
                 let note_count = self.notes_by_tab.get(&tab.id).map_or(0, Vec::len);
                 el.when_some(render_tab_note_badge(note_count, palette), |row, badge| {
                     row.child(badge)
                 })
             })
-            // Pin indicator on pinned loose tabs (pinning/unpinning is in the right-click menu)
             .when(!is_renaming && !in_group && is_pinned, |el| {
                 el.child(
                     div()
@@ -7221,7 +7092,6 @@ impl StudioView {
                         ),
                 )
             })
-            // Close button (visible on active tab or on hover)
             .when(!is_renaming, |el| {
                 el.child(
                     div()
@@ -7316,7 +7186,6 @@ impl StudioView {
             .h_full()
             .min_h_0()
             .overflow_hidden()
-            // WinUI Query Toolbar: Left = Tab Title (+ collapsed ContextBadge), Right = Compact Icon Buttons + Accent Run
             .child(
                 h_flex()
                     .h(px(38.0))
@@ -7339,7 +7208,6 @@ impl StudioView {
                                     .truncate()
                                     .child(tab_title),
                             )
-                            // Calm ContextBadge pill only when sidebar is collapsed
                             .when(!self.state.rail_open, |el| {
                                 let space_name = active_space
                                     .map(|s| s.name.clone())
@@ -7385,7 +7253,6 @@ impl StudioView {
                                 )
                             }),
                     )
-                    // Right icon cluster matching WinUI SqlEditorView.xaml
                     .child(
                         h_flex()
                             .items_center()
@@ -7409,14 +7276,12 @@ impl StudioView {
                                         ),
                                 )
                             })
-                            // Toggle Notes pane (matching WinUI comment button immediately left of Run All)
                             .child(render_notes_toolbar_button(
                                 active_tab_note_count,
                                 self.state.notes_pane_open,
                                 palette,
                                 cx,
                             ))
-                            // Run all statements (F5)
                             .child(
                                 Button::new("toolbar-run-all")
                                     .ghost()
@@ -7430,7 +7295,6 @@ impl StudioView {
                                         this.run_query(false, false, cx);
                                     })),
                             )
-                            // Primary Fluent Accent Run / Stop Icon Button (32x28px rounded 6px)
                             .child(if is_running {
                                 div()
                                     .id("toolbar-stop")
@@ -7476,7 +7340,6 @@ impl StudioView {
                             }),
                     ),
             )
-            // WinUI Rounded Cards Area: Editor Card fills 100% until Results Card is open
             .child(
                 div()
                     .relative()
@@ -7632,7 +7495,6 @@ impl StudioView {
             .border_1()
             .border_color(palette.card_border)
             .overflow_hidden()
-            // Quiet Fluent Result Tabs Bar (supports rename, close, and drag-and-drop reorder)
             .child(
                 h_flex()
                     .h(px(36.0))
@@ -7687,7 +7549,6 @@ impl StudioView {
                                     .when(!selected && !is_renaming, |d| {
                                         d.hover(|s| s.bg(palette.subtle_hover))
                                     })
-                                    // Drag-and-drop reorder for result tabs within this query tab
                                     .when(!is_renaming && tab_id_for_drag.is_some(), |el| {
                                         let tid = tab_id_for_drag.clone().unwrap_or_default();
                                         let tid_over = tid.clone();
@@ -7739,7 +7600,6 @@ impl StudioView {
                                             },
                                         ))
                                     })
-                                    // Middle-click closes this result tab
                                     .on_mouse_down(
                                         MouseButton::Middle,
                                         cx.listener(move |this, _, _, cx| {
@@ -7747,7 +7607,6 @@ impl StudioView {
                                             this.close_result_tab(item_id_mid.clone(), cx);
                                         }),
                                     )
-                                    // Single-click selects result tab; double-click enters inline rename
                                     .on_click(cx.listener(
                                         move |this, event: &ClickEvent, window, cx| {
                                             if event.click_count() >= 2 {
@@ -7821,7 +7680,6 @@ impl StudioView {
                                             })
                                             .into_any_element()
                                     })
-                                    // Per-tab close button (visible on selected tab or on hover)
                                     .when(!is_renaming, |el| {
                                         el.child(
                                             div()
@@ -8027,7 +7885,6 @@ impl StudioView {
                             ),
                     ),
             )
-            // Result body
             .child(div().flex_1().min_h_0().w_full().child(
                 if tab_rt.show_messages {
                     v_flex()
@@ -8261,7 +8118,6 @@ impl StudioView {
                     .on_mouse_down(MouseButton::Left, |_, _, cx| {
                         cx.stop_propagation();
                     })
-                    // Search header
                     .child(
                         h_flex()
                             .px_3p5()
@@ -8294,7 +8150,6 @@ impl StudioView {
                                     })),
                             ),
                     )
-                    // Sub-caption
                     .child(
                         div()
                             .px_3p5()
@@ -8305,7 +8160,6 @@ impl StudioView {
                             .text_color(palette.text_muted)
                             .child("NEW TAB · CHOOSE DATABASE"),
                     )
-                    // Filtered DB list
                     .child(
                         div()
                             .id("db-palette-list")
@@ -8440,7 +8294,6 @@ impl StudioView {
             .bg(palette.panel_bg)
             .border_r_1()
             .border_color(palette.hairline)
-            // Header
             .child(
                 h_flex()
                     .h(px(38.0))
@@ -8496,7 +8349,6 @@ impl StudioView {
                             })),
                     ),
             )
-            // Instant filter input bar
             .when(total_tables > 0, |el| {
                 el.child(
                     h_flex()
@@ -8531,7 +8383,6 @@ impl StudioView {
                         }),
                 )
             })
-            // Virtualized list body (only visible rows are mounted/laid out!)
             .child(if total_tables == 0 {
                 div()
                     .flex_1()
@@ -8982,7 +8833,6 @@ mod tests {
         assert_eq!(rt.results[0].title, "Result 1");
         let first_id = rt.results[0].id.clone();
 
-        // Ctrl+\ appends a second result tab and activates it
         rt.apply_results(vec![grid_result(7)], true);
         assert_eq!(rt.results.len(), 2);
         assert_eq!(rt.results[0].id, first_id);
@@ -8999,14 +8849,12 @@ mod tests {
         assert!(rt.rename_result(&id, "Orders"));
         assert_eq!(rt.results[0].title, "Orders");
 
-        // Re-running a grid query in place keeps the custom name
         rt.apply_results(vec![grid_result(9)], false);
         assert_eq!(rt.results.len(), 1);
         assert_eq!(rt.results[0].id, id);
         assert_eq!(rt.results[0].title, "Orders");
         assert_eq!(rt.results[0].result.rows.len(), 9);
 
-        // Switching to a messages-only result updates default title to Messages
         rt.apply_results(vec![messages_only_result(&["hello"])], false);
         assert_eq!(rt.results.len(), 1);
         assert_eq!(rt.results[0].title, "Messages");
@@ -9024,7 +8872,6 @@ mod tests {
         let id3 = rt.results[2].id.clone();
         rt.rename_result(&id2, "Middle");
 
-        // Drag Result 3 before Result 1
         assert!(rt.reorder_result(&id3, &id1));
         assert_eq!(
             rt.results.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
@@ -9033,7 +8880,6 @@ mod tests {
         assert_eq!(rt.results[2].title, "Middle");
         assert_eq!(rt.active_result_id.as_deref(), Some(id3.as_str()));
 
-        // Close active (first) tab -> falls back to neighbor
         rt.close_result(&id3);
         assert_eq!(rt.results.len(), 2);
         assert_eq!(rt.active_result_id.as_deref(), Some(id1.as_str()));

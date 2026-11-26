@@ -97,7 +97,6 @@ pub struct ArchivedTabState {
 }
 
 impl ArchivedTabState {
-    /// First non-empty trimmed line of SQL, truncated to 140 chars (matching WinUI ArchivedTabViewModel.Preview).
     pub fn preview(&self) -> String {
         let Some(line) = self
             .content
@@ -116,10 +115,8 @@ impl ArchivedTabState {
         }
     }
 
-    /// Relative age label matching WinUI ArchivedTabViewModel.AgeLabel.
     pub fn age_label(&self, now: DateTime<Utc>) -> String {
         let Ok(parsed) = DateTime::parse_from_rfc3339(&self.archived_at) else {
-            // Backward compatibility with legacy "HH:MM" strings saved before RFC3339 timestamps.
             return self.archived_at.clone();
         };
         let archived_utc = parsed.with_timezone(&Utc);
@@ -313,11 +310,6 @@ ORDER BY name;\n"
             .clamp(MIN_AUTO_ARCHIVE_DAYS, MAX_AUTO_ARCHIVE_DAYS)
     }
 
-    /// Runs the inactivity auto-archive sweep across all workspaces, matching WinUI
-    /// `StudioViewModel.RunAutoArchive`:
-    /// - Skips pinned tabs, tabs inside pinned folders, and the currently active tab of the active workspace
-    /// - Keeps at least one tab per workspace
-    /// - Returns IDs of archived tabs so the caller can close their runtime sessions.
     pub fn run_auto_archive(&mut self, now: DateTime<Utc>) -> Vec<String> {
         if !self.auto_archive_enabled {
             return Vec::new();
@@ -426,7 +418,6 @@ impl SpaceState {
         self.tabs.iter_mut().find(|t| t.id == target_id)
     }
 
-    /// Effective database for the currently active tab (falling back to workspace default).
     pub fn active_tab_database(&self) -> Option<String> {
         self.active_tab()
             .and_then(|t| t.database.clone())
@@ -441,7 +432,6 @@ impl SpaceState {
         self.groups.iter_mut().find(|g| g.id == group_id)
     }
 
-    /// True if the tab is pinned directly or belongs to a pinned folder.
     pub fn is_tab_protected(&self, tab: &TabState) -> bool {
         tab.is_pinned
             || tab
@@ -451,7 +441,6 @@ impl SpaceState {
                 .is_some_and(|g| g.is_pinned)
     }
 
-    /// Removes dangling `group_id` references and drops groups that no longer contain any tabs.
     pub fn prune_empty_groups(&mut self) {
         let valid_group_ids: std::collections::HashSet<&str> =
             self.groups.iter().map(|g| g.id.as_str()).collect();
@@ -470,22 +459,15 @@ impl SpaceState {
         self.groups.retain(|g| populated.contains(&g.id));
     }
 
-    /// Canonicalizes group and tab ordering to match WinUI `StudioViewModel.RebuildTabOrder`:
-    /// 1. Pinned groups (folders) + their member tabs
-    /// 2. Loose pinned tabs
-    /// 3. Unpinned groups + their member tabs
-    /// 4. Loose unpinned tabs
     pub fn rebuild_tab_order(&mut self) {
         self.prune_empty_groups();
 
-        // Pinning lives on the group when a tab belongs to a group.
         for tab in &mut self.tabs {
             if tab.group_id.is_some() {
                 tab.is_pinned = false;
             }
         }
 
-        // Keep pinned groups first, then unpinned groups, preserving relative order.
         let mut pinned_groups = Vec::new();
         let mut unpinned_groups = Vec::new();
         for group in self.groups.drain(..) {
@@ -530,9 +512,6 @@ impl SpaceState {
         self.tabs.extend(loose_unpinned);
     }
 
-    /// Inserts a newly created tab using WinUI `StudioViewModel.CreateTab` rules:
-    /// - If a group is bound to the tab's database (case-insensitive), auto-join and expand it.
-    /// - Otherwise insert at the top of the loose unpinned band.
     pub fn insert_new_tab(&mut self, mut tab: TabState) {
         if let Some(ref db) = tab.database {
             if let Some(group) = self.groups.iter_mut().find(|g| {
@@ -559,8 +538,6 @@ impl SpaceState {
         self.rebuild_tab_order();
     }
 
-    /// Pins or unpins a tab. If the tab is inside a group, toggles the group's pin state
-    /// (converting between an unpinned group and a pinned folder) to match WinUI.
     pub fn toggle_pin_tab(&mut self, tab_id: &str) -> bool {
         let Some(pos) = self.tabs.iter().position(|t| t.id == tab_id) else {
             return false;
@@ -606,7 +583,6 @@ impl SpaceState {
         true
     }
 
-    /// Creates a new group/folder containing the given tab (inheriting its pin state and database).
     pub fn new_group_from_tab(&mut self, tab_id: &str) -> Option<String> {
         let pos = self.tabs.iter().position(|t| t.id == tab_id)?;
         let was_pinned = self.tabs[pos].is_pinned
@@ -638,7 +614,6 @@ impl SpaceState {
         Some(group_id)
     }
 
-    /// Moves a tab into `target_group_id`, or out to loose tabs (`None`) with optional pin state.
     pub fn move_tab_to_group(
         &mut self,
         tab_id: &str,
@@ -670,7 +645,6 @@ impl SpaceState {
         true
     }
 
-    /// Dissolves a group/folder, keeping its member tabs as loose tabs in the same band.
     pub fn ungroup(&mut self, group_id: &str) -> bool {
         let Some(pos) = self.groups.iter().position(|g| g.id == group_id) else {
             return false;
@@ -687,7 +661,6 @@ impl SpaceState {
         true
     }
 
-    /// Drag-and-drop: drops `dragged_id` onto a group/folder header, placing it at the top of that group.
     pub fn drop_tab_on_group(&mut self, dragged_id: &str, group_id: &str) -> bool {
         if !self.groups.iter().any(|g| g.id == group_id) {
             return false;
@@ -706,9 +679,6 @@ impl SpaceState {
         true
     }
 
-    /// Drag-and-drop: drops `dragged_id` onto `target_id`.
-    /// Adopts the target's group/folder (or pulls out to loose tabs with the target's pin state)
-    /// and positions `dragged_id` at `target_id`'s slot.
     pub fn drop_tab_on_tab(&mut self, dragged_id: &str, target_id: &str) -> bool {
         if dragged_id == target_id {
             return false;
@@ -745,7 +715,6 @@ impl SpaceState {
         true
     }
 
-    /// Drag-and-drop: pulls `dragged_id` out of any group into loose pinned or loose unpinned tabs.
     pub fn drop_tab_to_loose(&mut self, dragged_id: &str, pinned: bool, at_top: bool) -> bool {
         let Some(from) = self.tabs.iter().position(|t| t.id == dragged_id) else {
             return false;
@@ -762,7 +731,6 @@ impl SpaceState {
         true
     }
 
-    /// True when at least two loose unpinned tabs share a database not already owned by a group.
     pub fn has_ungrouped_database_cluster(&self) -> bool {
         let owned: std::collections::HashSet<String> = self
             .groups
@@ -790,8 +758,6 @@ impl SpaceState {
         false
     }
 
-    /// Groups loose unpinned tabs that share a database (>= 2 tabs per database, not already
-    /// owned by an existing group). Returns newly created group IDs for Undo support.
     pub fn group_tabs_by_database(&mut self) -> Vec<String> {
         let owned: std::collections::HashSet<String> = self
             .groups
@@ -800,7 +766,6 @@ impl SpaceState {
             .map(|db| db.to_ascii_lowercase())
             .collect();
 
-        // Preserve first-seen database order and display casing.
         let mut order: Vec<String> = Vec::new();
         let mut display_names: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
@@ -932,26 +897,22 @@ mod tests {
         let folder = space.new_group_from_tab("t1").unwrap();
         assert!(space.toggle_group_pin(&folder));
 
-        // Drop t2 onto folder header -> joins folder at top
         assert!(space.drop_tab_on_group("t2", &folder));
         assert_eq!(space.tabs[0].id, "t2");
         assert_eq!(space.tabs[0].group_id.as_deref(), Some(folder.as_str()));
         assert_eq!(space.tabs[1].id, "t1");
         assert!(space.is_tab_protected(&space.tabs[0]));
 
-        // Drag t1 onto t2 inside the same folder -> reorders inside folder
         assert!(space.drop_tab_on_tab("t1", "t2"));
         assert_eq!(space.tabs[0].id, "t1");
         assert_eq!(space.tabs[1].id, "t2");
 
-        // Drag t2 onto loose unpinned tab t3 -> pulls out of folder to loose unpinned
         assert!(space.drop_tab_on_tab("t2", "t3"));
         let t2 = space.tabs.iter().find(|t| t.id == "t2").unwrap();
         assert_eq!(t2.group_id, None);
         assert!(!t2.is_pinned);
         assert!(!space.is_tab_protected(t2));
 
-        // Pull last remaining tab t1 out to loose unpinned -> empty folder auto-pruned
         assert!(space.drop_tab_to_loose("t1", false, false));
         assert!(space.groups.is_empty());
     }
@@ -969,12 +930,10 @@ mod tests {
         assert_eq!(created.len(), 1);
         assert!(!space.has_ungrouped_database_cluster());
 
-        // New tab for "alpha" auto-joins the existing alpha group
         space.insert_new_tab(make_tab("t4", "A3", Some("alpha")));
         let t4 = space.tabs.iter().find(|t| t.id == "t4").unwrap();
         assert_eq!(t4.group_id.as_deref(), Some(created[0].as_str()));
 
-        // Undo dissolves the created group back to loose unpinned tabs
         assert!(space.undo_grouping(&created));
         assert!(space.groups.is_empty());
         assert!(space.tabs.iter().all(|t| t.group_id.is_none() && !t.is_pinned));

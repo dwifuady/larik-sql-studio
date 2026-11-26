@@ -1,7 +1,3 @@
-//! Newline-delimited JSON-RPC 2.0 MCP stdio server loop.
-//!
-//! Only JSON-RPC messages are ever written to `stdout`; all diagnostics go to `stderr`.
-
 use std::sync::Arc;
 
 use serde_json::{Value, json};
@@ -13,8 +9,6 @@ use crate::tools;
 
 const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
 
-/// Runs the MCP JSON-RPC loop over arbitrary async `reader` and `writer` (stdio in production,
-/// duplex streams in tests).
 pub async fn run_transport<R, W>(
     ctx: Arc<StudioContext>,
     reader: R,
@@ -61,7 +55,6 @@ where
             .to_string();
         let params = msg.get("params").cloned().unwrap_or(Value::Null);
 
-        // Notifications have no `id` and expect no reply.
         let Some(req_id) = id else {
             continue;
         };
@@ -74,12 +67,10 @@ where
         });
     }
 
-    // Drain any in-flight tool calls cleanly before EOF exit.
     while in_flight.join_next().await.is_some() {}
     Ok(())
 }
 
-/// Runs the MCP server on process stdin/stdout.
 pub async fn run_stdio(ctx: Arc<StudioContext>) -> anyhow::Result<()> {
     let reader = BufReader::new(tokio::io::stdin());
     let writer = tokio::io::stdout();

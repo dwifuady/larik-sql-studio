@@ -1,9 +1,3 @@
-//! Statement-anchored and tab-level notes model + anchoring/rebasing engine.
-//!
-//! Ported from WinUI `Larik.Core/NoteRecords.cs`. All offsets are UTF-8 byte indices
-//! matching `gpui` / `EditorState` and `larik_data::TextSpan`, with strict char-boundary
-//! clamping so multi-byte characters can never cause a slice panic.
-
 use chrono::{DateTime, Duration, Local, Utc};
 use larik_data::EditorLanguage;
 use serde::{Deserialize, Serialize};
@@ -118,7 +112,6 @@ impl NoteRecord {
     }
 }
 
-/// Formats a badge count capped at `"99+"` (matching WinUI `TabViewModel.NotesBadgeText`).
 pub fn format_badge_count(count: usize) -> String {
     if count > 99 {
         "99+".to_string()
@@ -127,7 +120,6 @@ pub fn format_badge_count(count: usize) -> String {
     }
 }
 
-/// Clamps `byte_offset` down to the nearest valid UTF-8 character boundary within `text`.
 pub fn floor_char_boundary(text: &str, byte_offset: usize) -> usize {
     let mut idx = byte_offset.min(text.len());
     while idx > 0 && !text.is_char_boundary(idx) {
@@ -136,7 +128,6 @@ pub fn floor_char_boundary(text: &str, byte_offset: usize) -> usize {
     idx
 }
 
-/// Clamps `byte_offset` up to the nearest valid UTF-8 character boundary within `text`.
 pub fn ceil_char_boundary(text: &str, byte_offset: usize) -> usize {
     let mut idx = byte_offset.min(text.len());
     while idx < text.len() && !text.is_char_boundary(idx) {
@@ -145,7 +136,6 @@ pub fn ceil_char_boundary(text: &str, byte_offset: usize) -> usize {
     idx
 }
 
-/// Creates a tab-level scratchpad anchor (`is_tab = true`).
 pub fn tab_note_anchor() -> NoteAnchor {
     NoteAnchor {
         start: 0,
@@ -158,7 +148,6 @@ pub fn tab_note_anchor() -> NoteAnchor {
     }
 }
 
-/// Returns the 1-based line number of `byte_offset` in `text`, handling `\r\n`, `\n`, and lone `\r`.
 pub fn line_of(text: &str, byte_offset: usize) -> usize {
     let limit = floor_char_boundary(text, byte_offset);
     let bytes = &text.as_bytes()[..limit];
@@ -182,8 +171,6 @@ pub fn line_of(text: &str, byte_offset: usize) -> usize {
     line
 }
 
-/// Returns `(start, length)` in UTF-8 bytes for the line containing `byte_offset`,
-/// excluding trailing `\r`/`\n`.
 pub fn line_span_at(text: &str, byte_offset: usize) -> (usize, usize) {
     if text.is_empty() {
         return (0, 0);
@@ -214,7 +201,6 @@ fn take_first_chars(slice: &str, max_chars: usize) -> String {
     slice.chars().take(max_chars).collect()
 }
 
-/// Captures a fingerprint anchor (`quote`, `prefix`, `suffix`, `line_hint`) for `[start, start+length)`.
 pub fn capture_anchor(text: &str, start: usize, length: usize) -> NoteAnchor {
     let safe_start = floor_char_boundary(text, start);
     let safe_end = ceil_char_boundary(text, safe_start.saturating_add(length).min(text.len()));
@@ -236,22 +222,11 @@ pub fn capture_anchor(text: &str, start: usize, length: usize) -> NoteAnchor {
     }
 }
 
-/// Rebases `anchor` across a text edit from `old_text` to `new_text` using a single-splice diff.
-///
-/// Boundary rules (matching WinUI `NoteAnchoring.Rebase`):
-/// - Pure insertion at `anchor.start` shifts the anchor forward.
-/// - Pure insertion at `anchor.start + anchor.length` leaves the anchor untouched.
-/// - Pure insertion strictly inside expands the anchor.
-/// - If a deletion/replacement collapses the anchor to empty, attempts `resolve_anchor` rescue
-///   (e.g., whole-document reformat) before collapsing to zero-length (`Lost`).
-///
-/// Returns `(rebased_anchor, changed)`.
 pub fn rebase_anchor(anchor: &NoteAnchor, old_text: &str, new_text: &str) -> (NoteAnchor, bool) {
     if anchor.is_tab || old_text == new_text {
         return (anchor.clone(), false);
     }
 
-    // Compute common prefix & non-overlapping common suffix at char boundaries.
     let prefix = common_prefix_bytes(old_text, new_text);
     let suffix = common_suffix_bytes(&old_text[prefix..], &new_text[prefix..]);
 
@@ -264,26 +239,20 @@ pub fn rebase_anchor(anchor: &NoteAnchor, old_text: &str, new_text: &str) -> (No
     let end = start.saturating_add(anchor.length).min(old_text.len());
 
     let (raw_start, raw_end) = if old_middle == 0 {
-        // Pure insertion at `prefix`
         if prefix <= start {
             (start + new_middle, end + new_middle)
         } else if prefix >= end {
             (start, end)
         } else {
-            // Strictly inside
             (start, end + new_middle)
         }
     } else if prefix <= start && end <= splice_end {
-        // The entire anchor falls inside the replaced region `[prefix, splice_end]`.
-        // First try rescuing the original quote (handles whole-doc format / paste / moves).
         let rescued = resolve_anchor(anchor, new_text);
         if rescued.state != NoteAnchorState::Lost && rescued.length > 0 {
             let updated = capture_anchor(new_text, rescued.start, rescued.length);
             let changed = &updated != anchor;
             return (updated, changed);
         }
-        // If the user replaced the exact anchored span with new text, track the replacement;
-        // if it was deleted or wiped out by a broader rewrite, collapse to Lost.
         if prefix == start && end == splice_end && new_middle > 0 {
             (prefix, prefix + new_middle)
         } else {
@@ -313,7 +282,6 @@ pub fn rebase_anchor(anchor: &NoteAnchor, old_text: &str, new_text: &str) -> (No
     let updated = if new_end > new_start {
         capture_anchor(new_text, new_start, new_end - new_start)
     } else {
-        // Rescue attempt before declaring lost (handles format / wholesale rewrite)
         let rescued = resolve_anchor(anchor, new_text);
         if rescued.state != NoteAnchorState::Lost && rescued.length > 0 {
             capture_anchor(new_text, rescued.start, rescued.length)
@@ -348,7 +316,6 @@ fn common_suffix_bytes(a: &str, b: &str) -> usize {
     matched
 }
 
-/// Resolves an anchor against `text`, returning `Anchored`, `Moved`, `Lost`, or `Tab`.
 pub fn resolve_anchor(anchor: &NoteAnchor, text: &str) -> ResolvedNoteAnchor {
     if anchor.is_tab {
         return ResolvedNoteAnchor {
@@ -367,7 +334,6 @@ pub fn resolve_anchor(anchor: &NoteAnchor, text: &str) -> ResolvedNoteAnchor {
         };
     }
 
-    // 1. Exact ordinal match at recorded offset.
     if anchor.start <= text.len() && text.is_char_boundary(anchor.start) {
         let rest = &text[anchor.start..];
         let expected_quote = if anchor.length < anchor.quote.len()
@@ -391,7 +357,6 @@ pub fn resolve_anchor(anchor: &NoteAnchor, text: &str) -> ResolvedNoteAnchor {
         }
     }
 
-    // 2. Overlapping scan for quote anywhere in `text` (up to MAX_SEARCH_HITS).
     let hits = find_all_overlapping(text, &anchor.quote, MAX_SEARCH_HITS);
     if hits.is_empty() {
         return ResolvedNoteAnchor {
@@ -439,7 +404,6 @@ fn find_all_overlapping(text: &str, needle: &str, limit: usize) -> Vec<usize> {
         };
         let hit = offset + rel;
         hits.push(hit);
-        // Advance by one UTF-8 char for overlapping match scan.
         let step = text[hit..].chars().next().map_or(1, char::len_utf8);
         offset = hit + step;
     }
@@ -459,7 +423,6 @@ fn context_score(text: &str, hit: usize, anchor: &NoteAnchor) -> isize {
     score
 }
 
-/// Collapses newlines, tabs, and whitespace runs to a single space for card/popover preview.
 pub fn quote_preview(quote: &str) -> String {
     let mut out = String::with_capacity(quote.len().min(160));
     let mut in_ws = false;
@@ -479,11 +442,6 @@ pub fn quote_preview(quote: &str) -> String {
     out
 }
 
-/// Computes the human-readable anchor description matching WinUI `StudioViewModel.DescribeAnchor`:
-/// - Tab note -> `"This tab"`
-/// - Lost note -> `"Anchor lost"`
-/// - Anchored/Moved -> `"Statement {index} · Line {a}"` / `"Statement {index} · Lines {a}–{b}"`
-///   (or just `"Line {a}"` / `"Lines {a}–{b}"` if no statement covers it).
 pub fn describe_anchor(
     anchor: &NoteAnchor,
     state: NoteAnchorState,
@@ -529,7 +487,6 @@ pub fn describe_anchor(
     }
 }
 
-/// Relative timestamp label matching WinUI `NoteViewModel.EditedLabel`.
 pub fn edited_label(updated_at: &str, now: DateTime<Utc>) -> String {
     let Ok(parsed) = DateTime::parse_from_rfc3339(updated_at) else {
         return "just now".to_string();
@@ -577,14 +534,12 @@ mod tests {
             }
         );
 
-        // Prepend lines so the anchor shifts; context suffix ("\nSELECT 2;") disambiguates the second copy.
         let shifted = format!("-- header\n{doc}");
         let res = resolve_anchor(&anchor, &shifted);
         assert_eq!(res.state, NoteAnchorState::Moved);
         assert_eq!(res.start, second + "-- header\n".len());
         assert_eq!(res.length, target.len());
 
-        // Removing the text marks the anchor Lost.
         let lost = resolve_anchor(&anchor, "SELECT 99;");
         assert_eq!(lost.state, NoteAnchorState::Lost);
     }
@@ -596,7 +551,6 @@ mod tests {
         let len = "SELECT b FROM t;".len();
         let anchor = capture_anchor(old, start, len);
 
-        // 1. Insert at exact start -> shifts forward.
         let inserted_at_start = format!("{}  {}", &old[..start], &old[start..]);
         let (rebased, changed) = rebase_anchor(&anchor, old, &inserted_at_start);
         assert!(changed);
@@ -604,15 +558,13 @@ mod tests {
         assert_eq!(rebased.length, len);
         assert_eq!(rebased.quote, "SELECT b FROM t;");
 
-        // 2. Insert at exact end -> untouched.
         let inserted_at_end = format!("{old}\nSELECT c;");
         let (rebased, changed) = rebase_anchor(&anchor, old, &inserted_at_end);
         assert_eq!(rebased.start, start);
         assert_eq!(rebased.length, len);
         assert_eq!(rebased.quote, "SELECT b FROM t;");
-        assert!(changed); // suffix refreshed
+        assert!(changed);
 
-        // 3. Insert strictly inside -> expands.
         let inside_pos = start + "SELECT b".len();
         let inserted_inside = format!("{}, b2{}", &old[..inside_pos], &old[inside_pos..]);
         let (rebased, changed) = rebase_anchor(&anchor, old, &inserted_inside);
@@ -621,13 +573,11 @@ mod tests {
         assert_eq!(rebased.length, len + 4);
         assert_eq!(rebased.quote, "SELECT b, b2 FROM t;");
 
-        // 4. Whole-doc rewrite where statement still exists elsewhere -> rescued!
         let rewritten = "-- reformatted\nSELECT x FROM y;\n\nSELECT b FROM t;\n";
         let (rescued, _) = rebase_anchor(&anchor, old, rewritten);
         assert_eq!(rescued.quote, "SELECT b FROM t;");
         assert_eq!(rescued.start, rewritten.find("SELECT b FROM t;").unwrap());
 
-        // 5. Deleting the anchored statement completely -> collapses to length 0 (Lost).
         let deleted = "SELECT a FROM t;\n";
         let (lost_anchor, _) = rebase_anchor(&anchor, old, deleted);
         assert_eq!(lost_anchor.length, 0);

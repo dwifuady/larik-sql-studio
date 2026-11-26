@@ -58,8 +58,6 @@ impl SnippetRecord {
     }
 }
 
-/// Normalizes a dialect scope list: trims, lowercases, deduplicates, sorts alphabetically,
-/// and converts an empty list into `None` (= applies to all SQL dialects).
 pub fn normalize_dialects(dialects: Option<Vec<String>>) -> Option<Vec<String>> {
     let list = dialects?;
     let set: BTreeSet<String> = list
@@ -74,8 +72,6 @@ pub fn normalize_dialects(dialects: Option<Vec<String>>) -> Option<Vec<String>> 
     }
 }
 
-/// Stable row ID for a built-in snippet (`builtin:{scope}:{trigger}`), so seeding with
-/// `INSERT OR IGNORE` runs on every launch without creating duplicates.
 pub fn builtin_id(def: &SnippetDef) -> String {
     let scope = match normalize_dialects(def.dialects.clone()) {
         Some(dialects) => dialects.join("+"),
@@ -116,7 +112,6 @@ fn s(
     }
 }
 
-/// All 25 built-in snippets matching the WinUI `SnippetCatalog` 1:1.
 pub fn builtin_catalog() -> Vec<SnippetDef> {
     vec![
         s("sel", "SELECT *", "Select", "Select all columns from a table", "SELECT * FROM ${cursor}", None),
@@ -153,8 +148,6 @@ pub fn builtin_catalog() -> Vec<SnippetDef> {
     ]
 }
 
-/// Finds the built-in catalog definition for an existing built-in record (matching by ID first,
-/// then trigger + dialect scope).
 pub fn builtin_default_for(existing: &SnippetRecord) -> Option<SnippetDef> {
     if !existing.is_builtin {
         return None;
@@ -184,7 +177,6 @@ fn scopes_overlap(left: Option<&[String]>, right: Option<&[String]>) -> bool {
     }
 }
 
-/// Returns `true` when another snippet already answers to `trigger` in an overlapping dialect scope.
 pub fn has_trigger_conflict(
     snippets: &[SnippetRecord],
     trigger: &str,
@@ -204,7 +196,6 @@ pub fn has_trigger_conflict(
     })
 }
 
-/// Filters enabled snippets applicable to `dialect` and converts them to `SnippetDef`.
 pub fn snippets_for_dialect(snippets: &[SnippetRecord], dialect: &str) -> Vec<SnippetDef> {
     let target = if dialect.trim().is_empty() {
         "mssql"
@@ -218,7 +209,6 @@ pub fn snippets_for_dialect(snippets: &[SnippetRecord], dialect: &str) -> Vec<Sn
         .collect()
 }
 
-/// Sorts snippets by `(category lowercase, trigger lowercase, builtin before custom)`.
 pub fn sort_snippets(snippets: &mut [SnippetRecord]) {
     snippets.sort_by(|a, b| {
         let cat_a = a.category.as_deref().unwrap_or("").to_ascii_lowercase();

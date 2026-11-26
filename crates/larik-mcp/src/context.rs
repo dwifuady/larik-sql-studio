@@ -1,6 +1,3 @@
-//! Policy resolution, per-space concurrency limiting, secret hydration, and audit logging
-//! for `larik-mcp`.
-
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
@@ -32,7 +29,6 @@ impl StudioContext {
         }
     }
 
-    /// Returns all workspaces exposed to AI agents, failing closed if global MCP is disabled.
     pub fn exposed_spaces(&self) -> Result<Vec<McpSpaceRecord>> {
         if !self.store.is_mcp_enabled() {
             return Err(anyhow!(
@@ -49,7 +45,6 @@ impl StudioContext {
         Ok(spaces)
     }
 
-    /// Resolves one exposed workspace + its provider, auditing a `denied` entry when refused.
     pub fn require_space(
         &self,
         tool: &str,
@@ -125,8 +120,6 @@ impl StudioContext {
             .clone()
     }
 
-    /// Opens an isolated one-shot `DatabaseConnection` for `space` under the per-space concurrency cap,
-    /// hydrates secrets from the OS secret backend just-in-time, runs `op`, and closes the connection.
     pub async fn with_connection<T, F, Fut>(
         &self,
         space: &McpSpaceRecord,

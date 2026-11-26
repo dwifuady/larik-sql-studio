@@ -127,12 +127,10 @@ struct PreviewLine {
 enum PreviewBodyData {
     Null,
     Empty,
-    /// Small plain text (<= 4 KB and <= 60 lines) rendered with natural word-wrap.
     WrappedPlain {
         text: SharedString,
         meta_label: Option<SharedString>,
     },
-    /// Virtualized line list (all JSON/XML and all large text) rendered via `uniform_list`.
     VirtualizedLines {
         lines: Vec<PreviewLine>,
         longest_line_ix: usize,
@@ -184,8 +182,6 @@ impl GridPreviewState {
 }
 
 impl StudioView {
-    // ---------------------------------------------------------------- helpers
-
     pub(crate) fn active_sql_dialect(&self) -> SqlDialectKind {
         let dialect = self
             .state
@@ -273,8 +269,6 @@ impl StudioView {
                 .ensure_schema_metadata(fallback_stmt.as_deref(), &schema);
         });
     }
-
-    // ---------------------------------------------------------------- table events & selection
 
     pub(crate) fn handle_result_table_event(
         &mut self,
@@ -412,8 +406,6 @@ impl StudioView {
         }
     }
 
-    // ---------------------------------------------------------------- copy actions
-
     pub(crate) fn copy_grid_selection(&mut self, with_headers: bool, cx: &mut Context<Self>) {
         self.grid_context_menu = None;
         let Some((_, table)) = self.active_result_table() else {
@@ -489,8 +481,6 @@ impl StudioView {
             cx.notify();
         });
     }
-
-    // ---------------------------------------------------------------- edit & delete actions
 
     pub(crate) fn begin_focused_cell_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.grid_context_menu = None;
@@ -961,8 +951,6 @@ impl StudioView {
         .detach();
     }
 
-    // ---------------------------------------------------------------- preview pane & FK lookup
-
     pub(crate) fn toggle_grid_preview(&mut self, requested: PreviewMode, cx: &mut Context<Self>) {
         self.grid_context_menu = None;
         let Some((_, table)) = self.active_result_table() else {
@@ -970,7 +958,6 @@ impl StudioView {
         };
         self.ensure_table_schema_metadata(&table, cx);
 
-        // Ensure a cell is focused if the grid has data.
         let focused = table.update(cx, |t, cx| {
             if t.delegate().focused_cell().is_none()
                 && t.delegate().row_count() > 0
@@ -1102,9 +1089,6 @@ impl StudioView {
         .detach();
     }
 
-    /// Synchronize the cached formatted value + per-line syntax highlights for the active preview pane.
-    /// Fast path on every render frame (scroll, resize drag, hover, cursor blink) is an O(1) key check
-    /// with zero string clones, zero JSON/XML parsing, and zero tokenization.
     pub(crate) fn sync_preview_value_cache(
         &mut self,
         result_id: &str,
@@ -1118,7 +1102,6 @@ impl StudioView {
         let is_dark = cx.theme().mode.is_dark();
         let requested_format = pane.format;
 
-        // O(1) key check before cloning any cell data.
         let fast_probe = {
             let state = table_state.read(cx);
             let d = state.delegate();
@@ -1288,7 +1271,6 @@ impl StudioView {
             pane.tracked_row = Some(row_ix);
             pane.tracked_src_col = Some(src_col);
 
-            // Matching WinUI: moving to a non-FK column while in Reference mode falls back to Value view.
             let mut cancel = false;
             if pane.mode == PreviewMode::Reference && fk_opt.is_none() {
                 pane.mode = PreviewMode::Value;
@@ -1397,7 +1379,6 @@ impl StudioView {
                         pane.ref_state = ReferencePreviewState::Error(err.to_string());
                     }
                     Err(_) => {
-                        // Aborted by a newer selection change; ignore.
                     }
                 }
                 cx.notify();
@@ -1405,8 +1386,6 @@ impl StudioView {
         })
         .detach();
     }
-
-    // ---------------------------------------------------------------- UI: Cell Editor Bar
 
     pub(crate) fn render_cell_editor_bar(
         &self,
@@ -1575,8 +1554,6 @@ impl StudioView {
             .into_any_element()
     }
 
-    // ---------------------------------------------------------------- UI: Bottom Change Bar
-
     pub(crate) fn render_grid_change_bar(
         &self,
         edited_cells: usize,
@@ -1686,8 +1663,6 @@ impl StudioView {
             .into_any_element()
     }
 
-    // ---------------------------------------------------------------- UI: Preview Pane
-
     pub(crate) fn render_grid_preview_pane(
         &self,
         pane: &GridPreviewState,
@@ -1727,7 +1702,6 @@ impl StudioView {
             .border_color(palette.hairline_subtle)
             .bg(palette.card_bg)
             .overflow_hidden()
-            // Header
             .child(
                 v_flex()
                     .px_3()
@@ -1877,7 +1851,6 @@ impl StudioView {
                             }),
                     ),
             )
-            // Body: Value OR Reference
             .child(if is_ref_mode {
                 self.render_reference_preview_body(
                     pane,
@@ -1911,7 +1884,6 @@ impl StudioView {
             .flex_1()
             .min_h_0()
             .w_full()
-            // Format toolbar
             .child(
                 h_flex()
                     .px_3()
@@ -1964,7 +1936,6 @@ impl StudioView {
                             })),
                     ),
             )
-            // Content area (read directly from O(1) cached lines/text)
             .child(match &cache.body {
                 PreviewBodyData::Null => div()
                     .flex_1()
@@ -2153,7 +2124,6 @@ impl StudioView {
             .flex_1()
             .min_h_0()
             .w_full()
-            // Reference target banner
             .child(
                 h_flex()
                     .px_3()
@@ -2224,7 +2194,6 @@ impl StudioView {
                         },
                     ),
             )
-            // Body by ref_state
             .child(match &pane.ref_state {
                 ReferencePreviewState::Idle | ReferencePreviewState::Loading => h_flex()
                     .flex_1()
@@ -2348,7 +2317,6 @@ impl StudioView {
                     )
                     .into_any_element()
             } else if outcome.is_list {
-                // Small table (<= 200 rows): virtualized compact list with sticky column header.
                 let cols = &outcome.result.columns;
                 let max_visible_cols = cols.len().min(5);
                 let row_count = outcome.result.rows.len();
@@ -2356,7 +2324,6 @@ impl StudioView {
                     .flex_1()
                     .min_h_0()
                     .w_full()
-                    // Sticky header row
                     .child(
                         h_flex()
                             .w_full()
@@ -2377,7 +2344,6 @@ impl StudioView {
                                     .child(c.name.clone())
                             })),
                     )
-                    // Virtualized data rows
                     .child(
                         div()
                             .relative()
@@ -2482,7 +2448,6 @@ impl StudioView {
                     )
                     .into_any_element()
             } else {
-                // Large table (> 200 rows): filtered lookup rendered as stacked Record Cards (matching WinUI)
                 let cols = &outcome.result.columns;
                 v_flex()
                     .id("preview-ref-cards")
@@ -2572,8 +2537,6 @@ impl StudioView {
             })
             .into_any_element()
     }
-
-    // ---------------------------------------------------------------- UI: Right-Click Grid Context Menu
 
     pub(crate) fn render_grid_context_menu(
         &self,
@@ -2697,7 +2660,6 @@ impl StudioView {
 
         let mut items: Vec<AnyElement> = Vec::new();
 
-        // Copy group
         let copy_label = if sel_rows_count == 1 && sel_cols_count == 1 {
             "Copy cell".to_string()
         } else {
@@ -2755,7 +2717,6 @@ impl StudioView {
 
         items.push(make_divider());
 
-        // Preview group
         items.push(
             make_row(
                 "grid-ctx-preview",
@@ -2789,7 +2750,6 @@ impl StudioView {
 
         items.push(make_divider());
 
-        // Edit / Delete group
         let res_id_edit = menu.result_id.clone();
         items.push(
             make_row(
@@ -2943,8 +2903,6 @@ impl StudioView {
             .into_any_element()
     }
 
-    // ---------------------------------------------------------------- UI: Save Review Modal
-
     pub(crate) fn render_save_review_modal(
         &self,
         modal: &SaveReviewModal,
@@ -2998,7 +2956,6 @@ impl StudioView {
                     .on_mouse_down(MouseButton::Left, |_, _, cx| {
                         cx.stop_propagation();
                     })
-                    // Header
                     .child(
                         h_flex()
                             .px_5()
@@ -3063,7 +3020,6 @@ impl StudioView {
                                     })),
                             ),
                     )
-                    // Error banner (if any)
                     .when_some(modal.error.as_ref(), |el, err| {
                         el.child(
                             h_flex()
@@ -3089,7 +3045,6 @@ impl StudioView {
                                 ),
                         )
                     })
-                    // Scrollable statement list
                     .child(
                         v_flex()
                             .id("save-review-stmts")
@@ -3157,7 +3112,6 @@ impl StudioView {
                                     )
                             })),
                     )
-                    // Footer
                     .child(
                         h_flex()
                             .px_5()
@@ -3277,10 +3231,6 @@ impl PreviewSyntaxStyles {
     }
 }
 
-/// Split `text` into virtualized `PreviewLine` entries with per-line rebased syntax highlight
-/// spans. Any single line longer than `MAX_VIRTUAL_LINE_CHARS` is chunked on UTF-8 char
-/// boundaries so pathological single-line blobs never force the text shaper to lay out a huge run.
-/// Returns `(lines, longest_line_ix)`.
 fn build_preview_lines(
     text: &str,
     tokens: &[CellSyntaxToken],
@@ -3406,12 +3356,10 @@ mod preview_perf_tests {
         assert_eq!(lines[2].text.as_ref(), "<tag attr=\"v\">日本語</tag>");
         assert_eq!(longest_ix, 2);
 
-        // Multi-line comment token spans lines 0 and 1 cleanly with rebased offsets.
         assert_eq!(lines[0].highlights.len(), 1);
         assert_eq!(lines[0].highlights[0].0, 0..lines[0].text.len());
         assert_eq!(lines[1].highlights.len(), 1);
         assert_eq!(lines[1].highlights[0].0, 0..lines[1].text.len());
-        // All highlight ranges on line 2 stay strictly ordered and within valid UTF-8 boundaries.
         let mut prev_end = 0usize;
         for (range, _) in &lines[2].highlights {
             assert!(range.start >= prev_end && range.start < range.end);
@@ -3420,7 +3368,6 @@ mod preview_perf_tests {
             prev_end = range.end;
         }
 
-        // Single-line multi-byte blob larger than MAX_VIRTUAL_LINE_CHARS gets chunked cleanly.
         let blob = "é".repeat(MAX_VIRTUAL_LINE_CHARS + 50);
         let (blob_lines, _) = build_preview_lines(&blob, &[], &dummy_styles());
         assert_eq!(blob_lines.len(), 2);

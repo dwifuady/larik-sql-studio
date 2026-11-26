@@ -96,7 +96,6 @@ mod tests {
             .set_space_mcp_access(&space_id, McpAccess::Read)
             .unwrap();
 
-        // list_connections
         let (is_err, text) = call(&ctx, "list_connections", json!({})).await;
         assert!(!is_err, "unexpected error: {text}");
         let conns: Value = serde_json::from_str(&text).unwrap();
@@ -104,13 +103,11 @@ mod tests {
         assert_eq!(conns[0]["id"], space_id);
         assert_eq!(conns[0]["access"], "read");
 
-        // list_databases
         let (is_err, text) = call(&ctx, "list_databases", json!({ "connection": space_id })).await;
         assert!(!is_err, "unexpected error: {text}");
         let dbs: Value = serde_json::from_str(&text).unwrap();
         assert!(dbs.as_array().unwrap().len() >= 2);
 
-        // get_schema with table filter + include_routines
         let (is_err, text) = call(
             &ctx,
             "get_schema",
@@ -128,7 +125,6 @@ mod tests {
         assert_eq!(schema["tables"][0]["name"], "orders");
         assert!(schema["routines"].as_array().unwrap().len() >= 2);
 
-        // run_query SELECT succeeds and records in run_log + mcp_log
         let (is_err, text) = call(
             &ctx,
             "run_query",
@@ -152,7 +148,6 @@ mod tests {
         assert_eq!(runs[0].description.as_deref(), Some("Inspect top customers"));
         assert_eq!(runs[0].reference.as_deref(), Some("PROJ-42"));
 
-        // run_query DELETE is refused by Layer 1 static read-only policy
         let (is_err, msg) = call(
             &ctx,
             "run_query",
@@ -177,7 +172,6 @@ mod tests {
             .set_space_mcp_access(&space_id, McpAccess::Write)
             .unwrap();
 
-        // Missing description refused immediately
         let (is_err, msg) = call(
             &ctx,
             "run_query",
@@ -190,7 +184,6 @@ mod tests {
         assert!(is_err);
         assert!(msg.contains("description"));
 
-        // With description but closed studio -> refused & orphaned
         let (is_err, msg) = call(
             &ctx,
             "run_query",
@@ -226,7 +219,6 @@ mod tests {
             .set_space_mcp_access(&space_id, McpAccess::Write)
             .unwrap();
 
-        // Create the first pipe instance before spawning so the client never races server creation.
         let mut server = ServerOptions::new()
             .first_pipe_instance(true)
             .create(&pipe_name)
@@ -258,7 +250,6 @@ mod tests {
             }
         });
 
-        // 1. Approved write query runs and logs approval + run_log
         let (is_err, text) = call(
             &ctx,
             "run_query",
@@ -278,7 +269,6 @@ mod tests {
         assert_eq!(runs[0].status, run_status::OK);
         assert_eq!(runs[0].reference.as_deref(), Some("FIX-101"));
 
-        // 2. open_in_studio succeeds over pipe
         let (is_err, text) = call(
             &ctx,
             "open_in_studio",
@@ -294,12 +284,10 @@ mod tests {
 
         server_task.await.unwrap();
 
-        // Confirm approval audit row exists and was marked approved.
         let logs = ctx.store.get_mcp_log(10);
         assert!(logs.iter().any(|l| l.tool == "run_query" && l.status == mcp_log_status::OK));
         assert!(logs.iter().any(|l| l.tool == "open_in_studio" && l.status == mcp_log_status::OK));
 
-        // Verify sweep doesn't fail
         assert_eq!(ctx.store.sweep_mcp_approvals(), 0);
         let _ = mcp_approval_status::APPROVED;
 

@@ -5,37 +5,23 @@ use gpui_kit::component::theme::{Theme, ThemeMode};
 use gpui_kit::{App, Hsla, Window, WindowAppearance, hsla, rgb, transparent_black};
 use larik_core::ThemePreference;
 
-/// Larik semantic colors tailored for native Windows 11 Mica + WinUI 3 Fluent cards,
-/// ported from `Larik/Themes/StudioTheme.xaml`.
 #[derive(Debug, Clone, Copy)]
 pub struct StudioPalette {
-    /// Root shell fill: transparent when app theme matches OS Mica appearance so real
-    /// Windows 11 DWM Mica shines through; falls back to a calm Fluent tint if overridden.
     pub window_bg: Hsla,
-    /// Translucent card surface (`CardBackgroundFillColorDefaultBrush`) for editor & results.
     pub card_bg: Hsla,
-    /// Subtle hairline border (`CardStrokeColorDefaultBrush`) around cards & chips.
     pub card_border: Hsla,
-    /// Slightly denser translucent fill for docked inspector panels (Schema drawer).
     pub panel_bg: Hsla,
-    /// Solid elevated surface for modals, command palettes, and inline dropdown popovers.
     pub modal_bg: Hsla,
-    /// Subtle hover fill (`SubtleFillColorSecondaryBrush`) for rail buttons and rows.
     pub subtle_hover: Hsla,
-    /// Faint static badge fill (`ControlFillColorSecondaryBrush`) for `[DB]` / monogram pills.
     pub subtle_fill: Hsla,
-    /// Active tab pill surface in the sidebar.
     pub tab_active_bg: Hsla,
-    /// Active workspace monogram chip fill in the sidebar footer.
     pub chip_active_bg: Hsla,
-    /// Structural divider (`DividerStrokeColorDefaultBrush`).
     pub hairline: Hsla,
     pub hairline_subtle: Hsla,
     pub row_alt: Hsla,
     pub text_primary: Hsla,
     pub text_secondary: Hsla,
     pub text_muted: Hsla,
-    /// Windows 11 Fluent accent (`#60CDFF` in Dark / `#005FB8` in Light) used for primary Run button.
     pub accent: Hsla,
     pub accent_hover: Hsla,
     pub accent_on: Hsla,
@@ -95,14 +81,12 @@ impl StudioPalette {
                 } else {
                     hsla(0.0, 0.0, 0.125, 0.96)
                 },
-                // WinUI Dark CardBackgroundFillColorDefaultBrush (~5% white over Mica)
                 card_bg: hsla(0.0, 0.0, 1.0, 0.052),
                 card_border: hsla(0.0, 0.0, 1.0, 0.085),
                 panel_bg: hsla(0.0, 0.0, 0.08, 0.34),
                 modal_bg: rgb(0x28282B).into(),
                 subtle_hover: hsla(0.0, 0.0, 1.0, 0.065),
                 subtle_fill: hsla(0.0, 0.0, 1.0, 0.085),
-                // Cool slate-blue frosted pill matching WinUI active tab card
                 tab_active_bg: hsla(214.0 / 360.0, 0.28, 0.62, 0.16),
                 chip_active_bg: hsla(0.0, 0.0, 1.0, 0.14),
                 hairline: hsla(0.0, 0.0, 1.0, 0.085),
@@ -111,7 +95,6 @@ impl StudioPalette {
                 text_primary: rgb(0xF5F5F7).into(),
                 text_secondary: hsla(0.0, 0.0, 1.0, 0.76),
                 text_muted: hsla(0.0, 0.0, 1.0, 0.48),
-                // Windows 11 Dark Fluent SystemAccentColorLight2 (#60CDFF)
                 accent: rgb(0x60CDFF).into(),
                 accent_hover: rgb(0x7AD6FF).into(),
                 accent_on: rgb(0x091620).into(),
@@ -127,7 +110,6 @@ impl StudioPalette {
                 } else {
                     hsla(0.0, 0.0, 0.953, 0.96)
                 },
-                // WinUI Light CardBackgroundFillColorDefaultBrush (~70% white over Mica)
                 card_bg: hsla(0.0, 0.0, 1.0, 0.72),
                 card_border: hsla(0.0, 0.0, 0.0, 0.08),
                 panel_bg: hsla(0.0, 0.0, 1.0, 0.48),
@@ -142,7 +124,6 @@ impl StudioPalette {
                 text_primary: rgb(0x1A1A1A).into(),
                 text_secondary: hsla(0.0, 0.0, 0.0, 0.72),
                 text_muted: hsla(0.0, 0.0, 0.0, 0.48),
-                // Windows 11 Light Fluent SystemAccentColor (#005FB8)
                 accent: rgb(0x005FB8).into(),
                 accent_hover: rgb(0x1975C5).into(),
                 accent_on: rgb(0xFFFFFF).into(),
@@ -226,8 +207,6 @@ const LARIK_LIGHT_HIGHLIGHT_JSON: &str = r##"{
     }
 }"##;
 
-/// Build Larik's custom Tree-sitter highlight theme with transparent editor background
-/// so the surrounding WinUI translucent card lets real Windows 11 Mica shine through.
 pub fn larik_highlight_theme(mode: ThemePreference) -> Arc<HighlightTheme> {
     let json = match mode {
         ThemePreference::Dark | ThemePreference::System => LARIK_DARK_HIGHLIGHT_JSON,
@@ -239,8 +218,6 @@ pub fn larik_highlight_theme(mode: ThemePreference) -> Arc<HighlightTheme> {
     )
 }
 
-/// Apply GPUI Component's theme mode and align all semantic surfaces + base theme tokens
-/// with Windows 11 Mica + Fluent WinUI surfaces.
 pub fn apply_larik_theme(mode: ThemePreference, window: Option<&mut Window>, cx: &mut App) {
     let is_dark = StudioPalette::resolve_is_dark(mode, window.as_deref());
     let resolved = if is_dark {
@@ -258,8 +235,6 @@ pub fn apply_larik_theme(mode: ThemePreference, window: Option<&mut Window>, cx:
     let p = StudioPalette::for_mode(resolved);
     let highlight = larik_highlight_theme(resolved);
 
-    // `Theme::update` automatically re-syncs `gpui-base`'s `BaseTheme` so Editor,
-    // Input, Popover, Scrollbar, and DataTable share consistent Fluent surfaces.
     Theme::update(cx, |theme| {
         theme.colors.background = p.modal_bg;
         theme.colors.foreground = p.text_primary;
@@ -286,7 +261,6 @@ pub fn apply_larik_theme(mode: ThemePreference, window: Option<&mut Window>, cx:
         theme.colors.secondary_hover = p.subtle_hover;
         theme.colors.secondary_active = p.chip_active_bg;
 
-        // Keep popovers / autocomplete menus solid so text stays crisp over Mica.
         theme.colors.popover = p.modal_bg;
         theme.colors.popover_foreground = p.text_primary;
 
@@ -305,7 +279,6 @@ pub fn apply_larik_theme(mode: ThemePreference, window: Option<&mut Window>, cx:
         theme.colors.success = p.success;
         theme.colors.warning = p.warning;
 
-        // Transparent table body sits cleanly inside the translucent WinUI Results Card.
         theme.colors.table = transparent_black();
         theme.colors.table_head = if is_dark {
             hsla(0.0, 0.0, 1.0, 0.035)
@@ -344,7 +317,6 @@ pub fn apply_larik_theme(mode: ThemePreference, window: Option<&mut Window>, cx:
     cx.refresh_windows();
 }
 
-/// Parse a `#RRGGBB` space identity hex string into an `Hsla` color.
 pub fn parse_hex_color(hex: &str) -> Hsla {
     let trimmed = hex.trim().trim_start_matches('#');
     if let Ok(value) = u32::from_str_radix(trimmed, 16) {

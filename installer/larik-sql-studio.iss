@@ -1,7 +1,3 @@
-; Inno Setup 6 installer script for Larik SQL Studio (Windows x64)
-; Compiled in CI via:
-;   ISCC.exe /DMyAppVersion=0.11.0 /DReleaseDir=..\target\release /DOutputDir=..\dist installer\larik-sql-studio.iss
-
 #ifndef MyAppVersion
   #define MyAppVersion "0.11.0"
 #endif

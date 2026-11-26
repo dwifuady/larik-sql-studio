@@ -8,7 +8,6 @@ use mongodb::bson::{Binary, Bson, DateTime as BsonDateTime, Decimal128, Document
 use serde_json::{Map as JsonMap, Number as JsonNumber, Value as JsonValue};
 use uuid::Uuid;
 
-/// Format a BSON value for display in the Larik results grid (matching `MongoValueFormatter`).
 pub fn format_cell(value: &Bson) -> Option<String> {
     match value {
         Bson::Null | Bson::Undefined => None,
@@ -42,7 +41,6 @@ pub fn format_cell(value: &Bson) -> Option<String> {
     }
 }
 
-/// Format a BSON DateTime as `YYYY-MM-DD HH:MM:SS.fff Z` in UTC.
 pub fn format_bson_datetime(dt: BsonDateTime) -> String {
     let millis = dt.timestamp_millis();
     if let Some(chrono_dt) = DateTime::<Utc>::from_timestamp_millis(millis) {
@@ -52,7 +50,6 @@ pub fn format_bson_datetime(dt: BsonDateTime) -> String {
     }
 }
 
-/// Format a BSON Binary value, decoding UUID subtypes 4 (standard big-endian) and 3 (legacy .NET little-endian).
 pub fn format_binary(bin: &Binary) -> String {
     if bin.bytes.len() == 16 {
         match bin.subtype {
@@ -78,7 +75,6 @@ pub fn format_binary(bin: &Binary) -> String {
     hex
 }
 
-/// Convert a BSON value into human-readable JSON without Extended JSON `$oid`/`$date`/`$binary` wrappers.
 pub fn bson_to_friendly_json(value: &Bson) -> JsonValue {
     match value {
         Bson::Null | Bson::Undefined => JsonValue::Null,
@@ -112,7 +108,6 @@ pub fn bson_to_friendly_json(value: &Bson) -> JsonValue {
     }
 }
 
-/// Infer a short human-readable schema type name from a BSON value.
 pub fn bson_type_name(value: &Bson) -> &'static str {
     match value {
         Bson::String(_) | Bson::Symbol(_) => "string",
@@ -139,7 +134,6 @@ pub fn bson_type_name(value: &Bson) -> &'static str {
     }
 }
 
-/// Parse an ISO-8601 / SQL date or timestamp string into a UTC [`BsonDateTime`].
 pub fn parse_date_string(raw: &str) -> Result<BsonDateTime> {
     let trimmed = raw.trim();
     if let Ok(dt) = DateTime::parse_from_rfc3339(trimmed) {
@@ -166,7 +160,6 @@ pub fn parse_date_string(raw: &str) -> Result<BsonDateTime> {
     bail!("Invalid date/time literal '{trimmed}'.")
 }
 
-/// Parse a UUID string into standard BSON Binary subtype 4 (UUID).
 pub fn parse_uuid_bson(raw: &str) -> Result<Bson> {
     let uuid = Uuid::parse_str(raw.trim())
         .with_context(|| format!("Invalid UUID literal '{raw}'."))?;
@@ -176,15 +169,12 @@ pub fn parse_uuid_bson(raw: &str) -> Result<Bson> {
     }))
 }
 
-/// Parse a 24-hex ObjectId string into [`Bson::ObjectId`].
 pub fn parse_object_id_bson(raw: &str) -> Result<Bson> {
     let oid = ObjectId::parse_str(raw.trim())
         .with_context(|| format!("Invalid ObjectId literal '{raw}'."))?;
     Ok(Bson::ObjectId(oid))
 }
 
-/// Parse a relaxed JavaScript / mongosh expression (object, array, primitive, or BSON helper)
-/// into a [`Bson`] value.
 pub fn parse_mongosh_value(raw: &str) -> Result<Bson> {
     let mut parser = MongoshParser::new(raw);
     let value = parser.parse_value()?;
@@ -198,7 +188,6 @@ pub fn parse_mongosh_value(raw: &str) -> Result<Bson> {
     Ok(value)
 }
 
-/// Parse a relaxed JavaScript / mongosh object literal into a [`Document`].
 pub fn parse_mongosh_document(raw: &str) -> Result<Document> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -210,7 +199,6 @@ pub fn parse_mongosh_document(raw: &str) -> Result<Document> {
     }
 }
 
-/// Parse a relaxed JavaScript / mongosh array of documents (e.g. `insertMany([...])`).
 pub fn parse_mongosh_document_array(raw: &str) -> Result<Vec<Document>> {
     match parse_mongosh_value(raw.trim())? {
         Bson::Array(items) => {
@@ -320,7 +308,7 @@ impl<'a> MongoshParser<'a> {
     }
 
     fn parse_object(&mut self) -> Result<Bson> {
-        self.pos += 1; // '{'
+        self.pos += 1;
         let mut doc = Document::new();
         loop {
             self.skip_ws_and_comments()?;
@@ -359,12 +347,11 @@ impl<'a> MongoshParser<'a> {
             );
         }
 
-        // Convert common Extended JSON wrapper objects into native BSON types.
         convert_extended_json_doc(doc)
     }
 
     fn parse_array(&mut self) -> Result<Bson> {
-        self.pos += 1; // '['
+        self.pos += 1;
         let mut items = Vec::new();
         loop {
             self.skip_ws_and_comments()?;
@@ -459,7 +446,7 @@ impl<'a> MongoshParser<'a> {
     }
 
     fn parse_regex(&mut self) -> Result<Bson> {
-        self.pos += 1; // '/'
+        self.pos += 1;
         let mut pattern = String::new();
         let mut in_class = false;
         let mut closed = false;
@@ -573,7 +560,7 @@ impl<'a> MongoshParser<'a> {
         if self.peek() != Some(b'(') {
             bail!("Unexpected identifier '{word}' in MongoDB shell argument.");
         }
-        self.pos += 1; // '('
+        self.pos += 1;
         let mut args = Vec::new();
         loop {
             self.skip_ws_and_comments()?;
@@ -598,7 +585,6 @@ impl<'a> MongoshParser<'a> {
     }
 }
 
-/// Evaluate BSON shell helper constructors (shared by both the T-SQL compiler and mongosh parser).
 pub fn eval_bson_constructor(name: &str, args: &[Bson]) -> Result<Bson> {
     if name.eq_ignore_ascii_case("ObjectId") {
         match args {
@@ -766,7 +752,6 @@ mod tests {
         );
 
         let uuid = Uuid::parse_str("00112233-4455-6677-8899-aabbccddeeff").unwrap();
-        // Subtype 4 (standard big-endian)
         let b4 = Bson::Binary(Binary {
             subtype: BinarySubtype::Uuid,
             bytes: uuid.as_bytes().to_vec(),
@@ -775,7 +760,6 @@ mod tests {
             format_cell(&b4).as_deref(),
             Some("00112233-4455-6677-8899-aabbccddeeff")
         );
-        // Subtype 3 (legacy .NET little-endian)
         let b3 = Bson::Binary(Binary {
             subtype: BinarySubtype::UuidOld,
             bytes: uuid.to_bytes_le().to_vec(),
@@ -785,7 +769,6 @@ mod tests {
             Some("00112233-4455-6677-8899-aabbccddeeff")
         );
 
-        // Nested document formats without Extended JSON wrappers
         let nested = Bson::Document(doc! { "_id": oid, "ok": true });
         assert_eq!(
             format_cell(&nested).as_deref(),
