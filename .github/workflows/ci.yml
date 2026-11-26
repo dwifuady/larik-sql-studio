@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-and-test:
+    name: Build & Test (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check workspace
+        run: cargo check --workspace --all-targets --locked
+
+      - name: Run tests
+        run: cargo test --workspace --locked
+
+      - name: Build workspace binaries
+        run: cargo build --workspace --locked
+
+      - name: Verify built executables
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "target\debug\larik-sql-studio.exe")) {
+            throw "Expected target\debug\larik-sql-studio.exe was not produced"
+          }
+          if (-not (Test-Path "target\debug\larik-mcp.exe")) {
+            throw "Expected target\debug\larik-mcp.exe was not produced"
+          }
+          $vi = (Get-Item "target\debug\larik-sql-studio.exe").VersionInfo
+          Write-Host "ProductName: $($vi.ProductName), FileVersion: $($vi.FileVersion)"

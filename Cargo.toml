@@ -33,3 +33,7 @@ larik-data = { path = "crates/larik-data" }
 larik-provider-demo = { path = "crates/larik-provider-demo" }
 larik-provider-mssql = { path = "crates/larik-provider-mssql" }
 larik-core = { path = "crates/larik-core" }
+
+[profile.release]
+lto = "thin"
+strip = "symbols"

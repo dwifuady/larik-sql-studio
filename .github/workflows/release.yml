@@ -1,0 +1,124 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    name: Build & Publish (Windows x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate tag matches Cargo.toml version
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $tagVersion = $tag.TrimStart('v')
+
+          $inWorkspacePkg = $false
+          $cargoVersion = $null
+          foreach ($line in Get-Content "Cargo.toml") {
+            $trimmed = $line.Trim()
+            if ($trimmed -match '^\[(.+)\]$') {
+              $inWorkspacePkg = ($Matches[1] -eq 'workspace.package')
+              continue
+            }
+            if ($inWorkspacePkg -and $trimmed -match '^version\s*=\s*"([^"]+)"') {
+              $cargoVersion = $Matches[1]
+              break
+            }
+          }
+
+          if (-not $cargoVersion) {
+            throw "Could not find [workspace.package] version in Cargo.toml"
+          }
+          if ($tagVersion -ne $cargoVersion) {
+            throw "Git tag '$tag' (version '$tagVersion') does not match Cargo.toml version '$cargoVersion'."
+          }
+
+          $isPrerelease = if ($tagVersion -match '-') { "true" } else { "false" }
+          "version=$cargoVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "prerelease=$isPrerelease" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Validated release version: $cargoVersion (prerelease=$isPrerelease)"
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run workspace tests
+        run: cargo test --workspace --locked
+
+      - name: Build release binaries
+        run: cargo build --workspace --release --locked
+
+      - name: Package Windows installer and portable bundles
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $releaseDir = "target\release"
+          $distDir = "dist"
+
+          foreach ($exe in @("larik-sql-studio.exe", "larik-mcp.exe")) {
+            if (-not (Test-Path (Join-Path $releaseDir $exe))) {
+              throw "Missing release binary: $releaseDir\$exe"
+            }
+          }
+
+          New-Item -ItemType Directory -Force -Path $distDir | Out-Null
+
+          # 1. Portable ZIP (includes both larik-sql-studio.exe and larik-mcp.exe side-by-side)
+          $stagingDir = Join-Path $distDir "staging"
+          New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
+          Copy-Item (Join-Path $releaseDir "larik-sql-studio.exe") $stagingDir
+          Copy-Item (Join-Path $releaseDir "larik-mcp.exe") $stagingDir
+          Copy-Item "LICENSE" $stagingDir
+
+          $zipPath = Join-Path $distDir "Larik-SQL-Studio-v$version-windows-x64-portable.zip"
+          Compress-Archive -Path "$stagingDir\*" -DestinationPath $zipPath -Force
+          Remove-Item -Recurse -Force $stagingDir
+
+          # 2. Standalone portable EXE (continuity with legacy release asset name)
+          Copy-Item (Join-Path $releaseDir "larik-sql-studio.exe") (Join-Path $distDir "Larik-SQL-Studio-portable.exe")
+
+          # 3. Inno Setup Windows Installer (installs both larik-sql-studio.exe and larik-mcp.exe)
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc -and (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe")) {
+            $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          }
+          if (-not $iscc) {
+            choco install innosetup -y --no-progress
+            $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          }
+          & $iscc "/DMyAppVersion=$version" "/DReleaseDir=..\target\release" "/DOutputDir=..\dist" "installer\larik-sql-studio.iss"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup compiler failed with exit code $LASTEXITCODE"
+          }
+
+          # 4. SHA256 checksums
+          $checksumLines = Get-ChildItem $distDir -File | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          }
+          $checksumLines | Out-File -FilePath (Join-Path $distDir "SHA256SUMS.txt") -Encoding ascii
+
+          Get-ChildItem $distDir -File | Format-Table Name, Length -AutoSize
+
+      - name: Upload assets to draft GitHub Release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Larik SQL Studio ${{ github.ref_name }}
+          draft: true
+          prerelease: ${{ steps.version.outputs.prerelease }}
+          generate_release_notes: true
+          files: dist/*

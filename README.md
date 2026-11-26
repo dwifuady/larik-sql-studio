@@ -98,6 +98,21 @@ On first launch, Larik SQL Studio automatically detects an existing Tauri-era La
 2. **Full data migration**: Migrates workspaces/connections, saved passwords (decoding legacy `keyring` UTF-16LE Windows credentials and SQLite fallback passwords into the new credential namespace), tab folders, open query tabs, archived tabs, custom snippets and built-in toggle states, sticky notes (anchored to their SQL lines), app preferences, and MCP activity/approval logs.
 3. **Safe & idempotent**: A `tauri_migration_v1` marker is recorded in `studio_meta` so migration runs only once and never overwrites an already-initialized GPUI studio database.
 
+## Releasing
+
+Workspace version is managed in a single place: `[workspace.package].version` in `Cargo.toml` (inherited by all crates, embedded in Windows `VERSIONINFO`, and validated by the release workflow).
+
+To publish a new release after merging to `main`:
+
+```powershell
+# 1. Ensure Cargo.toml [workspace.package].version matches the release (e.g. 0.11.0)
+# 2. Tag and push
+git tag v0.11.0
+git push origin v0.11.0
+```
+
+Pushing a `v*` tag triggers `.github/workflows/release.yml` on `windows-latest`, which runs tests, builds release binaries, packages an Inno Setup Windows installer, portable ZIP (`larik-sql-studio.exe` + `larik-mcp.exe`), standalone portable `.exe`, and `SHA256SUMS.txt`, and uploads them to a **draft GitHub Release** for review.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

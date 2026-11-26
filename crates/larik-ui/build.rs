@@ -5,6 +5,7 @@ use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=assets/AppIcon.ico");
+    println!("cargo:rerun-if-env-changed=CARGO_PKG_VERSION");
 
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
@@ -32,23 +33,68 @@ fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let ico_path = manifest_dir.join("assets").join("AppIcon.ico");
-    if !ico_path.exists() {
-        return;
+
+    let version = env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.0.0".to_string());
+    let major: u16 = env::var("CARGO_PKG_VERSION_MAJOR")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    let minor: u16 = env::var("CARGO_PKG_VERSION_MINOR")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    let patch: u16 = env::var("CARGO_PKG_VERSION_PATCH")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+
+    let rc_file = out_dir.join("larik_resources.rc");
+    let res_file = out_dir.join("larik_resources.res");
+
+    let mut rc_contents = String::new();
+    if ico_path.exists() {
+        // Resource ID 1 matches gpui-pre-windows `LoadImageW(..., PCWSTR(1), IMAGE_ICON, ...)`
+        // and is also the primary icon Windows Explorer uses for the executable.
+        let escaped_ico = ico_path.to_string_lossy().replace('\\', "\\\\");
+        rc_contents.push_str(&format!("1 ICON \"{escaped_ico}\"\n\n"));
     }
 
-    let rc_file = out_dir.join("larik_icon.rc");
-    let res_file = out_dir.join("larik_icon.res");
+    rc_contents.push_str(&format!(
+        "1 VERSIONINFO\n\
+         FILEVERSION {major},{minor},{patch},0\n\
+         PRODUCTVERSION {major},{minor},{patch},0\n\
+         FILEFLAGSMASK 0x3fL\n\
+         FILEFLAGS 0x0L\n\
+         FILEOS 0x40004L\n\
+         FILETYPE 0x1L\n\
+         FILESUBTYPE 0x0L\n\
+         BEGIN\n\
+             BLOCK \"StringFileInfo\"\n\
+             BEGIN\n\
+                 BLOCK \"040904B0\"\n\
+                 BEGIN\n\
+                     VALUE \"FileDescription\", \"Larik SQL Studio\"\n\
+                     VALUE \"FileVersion\", \"{version}\"\n\
+                     VALUE \"InternalName\", \"larik-sql-studio\"\n\
+                     VALUE \"LegalCopyright\", \"MIT License\"\n\
+                     VALUE \"OriginalFilename\", \"larik-sql-studio.exe\"\n\
+                     VALUE \"ProductName\", \"Larik SQL Studio\"\n\
+                     VALUE \"ProductVersion\", \"{version}\"\n\
+                 END\n\
+             END\n\
+             BLOCK \"VarFileInfo\"\n\
+             BEGIN\n\
+                 VALUE \"Translation\", 0x0409, 1200\n\
+             END\n\
+         END\n"
+    ));
 
-    // Resource ID 1 matches gpui-pre-windows `LoadImageW(..., PCWSTR(1), IMAGE_ICON, ...)`
-    // and is also the primary icon Windows Explorer uses for the executable.
-    let escaped_ico = ico_path.to_string_lossy().replace('\\', "\\\\");
-    let rc_contents = format!("1 ICON \"{escaped_ico}\"\n");
     if fs::write(&rc_file, rc_contents).is_err() {
         return;
     }
 
     let Some(rc_exe) = find_rc_exe() else {
-        println!("cargo:warning=Could not locate rc.exe; skipping Windows icon embedding.");
+        println!("cargo:warning=Could not locate rc.exe; skipping Windows resource embedding.");
         return;
     };
 
@@ -67,7 +113,7 @@ fn main() {
             );
         }
         other => {
-            println!("cargo:warning=rc.exe failed to compile icon resource: {other:?}");
+            println!("cargo:warning=rc.exe failed to compile Windows resources: {other:?}");
         }
     }
 }

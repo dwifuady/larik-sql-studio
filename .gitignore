@@ -1,5 +1,6 @@
-# Rust build artifacts
+# Rust build & release artifacts
 /target
+/dist
 **/*.rs.bk
 *.pdb
 
