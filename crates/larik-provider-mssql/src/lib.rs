@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, anyhow};
 use async_trait::async_trait;
+use chrono::{DateTime as ChronoDateTime, Duration as ChronoDuration, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use futures_util::TryStreamExt;
 use larik_data::read_only_sql::{ReadOnlyStatementPolicy, TSqlReadOnlyPolicy};
 use larik_data::sql_language::SqlLanguage;
@@ -15,7 +16,9 @@ use larik_data::{
     QueryColumn, QueryExecutionOptions, QueryResult, RoutineKind, RoutineParameter, RoutineSchema,
     TableKind, TableSchema,
 };
-use tiberius::{AuthMethod, Client, ColumnData, Config, EncryptionLevel, QueryItem, SqlBrowser};
+use tiberius::{
+    AuthMethod, Client, ColumnData, Config, EncryptionLevel, FromSql, QueryItem, SqlBrowser,
+};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
@@ -753,7 +756,7 @@ async fn execute_single_batch(
     Ok(results)
 }
 
-fn format_column_data(data: ColumnData<'_>) -> Option<String> {
+fn format_column_data(data: ColumnData<'static>) -> Option<String> {
     match data {
         ColumnData::U8(v) => v.map(|x| x.to_string()),
         ColumnData::I16(v) => v.map(|x| x.to_string()),
@@ -778,13 +781,62 @@ fn format_column_data(data: ColumnData<'_>) -> Option<String> {
         }),
         ColumnData::Numeric(v) => v.map(|n| n.to_string()),
         ColumnData::Xml(v) => v.map(|x| x.into_owned().into_string()),
-        ColumnData::DateTime(v) => v.map(|dt| format!("{dt:?}")),
-        ColumnData::SmallDateTime(v) => v.map(|dt| format!("{dt:?}")),
-        ColumnData::DateTime2(v) => v.map(|dt| format!("{dt:?}")),
-        ColumnData::Date(v) => v.map(|d| format!("{d:?}")),
-        ColumnData::Time(v) => v.map(|t| format!("{t:?}")),
-        ColumnData::DateTimeOffset(v) => v.map(|dto| format!("{dto:?}")),
+        ColumnData::DateTime(v) => v.map(format_tds_datetime),
+        ColumnData::SmallDateTime(v) => v.map(|raw| {
+            NaiveDateTime::from_sql(&ColumnData::SmallDateTime(Some(raw)))
+                .ok()
+                .flatten()
+                .map(|dt| dt.to_string())
+                .unwrap_or_else(|| format!("{raw:?}"))
+        }),
+        ColumnData::DateTime2(v) => v.map(|raw| {
+            NaiveDateTime::from_sql(&ColumnData::DateTime2(Some(raw)))
+                .ok()
+                .flatten()
+                .map(|dt| dt.to_string())
+                .unwrap_or_else(|| format!("{raw:?}"))
+        }),
+        ColumnData::Date(v) => v.map(|raw| {
+            NaiveDate::from_sql(&ColumnData::Date(Some(raw)))
+                .ok()
+                .flatten()
+                .map(|d| d.to_string())
+                .unwrap_or_else(|| format!("{raw:?}"))
+        }),
+        ColumnData::Time(v) => v.map(|raw| {
+            NaiveTime::from_sql(&ColumnData::Time(Some(raw)))
+                .ok()
+                .flatten()
+                .map(|t| t.to_string())
+                .unwrap_or_else(|| format!("{raw:?}"))
+        }),
+        ColumnData::DateTimeOffset(v) => v.map(|raw| {
+            ChronoDateTime::<FixedOffset>::from_sql(&ColumnData::DateTimeOffset(Some(raw)))
+                .ok()
+                .flatten()
+                .map(|dto| dto.to_string())
+                .unwrap_or_else(|| format!("{raw:?}"))
+        }),
     }
+}
+
+/// Converts a TDS `datetime` (days since 1900-01-01 + 1/300th-second fragments since midnight)
+/// to an ISO-style timestamp string with SQL Server's standard millisecond rounding (`.000`, `.003`, `.007`).
+fn format_tds_datetime(dt: tiberius::time::DateTime) -> String {
+    let base = NaiveDate::from_ymd_opt(1900, 1, 1).expect("1900-01-01 is a valid date");
+    let total_fragments = dt.seconds_fragments();
+    let secs = total_fragments / 300;
+    let rem = total_fragments % 300;
+    let millis = (rem * 1_000 + 150) / 300;
+
+    if let (Some(date), Some(time)) = (
+        base.checked_add_signed(ChronoDuration::days(i64::from(dt.days()))),
+        NaiveTime::from_num_seconds_from_midnight_opt(secs, millis * 1_000_000),
+    ) {
+        return NaiveDateTime::new(date, time).to_string();
+    }
+
+    format!("{dt:?}")
 }
 
 async fn connect_tiberius(
@@ -1026,5 +1078,91 @@ mod tests {
             .transport_warning(&remote_plain)
             .expect("expected warning for remote unencrypted connection");
         assert!(warning.contains("not encrypted"));
+    }
+
+    #[test]
+    fn formats_all_sql_server_temporal_column_types() {
+        use chrono::{DateTime as ChronoDateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
+        use tiberius::{ColumnData, IntoSql, time as tds_time};
+
+        use super::format_column_data;
+
+        // Legacy `datetime`: exact value from user report (45416 days after 1900-01-01 = 2024-05-06,
+        // 15118596 / 300 = 50395.32s = 13:59:55.320).
+        let dt = tds_time::DateTime::new(45416, 15118596);
+        assert_eq!(
+            format_column_data(ColumnData::DateTime(Some(dt))).as_deref(),
+            Some("2024-05-06 13:59:55.320")
+        );
+
+        // SQL Server `datetime` 1/300s rounding (.000, .003, .007) and pre-1900 negative days.
+        assert_eq!(
+            format_column_data(ColumnData::DateTime(Some(tds_time::DateTime::new(0, 0)))).as_deref(),
+            Some("1900-01-01 00:00:00")
+        );
+        assert_eq!(
+            format_column_data(ColumnData::DateTime(Some(tds_time::DateTime::new(0, 1)))).as_deref(),
+            Some("1900-01-01 00:00:00.003")
+        );
+        assert_eq!(
+            format_column_data(ColumnData::DateTime(Some(tds_time::DateTime::new(0, 2)))).as_deref(),
+            Some("1900-01-01 00:00:00.007")
+        );
+        assert_eq!(
+            format_column_data(ColumnData::DateTime(Some(tds_time::DateTime::new(-1, 0)))).as_deref(),
+            Some("1899-12-31 00:00:00")
+        );
+
+        // `smalldatetime`
+        let sdt = tds_time::SmallDateTime::new(45416, 14 * 60 + 30);
+        assert_eq!(
+            format_column_data(ColumnData::SmallDateTime(Some(sdt))).as_deref(),
+            Some("2024-05-06 14:30:00")
+        );
+
+        // `datetime2`
+        let dt2 = NaiveDateTime::new(
+            NaiveDate::from_ymd_opt(2024, 5, 6).unwrap(),
+            NaiveTime::from_hms_micro_opt(13, 59, 55, 123_456).unwrap(),
+        );
+        assert_eq!(
+            format_column_data(dt2.into_sql()).as_deref(),
+            Some("2024-05-06 13:59:55.123456")
+        );
+
+        // `date`
+        let d = NaiveDate::from_ymd_opt(2024, 5, 6).unwrap();
+        assert_eq!(
+            format_column_data(d.into_sql()).as_deref(),
+            Some("2024-05-06")
+        );
+
+        // `time`
+        let t = NaiveTime::from_hms_milli_opt(13, 59, 55, 320).unwrap();
+        assert_eq!(
+            format_column_data(t.into_sql()).as_deref(),
+            Some("13:59:55.320")
+        );
+
+        // `datetimeoffset` (preserves server offset in local display)
+        let offset = FixedOffset::east_opt(7 * 3600).unwrap();
+        let dto: ChronoDateTime<FixedOffset> = ChronoDateTime::from_naive_utc_and_offset(
+            NaiveDateTime::new(
+                NaiveDate::from_ymd_opt(2024, 5, 6).unwrap(),
+                NaiveTime::from_hms_milli_opt(6, 59, 55, 320).unwrap(),
+            ),
+            offset,
+        );
+        assert_eq!(
+            format_column_data(dto.into_sql()).as_deref(),
+            Some("2024-05-06 13:59:55.320 +07:00")
+        );
+
+        // NULL values stay None
+        assert_eq!(format_column_data(ColumnData::DateTime(None)), None);
+        assert_eq!(format_column_data(ColumnData::DateTime2(None)), None);
+        assert_eq!(format_column_data(ColumnData::Date(None)), None);
+        assert_eq!(format_column_data(ColumnData::Time(None)), None);
+        assert_eq!(format_column_data(ColumnData::DateTimeOffset(None)), None);
     }
 }
