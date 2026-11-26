@@ -16,10 +16,12 @@ Render each frame at its own size — downscaling one large bitmap makes the
 $svg = 'crates/larik-ui/assets/AppIcon.svg'
 $dir = 'crates/larik-ui/assets'
 
-magick -background none $svg -depth 8 -resize 88x88 PNG32:"$dir/app_icon.png"
+magick -background none $svg -depth 8 -resize 88x88 `
+       -define png:exclude-chunks=date,time PNG32:"$dir/app_icon.png"
 
 foreach ($s in 16,24,32,48,256) {
-  magick -background none $svg -depth 8 -resize "${s}x${s}" PNG32:"$dir/_frame-$s.png"
+  magick -background none $svg -depth 8 -resize "${s}x${s}" `
+         -define png:exclude-chunks=date,time PNG32:"$dir/_frame-$s.png"
 }
 # pack PNG frames into a 32-bit ICO; ImageMagick's own ICO writer emits one
 # oversized frame that Explorer scales badly at 16 px
@@ -27,8 +29,13 @@ python "$dir/pack_ico.py"
 Remove-Item "$dir/_frame-*.png"
 ```
 
-`-depth 8` matters: ImageMagick defaults to 16-bit PNGs, which some shell
-surfaces render with a colour shift.
+Two flags matter:
+
+- `-depth 8` — ImageMagick defaults to 16-bit PNGs, which some shell surfaces
+  render with a colour shift.
+- `-define png:exclude-chunks=date,time` — without it every run rewrites the
+  `tIME`/`date:*` chunks, so identical art produces a dirty working tree and
+  an unreviewable binary diff.
 
 ## Palette
 
